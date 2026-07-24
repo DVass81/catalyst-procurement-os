@@ -21,7 +21,7 @@
   --border: #e4e7ec;
   --border-strong: #d0d5dd;
   --input: #d0d5dd;
-  --ring: #6366f1;
+  --ring: #0077d4;
 
   --muted: #f2f4f7;
   --muted-foreground: #667085;
@@ -31,16 +31,16 @@
   --popover: #ffffff;
   --popover-foreground: #101828;
 
-  --brand-primary: #4f46e5;
-  --brand-primary-hover: #4338ca;
-  --brand-primary-active: #3730a3;
+  --brand-primary: var(--org-primary, #003c79);
+  --brand-primary-hover: #002f60;
+  --brand-primary-active: #001f40;
   --brand-primary-foreground: #ffffff;
-  --brand-secondary: #0f766e;
+  --brand-secondary: var(--org-secondary, #0077d4);
   --brand-secondary-foreground: #ffffff;
-  --brand-accent: #7c3aed;
-  --brand-accent-foreground: #ffffff;
-  --brand-soft: #eef2ff;
-  --brand-soft-foreground: #3730a3;
+  --brand-accent: var(--org-accent, #f37120);
+  --brand-accent-foreground: #111827;
+  --brand-soft: #e8f5ff;
+  --brand-soft-foreground: #003c79;
 
   --success: #15803d;
   --success-soft: #ecfdf3;
@@ -51,11 +51,11 @@
   --info: #175cd3;
   --info-soft: #eff8ff;
 
-  --chart-1: #4f46e5;
-  --chart-2: #0f766e;
-  --chart-3: #7c3aed;
-  --chart-4: #d97706;
-  --chart-5: #0284c7;
+  --chart-1: #003c79;
+  --chart-2: #0077d4;
+  --chart-3: #f37120;
+  --chart-4: #ffc726;
+  --chart-5: #98ccc9;
 
   --elevation-xs: 0 1px 2px rgb(16 24 40 / 5%);
   --elevation-sm:
@@ -69,7 +69,7 @@
   --shadow-card: var(--elevation-xs);
   --shadow-elevated: var(--elevation-lg);
   --chart-grid: #e9ecf2;
-  --shadow-focus: 0 0 0 3px rgb(99 102 241 / 18%);
+  --shadow-focus: 0 0 0 3px rgb(0 119 212 / 22%);
 
   --radius: 0.75rem;
 
@@ -97,7 +97,7 @@
   --border: #252a35;
   --border-strong: #343a49;
   --input: #343a49;
-  --ring: #818cf8;
+  --ring: #66b9ff;
 
   --muted: #1d212b;
   --muted-foreground: #98a2b3;
@@ -107,16 +107,16 @@
   --popover: #191d26;
   --popover-foreground: #f2f4f7;
 
-  --brand-primary: #818cf8;
-  --brand-primary-hover: #a5b4fc;
-  --brand-primary-active: #6366f1;
+  --brand-primary: #66b9ff;
+  --brand-primary-hover: #8acaff;
+  --brand-primary-active: #0077d4;
   --brand-primary-foreground: #11131a;
-  --brand-secondary: #5eead4;
-  --brand-secondary-foreground: #0b1212;
-  --brand-accent: #c4b5fd;
-  --brand-accent-foreground: #17111f;
-  --brand-soft: #242445;
-  --brand-soft-foreground: #c7d2fe;
+  --brand-secondary: #98ccc9;
+  --brand-secondary-foreground: #001f40;
+  --brand-accent: #ff9d62;
+  --brand-accent-foreground: #22140b;
+  --brand-soft: #0b2f53;
+  --brand-soft-foreground: #c7e8ff;
 
   --success: #6ce9a6;
   --success-soft: #11362a;
@@ -134,7 +134,7 @@
   --shadow-card: var(--elevation-xs);
   --shadow-elevated: var(--elevation-lg);
   --chart-grid: #252a35;
-  --shadow-focus: 0 0 0 3px rgb(129 140 248 / 22%);
+  --shadow-focus: 0 0 0 3px rgb(102 185 255 / 24%);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -151,7 +151,7 @@
     --border: #252a35;
     --border-strong: #343a49;
     --input: #343a49;
-    --ring: #818cf8;
+    --ring: #66b9ff;
     --muted: #1d212b;
     --muted-foreground: #98a2b3;
     --subtle-foreground: #a4adbd;
@@ -159,16 +159,16 @@
     --card-foreground: #f2f4f7;
     --popover: #191d26;
     --popover-foreground: #f2f4f7;
-    --brand-primary: #818cf8;
-    --brand-primary-hover: #a5b4fc;
-    --brand-primary-active: #6366f1;
+    --brand-primary: #66b9ff;
+    --brand-primary-hover: #8acaff;
+    --brand-primary-active: #0077d4;
     --brand-primary-foreground: #11131a;
-    --brand-secondary: #5eead4;
-    --brand-secondary-foreground: #0b1212;
-    --brand-accent: #c4b5fd;
-    --brand-accent-foreground: #17111f;
-    --brand-soft: #242445;
-    --brand-soft-foreground: #c7d2fe;
+    --brand-secondary: #98ccc9;
+    --brand-secondary-foreground: #001f40;
+    --brand-accent: #ff9d62;
+    --brand-accent-foreground: #22140b;
+    --brand-soft: #0b2f53;
+    --brand-soft-foreground: #c7e8ff;
     --success: #6ce9a6;
     --success-soft: #11362a;
     --warning: #fec84b;
@@ -184,7 +184,7 @@
     --shadow-card: var(--elevation-xs);
     --shadow-elevated: var(--elevation-lg);
     --chart-grid: #252a35;
-    --shadow-focus: 0 0 0 3px rgb(129 140 248 / 22%);
+    --shadow-focus: 0 0 0 3px rgb(102 185 255 / 24%);
   }
 }
 
@@ -264,8 +264,8 @@
     overflow-x: clip;
     background-color: var(--background);
     background-image:
-      linear-gradient(rgb(79 70 229 / 0.018) 1px, transparent 1px),
-      linear-gradient(90deg, rgb(79 70 229 / 0.018) 1px, transparent 1px);
+      linear-gradient(rgb(0 60 121 / 0.018) 1px, transparent 1px),
+      linear-gradient(90deg, rgb(0 60 121 / 0.018) 1px, transparent 1px);
     background-size: 32px 32px;
     color: var(--foreground);
     font-family: "Aptos", "Segoe UI Variable", "Segoe UI", sans-serif;

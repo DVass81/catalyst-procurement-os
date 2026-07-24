@@ -11,24 +11,22 @@ export const metadata: Metadata = {
   },
   description:
     "A premium AI procurement operating system demonstration by Catalyst Innovations.",
+  icons: {
+    icon: "/brand/y12/favicon.png",
+  },
+  robots: {
+    index: false,
+    follow: false,
+  },
   openGraph: {
     title: "Catalyst Procurement OS",
     description: "Intelligence for every purchasing decision",
     type: "website",
-    images: [
-      {
-        url: "/og.png",
-        width: 1736,
-        height: 908,
-        alt: "Catalyst Procurement OS social preview",
-      },
-    ],
   },
   twitter: {
     card: "summary_large_image",
     title: "Catalyst Procurement OS",
     description: "Intelligence for every purchasing decision",
-    images: ["/og.png"],
   },
 };
 

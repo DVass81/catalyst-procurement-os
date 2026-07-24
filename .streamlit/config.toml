@@ -1,0 +1,16 @@
+[theme]
+primaryColor = "#003C79"
+backgroundColor = "#F6F8FB"
+secondaryBackgroundColor = "#EAF3FA"
+textColor = "#111827"
+font = "sans-serif"
+baseRadius = "large"
+buttonRadius = "large"
+
+[server]
+headless = true
+runOnSave = true
+
+[client]
+showSidebarNavigation = false
+toolbarMode = "minimal"

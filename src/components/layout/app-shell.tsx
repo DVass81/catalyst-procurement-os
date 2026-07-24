@@ -24,6 +24,7 @@ import {
   X,
 } from "lucide-react";
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import {
   type CSSProperties,
@@ -362,11 +363,14 @@ function OrganizationMenu() {
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
         <button className="hidden h-10 items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-left shadow-sm transition-colors hover:bg-[var(--surface-muted)] sm:flex">
-          <span
-            className="flex size-6 items-center justify-center rounded-lg text-[9px] font-black text-white"
-            style={{ backgroundColor: organization.primaryColor }}
-          >
-            {organization.logoText}
+          <span className="flex h-7 w-14 items-center justify-center rounded-lg bg-[#003C79] px-1">
+            <Image
+              src={organization.logoPath}
+              alt="Y-12 Credit Union"
+              width={56}
+              height={28}
+              className="h-auto w-full"
+            />
           </span>
           <span className="max-w-36 truncate text-xs font-bold text-[var(--foreground)]">
             {organization.name}
@@ -384,11 +388,14 @@ function OrganizationMenu() {
             Organizations
           </p>
           <DropdownMenu.Item className="flex cursor-pointer items-center gap-3 rounded-xl bg-[var(--brand-soft)] p-3 outline-none">
-            <span
-              className="flex size-8 items-center justify-center rounded-lg text-[10px] font-black text-white"
-              style={{ backgroundColor: organization.primaryColor }}
-            >
-              {organization.logoText}
+            <span className="flex h-9 w-16 items-center justify-center rounded-lg bg-[#003C79] px-1.5">
+              <Image
+                src={organization.logoPath}
+                alt="Y-12 Credit Union"
+                width={60}
+                height={30}
+                className="h-auto w-full"
+              />
             </span>
             <span className="min-w-0 flex-1">
               <span className="block truncate text-xs font-bold text-[var(--foreground)]">
@@ -608,10 +615,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       className="min-h-screen bg-[var(--background)]"
       style={
         {
-          "--brand-primary": organization.primaryColor,
-          "--brand-secondary": organization.secondaryColor,
-          "--brand-accent": organization.accentColor,
-          "--brand-primary-foreground": "#ffffff",
+          "--org-primary": organization.primaryColor,
+          "--org-secondary": organization.secondaryColor,
+          "--org-accent": organization.accentColor,
         } as CSSProperties
       }
     >

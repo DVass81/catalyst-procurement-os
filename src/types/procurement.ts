@@ -24,6 +24,9 @@ export interface OrganizationBrand {
   name: string;
   shortName: string;
   logoText: string;
+  logoPath: string;
+  environmentLabel: string;
+  fictionalDataNotice: string;
   primaryColor: string;
   secondaryColor: string;
   accentColor: string;
@@ -200,4 +203,3 @@ export interface SuggestedPrompt {
   prompt: string;
   category: "spend" | "risk" | "contracts" | "operations";
 }
-

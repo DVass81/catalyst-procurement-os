@@ -1,9 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
-import { AiWorkspace } from "@/components/ai/ai-workspace";
-import { ExecutiveDashboard } from "@/components/dashboard/executive-dashboard";
-import { ModulePage } from "@/components/modules/module-page";
+import { PhaseTwoPage } from "@/components/demo/phase-two-page";
 import { titleCase } from "@/lib/utils";
 
 const sections = [
@@ -50,7 +48,5 @@ export default async function SectionPage({
   const { section } = await params;
   if (!sections.includes(section as Section)) notFound();
 
-  if (section === "dashboard") return <ExecutiveDashboard />;
-  if (section === "ai-procurement") return <AiWorkspace />;
-  return <ModulePage section={section} />;
+  return <PhaseTwoPage section={section} />;
 }

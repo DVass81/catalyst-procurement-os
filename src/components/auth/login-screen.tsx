@@ -13,6 +13,7 @@ import {
   Sparkles,
   TrendingUp,
 } from "lucide-react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
@@ -133,17 +134,20 @@ export function LoginScreen() {
 
           <div className="mb-8">
             <div className="mb-5 inline-flex items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 shadow-sm">
-              <span
-                className="flex size-7 items-center justify-center rounded-lg text-[9px] font-black text-white"
-                style={{ backgroundColor: organization.primaryColor }}
-              >
-                {organization.logoText}
+              <span className="flex h-8 w-16 items-center justify-center rounded-lg bg-[#003C79] px-1.5">
+                <Image
+                  src={organization.logoPath}
+                  alt="Y-12 Credit Union"
+                  width={60}
+                  height={30}
+                  className="h-auto w-full"
+                />
               </span>
               <span className="text-xs font-bold text-[var(--foreground)]">
                 {organization.name}
               </span>
               <Badge className="ml-1" tone="info">
-                Fictional
+                Demo
               </Badge>
             </div>
             <h2 className="text-2xl font-bold tracking-[-0.035em] text-[var(--foreground)] sm:text-3xl">

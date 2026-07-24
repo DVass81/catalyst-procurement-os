@@ -8,7 +8,9 @@
     "start": "serve out",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "check": "npm run lint && npm run typecheck && npm run build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check": "npm run lint && npm run typecheck && npm run test && npm run build",
     "build:sites": "npm run build && node scripts/prepare-sites.mjs"
   },
   "dependencies": {
@@ -39,7 +41,8 @@
     "eslint-config-next": "16.2.11",
     "serve": "^14.2.6",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.10"
   },
   "overrides": {
     "postcss": "8.5.18",

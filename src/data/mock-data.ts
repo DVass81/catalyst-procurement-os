@@ -18,16 +18,20 @@ import type {
   SuggestedPrompt,
   Vendor,
 } from "@/types/procurement";
+import { y12DemoTheme } from "@/config/organizations/y12-demo";
 
 export const organization: OrganizationBrand = {
-  id: "org-y12",
-  name: "Y-12 Credit Union",
-  shortName: "Y-12",
+  id: y12DemoTheme.organizationId,
+  name: y12DemoTheme.organizationName,
+  shortName: y12DemoTheme.organizationShortName,
   logoText: "Y12",
-  primaryColor: "#4F46E5",
-  secondaryColor: "#0F766E",
-  accentColor: "#7C3AED",
-  fiscalYear: "FY2026",
+  logoPath: y12DemoTheme.logoPath,
+  environmentLabel: "Demonstration Environment",
+  fictionalDataNotice: y12DemoTheme.nonEndorsementNotice,
+  primaryColor: y12DemoTheme.primaryColor,
+  secondaryColor: y12DemoTheme.secondaryColor,
+  accentColor: y12DemoTheme.accentColor,
+  fiscalYear: y12DemoTheme.fiscalYear,
 };
 
 export const departments: Department[] = [
@@ -579,6 +583,30 @@ export const suggestedPrompts: SuggestedPrompt[] = [
 ];
 
 export const searchRecords: SearchRecord[] = [
+  {
+    id: "Y12-PR-2026-00175",
+    type: "purchase_request",
+    title: "New Loan Officer Equipment Package",
+    subtitle: "Y12-PR-2026-00175 · Connected featured scenario",
+    keywords: ["loan officers", "inventory savings", "featured scenario"],
+    href: "/purchase-requests",
+  },
+  {
+    id: "Y12-PO-2026-00482",
+    type: "purchase_order",
+    title: "Y12-PO-2026-00482",
+    subtitle: "Volunteer Technology Partners · Featured lifecycle",
+    keywords: ["loan officer equipment", "VTP"],
+    href: "/purchase-orders",
+  },
+  {
+    id: "VTP-INV-84217",
+    type: "invoice",
+    title: "VTP-INV-84217",
+    subtitle: "$320 freight variance · Human review required",
+    keywords: ["freight variance", "exception", "00482"],
+    href: "/invoices",
+  },
   ...purchaseRequests.map((request) => ({
     id: request.id,
     type: "purchase_request" as const,
