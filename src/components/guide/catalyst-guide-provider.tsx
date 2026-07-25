@@ -105,12 +105,27 @@ export function CatalystGuideProvider({
   const peerRef = useRef<RTCPeerConnection | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const narrationAudioRef = useRef<HTMLAudioElement | null>(null);
+  const narrationAbortRef = useRef<AbortController | null>(null);
+  const narrationObjectUrlRef = useRef<string | null>(null);
   const narrationRunRef = useRef(0);
   const tour = tourId ? getGuidedTour(tourId) : undefined;
   const step = tour?.steps[stepIndex];
 
   const stopNarration = useCallback(() => {
     narrationRunRef.current += 1;
+    narrationAbortRef.current?.abort();
+    narrationAbortRef.current = null;
+    if (narrationAudioRef.current) {
+      narrationAudioRef.current.pause();
+      narrationAudioRef.current.removeAttribute("src");
+      narrationAudioRef.current.load();
+      narrationAudioRef.current = null;
+    }
+    if (narrationObjectUrlRef.current) {
+      URL.revokeObjectURL(narrationObjectUrlRef.current);
+      narrationObjectUrlRef.current = null;
+    }
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
       window.speechSynthesis.cancel();
     }
@@ -119,42 +134,91 @@ export function CatalystGuideProvider({
   const narrate = useCallback(
     async (text: string) => {
       stopNarration();
-      if (
-        !narrationEnabled ||
-        !("speechSynthesis" in window) ||
-        !("SpeechSynthesisUtterance" in window)
-      ) {
-        return;
-      }
+      if (!narrationEnabled || typeof window === "undefined") return;
 
       const runId = narrationRunRef.current;
-      const synthesis = window.speechSynthesis;
-      const voices = await loadNarratorVoices();
-      if (runId !== narrationRunRef.current) return;
+      const speakWithBrowser = async () => {
+        if (
+          runId !== narrationRunRef.current ||
+          !("speechSynthesis" in window) ||
+          !("SpeechSynthesisUtterance" in window)
+        ) {
+          return;
+        }
 
-      const voice = selectPreferredNarrator(voices);
-      const chunks = narrationChunks(text);
+        const synthesis = window.speechSynthesis;
+        const voices = await loadNarratorVoices();
+        if (runId !== narrationRunRef.current) return;
 
-      const speakChunk = (index: number) => {
-        if (runId !== narrationRunRef.current || index >= chunks.length) return;
-        const utterance = new SpeechSynthesisUtterance(chunks[index]);
-        utterance.voice = voice ?? null;
-        utterance.rate = narrationRate(voice);
-        utterance.pitch = 0.98;
-        utterance.volume = 1;
-        utterance.onend = () => {
-          if (runId !== narrationRunRef.current) return;
-          window.setTimeout(() => speakChunk(index + 1), 180);
-        };
-        utterance.onerror = (event) => {
-          if (event.error !== "canceled" && runId === narrationRunRef.current) {
-            window.setTimeout(() => speakChunk(index + 1), 120);
+        const voice = selectPreferredNarrator(voices);
+        const chunks = narrationChunks(text);
+        const speakChunk = (index: number) => {
+          if (runId !== narrationRunRef.current || index >= chunks.length) {
+            return;
           }
+          const utterance = new SpeechSynthesisUtterance(chunks[index]);
+          utterance.voice = voice ?? null;
+          utterance.rate = narrationRate(voice);
+          utterance.pitch = 0.98;
+          utterance.volume = 1;
+          utterance.onend = () => {
+            if (runId !== narrationRunRef.current) return;
+            window.setTimeout(() => speakChunk(index + 1), 180);
+          };
+          utterance.onerror = (event) => {
+            if (event.error !== "canceled" && runId === narrationRunRef.current) {
+              window.setTimeout(() => speakChunk(index + 1), 120);
+            }
+          };
+          synthesis.speak(utterance);
         };
-        synthesis.speak(utterance);
+
+        speakChunk(0);
       };
 
-      speakChunk(0);
+      const controller = new AbortController();
+      narrationAbortRef.current = controller;
+      try {
+        const response = await fetch("/api/voice/narrate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text }),
+          signal: controller.signal,
+        });
+        if (!response.ok) throw new Error("Natural narration is unavailable.");
+
+        const audioBlob = await response.blob();
+        if (runId !== narrationRunRef.current) return;
+
+        const objectUrl = URL.createObjectURL(audioBlob);
+        narrationObjectUrlRef.current = objectUrl;
+        const audio = new Audio(objectUrl);
+        narrationAudioRef.current = audio;
+        audio.preload = "auto";
+        audio.onended = () => {
+          if (narrationObjectUrlRef.current === objectUrl) {
+            URL.revokeObjectURL(objectUrl);
+            narrationObjectUrlRef.current = null;
+          }
+          if (narrationAudioRef.current === audio) {
+            narrationAudioRef.current = null;
+          }
+        };
+        await audio.play();
+      } catch (error) {
+        if (
+          controller.signal.aborted ||
+          runId !== narrationRunRef.current ||
+          (error instanceof DOMException && error.name === "AbortError")
+        ) {
+          return;
+        }
+        await speakWithBrowser();
+      } finally {
+        if (narrationAbortRef.current === controller) {
+          narrationAbortRef.current = null;
+        }
+      }
     },
     [narrationEnabled, stopNarration],
   );
