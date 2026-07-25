@@ -62,7 +62,7 @@ export function CatalystGuide() {
                 </Badge>
               </div>
               <p className="mt-0.5 text-[10px] text-white/60">
-                Your procurement demonstration concierge
+                Your warm, natural procurement demonstration concierge
               </p>
             </div>
             <button
@@ -98,7 +98,7 @@ export function CatalystGuide() {
                     <div>
                       <p className="text-sm font-black text-white">{tour.name}</p>
                       <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#ebbf5d]">
-                        {tour.duration} · {tour.steps.length} chapters
+                        {tour.duration} Â· {tour.steps.length} chapters
                       </p>
                     </div>
                     <ArrowRight className="size-4 text-white/45 transition group-hover:translate-x-1 group-hover:text-[#ebbf5d]" />
@@ -248,7 +248,7 @@ export function CatalystGuide() {
                     <Mic className="size-3.5" />
                   )}
                   {guide.liveStatus === "connecting"
-                    ? "Connecting…"
+                    ? "Connectingâ€¦"
                     : guide.liveStatus === "connected"
                       ? "End live"
                       : "Talk live"}
@@ -267,7 +267,7 @@ export function CatalystGuide() {
                 <input
                   value={question}
                   onChange={(event) => setQuestion(event.target.value)}
-                  placeholder="Ask about this page, savings, security…"
+                  placeholder="Ask about this page, savings, securityâ€¦"
                   aria-label="Ask Catalyst Guide"
                   className="h-10 min-w-0 flex-1 rounded-xl border border-white/12 bg-white/[0.08] px-3 text-xs text-white outline-none placeholder:text-white/35 focus:border-[#ebbf5d]/60"
                 />
@@ -304,3 +304,4 @@ export function CatalystGuide() {
     </>
   );
 }
+
