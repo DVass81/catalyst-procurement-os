@@ -22,7 +22,15 @@ const answers = [
       "Catalyst connects the expected purchasing workflow with inventory intelligence, risk-adjusted sourcing, contract and vendor context, conversational analytics, exception explanations, and an examiner-ready evidence trail. The distinction is decision intelligence, not just electronic forms.",
   },
   {
-    terms: ["saving", "savings", "1047", "monitor"],
+    terms: [
+      "save",
+      "saved",
+      "saving",
+      "savings",
+      "1047",
+      "monitor",
+      "inventory",
+    ],
     answer:
       "In the featured scenario, three compatible monitors are allocated from central inventory, avoiding exactly $1,047 in outside purchases. The saving is not a decorative dashboard number; it is tied to the accepted request decision and audit event.",
   },
