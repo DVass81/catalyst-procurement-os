@@ -245,17 +245,22 @@ export function LoginScreen() {
                   htmlFor="code"
                   className="mb-2 block text-xs font-bold text-[var(--foreground)]"
                 >
-                  Six-digit access code (if included)
+                  One-time access code (if included)
                 </label>
                 <input
                   id="code"
                   type="text"
-                  inputMode="numeric"
-                  pattern="[0-9]{6}"
-                  maxLength={6}
+                  inputMode="text"
+                  pattern="[A-Za-z0-9]{6,8}"
+                  maxLength={8}
                   value={code}
                   onChange={(event) =>
-                    setCode(event.target.value.replace(/\D/g, "").slice(0, 6))
+                    setCode(
+                      event.target.value
+                        .replace(/[^A-Za-z0-9]/g, "")
+                        .toUpperCase()
+                        .slice(0, 8),
+                    )
                   }
                   autoComplete="one-time-code"
                   placeholder="000000"
@@ -297,7 +302,7 @@ export function LoginScreen() {
               disabled={
                 loading ||
                 !email.trim() ||
-                (step === "code" && code.length !== 6)
+                (step === "code" && (code.length < 6 || code.length > 8))
               }
             >
               {loading ? (
