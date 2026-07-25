@@ -1,11 +1,10 @@
 import type { Metadata } from "next";
-
-import { LoginScreen } from "@/components/auth/login-screen";
+import { redirect } from "next/navigation";
 
 export const metadata: Metadata = {
-  title: "Welcome",
+  title: "Catalyst Procurement OS",
 };
 
 export default function Home() {
-  return <LoginScreen />;
+  redirect("/dashboard");
 }
