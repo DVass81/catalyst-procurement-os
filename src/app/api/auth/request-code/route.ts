@@ -44,10 +44,12 @@ export async function POST(request: Request) {
     );
   }
   const supabase = await createSupabaseServerClient();
+  const requestUrl = new URL(request.url);
   const { error } = await supabase.auth.signInWithOtp({
     email: parsed.data.email,
     options: {
       shouldCreateUser: false,
+      emailRedirectTo: `${requestUrl.origin}/auth/callback`,
     },
   });
   if (error) {
@@ -61,7 +63,8 @@ export async function POST(request: Request) {
   }
   return NextResponse.json(
     {
-      message: "Check your email for the six-digit Catalyst access code.",
+      message:
+        "Check your email and click the secure Catalyst sign-in link. If your email includes a six-digit code, you can enter it below.",
     },
     { headers: { "Cache-Control": "no-store" } },
   );
