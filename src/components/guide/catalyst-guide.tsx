@@ -7,6 +7,7 @@ import {
   Check,
   Headphones,
   Mic,
+  MicOff,
   Pause,
   Play,
   Radio,
@@ -233,7 +234,30 @@ export function CatalystGuide() {
                     The tour resumes at this exact chapter.
                   </p>
                 </div>
-                <button
+                <div className="flex items-center gap-1">
+                  {guide.liveStatus === "connected" && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        guide.setMicrophoneMuted(!guide.microphoneMuted)
+                      }
+                      className="flex size-9 items-center justify-center rounded-xl border border-white/10 text-white/65 transition hover:bg-white/10 hover:text-white"
+                      aria-label={
+                        guide.microphoneMuted
+                          ? "Unmute microphone"
+                          : "Mute microphone"
+                      }
+                      aria-pressed={guide.microphoneMuted}
+                    >
+                      {guide.microphoneMuted ? (
+                        <MicOff className="size-3.5" />
+                      ) : (
+                        <Mic className="size-3.5" />
+                      )}
+                    </button>
+                  )}
+                  <button
+                  type="button"
                   onClick={
                     guide.liveStatus === "connected"
                       ? guide.disconnectLive
@@ -252,7 +276,8 @@ export function CatalystGuide() {
                     : guide.liveStatus === "connected"
                       ? "End live"
                       : "Talk live"}
-                </button>
+                  </button>
+                </div>
               </div>
 
               <form

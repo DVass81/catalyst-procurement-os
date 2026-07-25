@@ -1,0 +1,31 @@
+import type { OrganizationTheme } from "@/demo/model";
+
+export const catalystCommunityTheme: OrganizationTheme = {
+  organizationId: "org-catalyst-community-demo",
+  organizationName: "Catalyst Community Credit Union",
+  organizationShortName: "Catalyst Community",
+  legalName: "Catalyst Community Credit Union",
+  productName: "Catalyst Procurement OS",
+  logoPath: "/brand/catalyst-community/logo.svg",
+  faviconPath: "/brand/y12/favicon.png",
+  primaryColor: "#123B52",
+  secondaryColor: "#00A7A0",
+  accentColor: "#F5B942",
+  neutrals: ["#102A38", "#46606D", "#8699A2", "#DEE8E8", "#F5F9F8"],
+  backgroundColor: "#F5F9F8",
+  sidebarColor: "#123B52",
+  buttonColor: "#007F7A",
+  linkColor: "#006B68",
+  chartColors: ["#123B52", "#00A7A0", "#F5B942", "#4B7C91", "#8ED8D3"],
+  fiscalYear: "FY2026",
+  currency: "USD",
+  locale: "en-US",
+  timezone: "America/New_York",
+  supportContact: "demo-support@catalystinnovations.example",
+  dashboardGreeting: "Welcome to your procurement command center",
+  requestTerm: "Purchase request",
+  nonEndorsementNotice:
+    "Catalyst Community Credit Union is a fictional organization created for this product demonstration. All people, records, suppliers, and financial values are fictional.",
+  approvalThresholdCents: 2_500_000,
+  budgetReviewThreshold: 0.8,
+};

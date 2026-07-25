@@ -1,308 +1,513 @@
 "use client";
 
-import { motion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import {
   ArrowUp,
   Bot,
-  ChevronRight,
-  Clock3,
-  FileText,
-  Lightbulb,
-  Link2,
-  MessageSquareText,
+  CalendarPlus,
+  ExternalLink,
+  FileSearch2,
+  MailPlus,
+  Mic,
   Paperclip,
-  Search,
   ShieldCheck,
   Sparkles,
-  TrendingDown,
+  TriangleAlert,
+  X,
+  Zap,
 } from "lucide-react";
-import { useState } from "react";
+import Link from "next/link";
+import { useMemo, useRef, useState } from "react";
 
+import type {
+  AiCapability,
+  AiRunResult,
+  ProposedAction,
+} from "@/ai/types";
+import { useDemo } from "@/components/demo/demo-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-const conversations = [
-  { title: "Q3 contract renewals", time: "12 min", active: true },
-  { title: "Vendor concentration review", time: "Yesterday", active: false },
-  { title: "Software savings analysis", time: "Tue", active: false },
-  { title: "Branch equipment status", time: "Mon", active: false },
-];
-
-const suggestions = [
+const prompts: Array<{
+  label: string;
+  prompt: string;
+  capability: AiCapability;
+}> = [
   {
-    label: "Contracts",
-    prompt: "Which contracts renew this quarter?",
-    icon: FileText,
+    label: "Hero request",
+    prompt:
+      "Create a requisition for laptops, monitors, docks, headsets, and chairs for three new loan officers.",
+    capability: "requisition",
   },
   {
-    label: "Vendor risk",
-    prompt: "Summarize our high-risk vendors.",
-    icon: ShieldCheck,
+    label: "Quote intelligence",
+    prompt:
+      "Compare the fictional vendor quotes and recommend the best risk-adjusted value.",
+    capability: "quote_comparison",
+  },
+  {
+    label: "Invoice exception",
+    prompt:
+      "Run the three-way match and explain the featured invoice exception.",
+    capability: "invoice_match",
+  },
+  {
+    label: "Contract review",
+    prompt:
+      "Which fictional contracts need attention and what termination deadlines matter?",
+    capability: "contract_review",
+  },
+  {
+    label: "Vendor indicators",
+    prompt:
+      "Summarize elevated vendor-risk indicators without making a compliance determination.",
+    capability: "vendor_risk",
   },
   {
     label: "Savings",
-    prompt: "Where can we reduce software spend?",
-    icon: TrendingDown,
-  },
-  {
-    label: "Approvals",
-    prompt: "What approvals need attention today?",
-    icon: Clock3,
+    prompt:
+      "Where are the strongest procurement savings in this fictional portfolio?",
+    capability: "spend_intelligence",
   },
 ];
 
-const mockReplies: Record<string, string> = {
-  contracts:
-    "Seven contracts require action within 90 days. The Fiserv agreement has the earliest notice deadline on August 31, followed by Iron Mountain on September 12. Combined annual value is $1.84M.",
-  risk: "Three active vendors require attention. CrowdStrike is in remediation for a documentation gap, NCR Atleos has an operational resilience review due, and Deluxe has an outstanding financial-health update.",
-  savings:
-    "I found three overlapping collaboration subscriptions across IT and Marketing. Consolidating at the next renewal window could create an estimated $96K annual opportunity with low implementation risk.",
-  approvals:
-    "Nine requests are pending. Two are over the 48-hour SLA: PR-2026-0136 for branch security cameras and PR-2026-0139 for compliance training services.",
-};
-
-export function AiWorkspace() {
-  const [prompt, setPrompt] = useState("");
-  const [submittedPrompt, setSubmittedPrompt] = useState(
-    "Which contracts renew this quarter?",
+function ActionCard({
+  action,
+  tenantId,
+}: {
+  action: ProposedAction;
+  tenantId: string;
+}) {
+  const [status, setStatus] = useState<"ready" | "working" | "complete" | "error">(
+    "ready",
   );
-  const [isTyping, setIsTyping] = useState(false);
+  const [message, setMessage] = useState("");
+  const Icon = action.toolName.includes("calendar") ? CalendarPlus : MailPlus;
 
-  function submitPrompt(value = prompt) {
-    const nextPrompt = value.trim();
-    if (!nextPrompt) return;
-    setSubmittedPrompt(nextPrompt);
-    setPrompt("");
-    setIsTyping(true);
-    window.setTimeout(() => setIsTyping(false), 700);
+  async function confirm() {
+    setStatus("working");
+    const response = await fetch("/api/actions/confirm", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        tenantId,
+        action,
+        confirmationToken: action.confirmationToken,
+      }),
+    });
+    const result = (await response.json()) as { message?: string };
+    setMessage(result.message ?? (response.ok ? "Action completed." : "Action failed."));
+    setStatus(response.ok ? "complete" : "error");
   }
 
-  const response =
-    submittedPrompt.toLowerCase().includes("risk")
-      ? mockReplies.risk
-      : submittedPrompt.toLowerCase().includes("saving") ||
-          submittedPrompt.toLowerCase().includes("software")
-        ? mockReplies.savings
-        : submittedPrompt.toLowerCase().includes("approval")
-          ? mockReplies.approvals
-          : mockReplies.contracts;
-
   return (
-    <div className="flex min-h-[calc(100vh-8.5rem)] overflow-hidden rounded-3xl border border-[var(--border)] bg-[var(--surface)] shadow-[var(--shadow-card)]">
-      <aside className="hidden w-72 shrink-0 border-r border-[var(--border)] bg-[var(--surface-subtle)] p-4 xl:flex xl:flex-col">
-        <Button className="w-full justify-start">
-          <MessageSquareText className="size-4" aria-hidden="true" />
-          New conversation
-        </Button>
-        <div className="relative mt-4">
-          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--muted-foreground)]" />
-          <input
-            type="search"
-            aria-label="Search conversations"
-            placeholder="Search conversations"
-            className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] pl-9 pr-3 text-sm outline-none focus:ring-2 focus:ring-[var(--brand-primary)]"
-          />
-        </div>
-        <p className="mb-2 mt-6 px-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--muted-foreground)]">
-          Recent
-        </p>
-        <div className="space-y-1">
-          {conversations.map((conversation) => (
-            <button
-              key={conversation.title}
-              className={cn(
-                "w-full rounded-xl px-3 py-3 text-left transition-colors",
-                conversation.active
-                  ? "bg-[var(--brand-soft)] text-[var(--brand-primary)]"
-                  : "text-[var(--muted-foreground)] hover:bg-[var(--surface-muted)] hover:text-[var(--foreground)]",
-              )}
-            >
-              <span className="block truncate text-sm font-semibold">
-                {conversation.title}
-              </span>
-              <span className="mt-1 block text-[11px] opacity-75">
-                {conversation.time}
-              </span>
-            </button>
-          ))}
-        </div>
-        <div className="mt-auto rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4">
-          <div className="flex items-center gap-2 text-sm font-bold text-[var(--foreground)]">
-            <ShieldCheck
-              className="size-4 text-emerald-600"
-              aria-hidden="true"
-            />
-            Enterprise guardrails
+    <div className="rounded-2xl border border-amber-300/70 bg-amber-50 p-4 text-amber-950">
+      <div className="flex items-start gap-3">
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-amber-200/70">
+          <Icon className="size-4" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-sm font-black">{action.title}</p>
+            <Badge className="border-amber-300 bg-white/70 text-amber-900">
+              Confirmation required
+            </Badge>
           </div>
-          <p className="mt-2 text-xs leading-5 text-[var(--muted-foreground)]">
-            Preview responses use fictional data and do not take action.
-          </p>
-        </div>
-      </aside>
-
-      <section className="relative flex min-w-0 flex-1 flex-col">
-        <header className="flex items-center justify-between border-b border-[var(--border)] px-5 py-4 sm:px-7">
-          <div className="flex items-center gap-3">
-            <div className="flex size-10 items-center justify-center rounded-xl bg-[var(--brand-primary)] text-[var(--brand-primary-foreground)] shadow-lg shadow-blue-600/20">
-              <Sparkles className="size-5" aria-hidden="true" />
+          <dl className="mt-3 grid gap-2 text-xs leading-5 sm:grid-cols-2">
+            <div>
+              <dt className="font-black">Destination</dt>
+              <dd>{action.destination}</dd>
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-base font-bold text-[var(--foreground)]">
-                  Catalyst AI
+              <dt className="font-black">Consequence</dt>
+              <dd>{action.consequence}</dd>
+            </div>
+          </dl>
+          <p className="mt-3 rounded-xl bg-white/70 px-3 py-2 text-xs leading-5">
+            {action.payloadSummary}
+          </p>
+          {!action.confirmationRequired && action.href ? (
+            <Button size="sm" className="mt-3" asChild>
+              <Link href={action.href}>Open for human review</Link>
+            </Button>
+          ) : status === "complete" || status === "error" ? (
+            <p
+              role="status"
+              className={cn(
+                "mt-3 text-xs font-bold",
+                status === "complete" ? "text-emerald-700" : "text-rose-700",
+              )}
+            >
+              {message}
+            </p>
+          ) : (
+            <Button
+              size="sm"
+              className="mt-3"
+              onClick={() => void confirm()}
+              disabled={status === "working"}
+            >
+              {status === "working" ? "Confirming…" : "Review and confirm"}
+            </Button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function AiWorkspace() {
+  const { state } = useDemo();
+  const [prompt, setPrompt] = useState("");
+  const [submitted, setSubmitted] = useState(
+    "Create a requisition for laptops, monitors, docks, headsets, and chairs for three new loan officers.",
+  );
+  const [result, setResult] = useState<AiRunResult | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [acknowledged, setAcknowledged] = useState(false);
+  const [attachment, setAttachment] = useState<File | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const sessionId = useMemo(() => crypto.randomUUID(), []);
+
+  async function run(value = prompt, capability?: AiCapability) {
+    const question = value.trim();
+    if (!question) return;
+    setLoading(true);
+    setError("");
+    setSubmitted(question);
+    try {
+      const metadata = {
+          tenantId: state.organization.organizationId,
+          prompt: question,
+          capability,
+          currentRoute: "/ai-procurement",
+          role: state.activeRole,
+          workflowStage: state.stage,
+          mode: "auto",
+          fictionalDataAcknowledged: acknowledged,
+          attachmentIds: attachment ? [attachment.name] : [],
+      };
+      const requestBody = attachment
+        ? (() => {
+            const form = new FormData();
+            form.append("file", attachment);
+            form.append("metadata", JSON.stringify(metadata));
+            form.append("fictionalDataAcknowledged", String(acknowledged));
+            return form;
+          })()
+        : JSON.stringify(metadata);
+      const response = await fetch(
+        attachment ? "/api/ai/documents" : "/api/ai/respond",
+        {
+          method: "POST",
+          headers: {
+            ...(attachment ? {} : { "Content-Type": "application/json" }),
+            "X-Catalyst-Session": sessionId,
+          },
+          body: requestBody,
+        },
+      );
+      const data = (await response.json()) as AiRunResult & { message?: string };
+      if (!response.ok) throw new Error(data.message ?? "Claire could not answer.");
+      setResult(data);
+      setPrompt("");
+    } catch (runError) {
+      setError(
+        runError instanceof Error
+          ? runError.message
+          : "The procurement concierge is unavailable.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="overflow-hidden rounded-[2rem] border border-[var(--border)] bg-[var(--surface)] shadow-[var(--shadow-elevated)]">
+      <header className="relative overflow-hidden bg-[var(--brand-primary)] px-5 py-6 text-white sm:px-8">
+        <div className="absolute -right-16 -top-24 size-72 rounded-full bg-[var(--brand-secondary)]/35 blur-3xl" />
+        <div className="absolute -bottom-24 left-1/3 size-64 rounded-full bg-[var(--brand-accent)]/20 blur-3xl" />
+        <div className="relative flex flex-col justify-between gap-5 lg:flex-row lg:items-center">
+          <div className="flex items-center gap-4">
+            <span className="flex size-14 items-center justify-center rounded-2xl bg-gradient-to-br from-[var(--brand-accent)] to-[var(--brand-secondary)] text-[var(--brand-primary)] shadow-xl">
+              <Sparkles className="size-6" />
+            </span>
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="text-xl font-black tracking-tight sm:text-2xl">
+                  Claire · Live Procurement Concierge
                 </h1>
-                <Badge tone="info">Preview</Badge>
+                <Badge className="border-white/15 bg-white/10 text-white">
+                  Phase 4
+                </Badge>
               </div>
-              <p className="text-xs text-[var(--muted-foreground)]">
-                Procurement intelligence workspace
+              <p className="mt-1 text-sm text-white/65">
+                Grounded in {state.organization.organizationShortName} fictional
+                records · human-controlled actions
               </p>
             </div>
           </div>
-          <Button variant="ghost" size="icon" aria-label="Conversation details">
-            <Lightbulb className="size-4.5" />
-          </Button>
-        </header>
+          <button
+            onClick={() =>
+              window.dispatchEvent(new CustomEvent("catalyst-guide-open"))
+            }
+            className="flex h-11 items-center justify-center gap-2 rounded-xl bg-white px-4 text-xs font-black text-[var(--brand-primary)] shadow-lg transition hover:-translate-y-0.5"
+          >
+            <Mic className="size-4" />
+            Talk Live
+          </button>
+        </div>
+      </header>
 
-        <div className="flex-1 overflow-y-auto px-4 py-8 sm:px-8 lg:px-12">
-          <div className="mx-auto max-w-3xl">
-            <div className="mb-8 text-center">
-              <motion.div
-                initial={{ scale: 0.92, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                className="mx-auto mb-4 flex size-12 items-center justify-center rounded-2xl bg-[var(--brand-soft)] text-[var(--brand-primary)]"
+      <div className="grid min-h-[650px] lg:grid-cols-[19rem_minmax(0,1fr)]">
+        <aside className="border-b border-[var(--border)] bg-[var(--surface-subtle)] p-4 lg:border-b-0 lg:border-r">
+          <p className="px-2 text-[10px] font-black uppercase tracking-[0.16em] text-[var(--muted-foreground)]">
+            Demonstration moments
+          </p>
+          <div className="mt-3 space-y-2">
+            {prompts.map((item) => (
+              <button
+                key={item.label}
+                onClick={() => void run(item.prompt, item.capability)}
+                className="group w-full rounded-xl border border-transparent px-3 py-3 text-left transition hover:border-[var(--border)] hover:bg-[var(--surface)] hover:shadow-sm"
               >
-                <Bot className="size-6" aria-hidden="true" />
-              </motion.div>
-              <h2 className="text-xl font-bold tracking-tight text-[var(--foreground)] sm:text-2xl">
-                How can I help with procurement?
-              </h2>
-              <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-[var(--muted-foreground)]">
-                Explore spend, contracts, vendors, risk, and approvals using the
-                fictional Y-12 Credit Union demo workspace.
-              </p>
+                <span className="block text-xs font-black text-[var(--foreground)]">
+                  {item.label}
+                </span>
+                <span className="mt-1 line-clamp-2 text-[11px] leading-4 text-[var(--muted-foreground)]">
+                  {item.prompt}
+                </span>
+              </button>
+            ))}
+          </div>
+          <div className="mt-5 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-950">
+            <div className="flex items-center gap-2 text-xs font-black">
+              <ShieldCheck className="size-4" />
+              Financial guardrails
             </div>
+            <p className="mt-2 text-[11px] leading-5">
+              Claire analyzes and proposes. People approve, award, issue,
+              receive, resolve, and pay.
+            </p>
+          </div>
+        </aside>
 
-            <div className="grid gap-2 sm:grid-cols-2">
-              {suggestions.map((suggestion) => {
-                const Icon = suggestion.icon;
-                return (
-                  <button
-                    key={suggestion.prompt}
-                    onClick={() => submitPrompt(suggestion.prompt)}
-                    className="group flex items-center gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 text-left transition-all hover:-translate-y-0.5 hover:border-[color-mix(in_srgb,var(--brand-primary)_35%,var(--border))] hover:shadow-md"
-                  >
-                    <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-[var(--surface-muted)] text-[var(--brand-primary)]">
-                      <Icon className="size-4.5" aria-hidden="true" />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-[11px] font-bold uppercase tracking-wider text-[var(--muted-foreground)]">
-                        {suggestion.label}
-                      </span>
-                      <span className="mt-0.5 block text-sm font-semibold text-[var(--foreground)]">
-                        {suggestion.prompt}
-                      </span>
-                    </span>
-                    <ChevronRight className="size-4 text-[var(--muted-foreground)] transition-transform group-hover:translate-x-0.5" />
-                  </button>
-                );
-              })}
-            </div>
-
-            <div className="mt-8 space-y-5" aria-live="polite">
-              <div className="ml-auto max-w-[85%] rounded-2xl rounded-br-md bg-[var(--brand-primary)] px-4 py-3 text-sm leading-6 text-[var(--brand-primary-foreground)]">
-                {submittedPrompt}
+        <section className="flex min-w-0 flex-col">
+          <div className="flex-1 overflow-y-auto px-5 py-7 sm:px-8">
+            <div className="mx-auto max-w-4xl space-y-6">
+              <div className="ml-auto max-w-[88%] rounded-2xl rounded-br-md bg-[var(--brand-primary)] px-4 py-3 text-sm leading-6 text-white">
+                {submitted}
               </div>
               <div className="flex items-start gap-3">
-                <div className="flex size-8 shrink-0 items-center justify-center rounded-xl bg-[var(--brand-soft)] text-[var(--brand-primary)]">
-                  <Sparkles className="size-4" aria-hidden="true" />
-                </div>
+                <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-[var(--brand-soft)] text-[var(--brand-primary)]">
+                  <Bot className="size-4.5" />
+                </span>
                 <div className="min-w-0 flex-1">
-                  {isTyping ? (
-                    <div className="inline-flex items-center gap-1 rounded-2xl bg-[var(--surface-muted)] px-4 py-3">
-                      {[0, 1, 2].map((dot) => (
-                        <motion.span
-                          key={dot}
-                          className="size-1.5 rounded-full bg-[var(--muted-foreground)]"
-                          animate={{ opacity: [0.3, 1, 0.3], y: [0, -2, 0] }}
-                          transition={{
-                            duration: 0.8,
-                            repeat: Number.POSITIVE_INFINITY,
-                            delay: dot * 0.12,
-                          }}
-                        />
-                      ))}
-                      <span className="sr-only">Catalyst AI is typing</span>
+                  {loading ? (
+                    <div className="inline-flex items-center gap-2 rounded-2xl bg-[var(--surface-muted)] px-4 py-3 text-xs font-bold text-[var(--muted-foreground)]">
+                      <span className="size-2 animate-pulse rounded-full bg-[var(--brand-secondary)]" />
+                      Claire is checking the evidence…
                     </div>
+                  ) : error ? (
+                    <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">
+                      <TriangleAlert className="mr-2 inline size-4" />
+                      {error}
+                    </div>
+                  ) : result ? (
+                    <AnimatePresence mode="wait">
+                      <motion.div
+                        key={result.runId}
+                        initial={{ opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="space-y-5"
+                      >
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge
+                            tone={
+                              result.providerMode === "live" ? "success" : "warning"
+                            }
+                          >
+                            <Zap className="mr-1 size-3" />
+                            {result.providerMode === "live"
+                              ? `Live · ${result.model}`
+                              : "Reliable demo fallback"}
+                          </Badge>
+                          <Badge>{result.capability.replaceAll("_", " ")}</Badge>
+                        </div>
+                        <p className="whitespace-pre-line text-sm leading-7 text-[var(--foreground)]">
+                          {result.displayText}
+                        </p>
+                        {result.evidenceCards.length > 0 && (
+                          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                            {result.evidenceCards.map((card) => (
+                              <div
+                                key={card.id}
+                                className={cn(
+                                  "rounded-2xl border p-4",
+                                  card.tone === "positive" &&
+                                    "border-emerald-200 bg-emerald-50",
+                                  card.tone === "warning" &&
+                                    "border-amber-200 bg-amber-50",
+                                  card.tone === "critical" &&
+                                    "border-rose-200 bg-rose-50",
+                                  card.tone === "neutral" &&
+                                    "border-[var(--border)] bg-[var(--surface-subtle)]",
+                                )}
+                              >
+                                <p className="text-[10px] font-black uppercase tracking-wider opacity-60">
+                                  {card.label}
+                                </p>
+                                <p className="mt-1 text-xl font-black">{card.value}</p>
+                                <p className="mt-1 text-[11px] leading-4 opacity-75">
+                                  {card.detail}
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {result.citations.length > 0 && (
+                          <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface-subtle)] p-4">
+                            <p className="text-[10px] font-black uppercase tracking-wider text-[var(--muted-foreground)]">
+                              Evidence used
+                            </p>
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              {result.citations.map((citation) =>
+                                citation.href ? (
+                                  <Link
+                                    key={citation.id}
+                                    href={citation.href}
+                                    className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs font-bold hover:border-[var(--brand-secondary)]"
+                                  >
+                                    <FileSearch2 className="size-3" />
+                                    {citation.title}
+                                    <ExternalLink className="size-3 opacity-50" />
+                                  </Link>
+                                ) : (
+                                  <span
+                                    key={citation.id}
+                                    className="rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs font-bold"
+                                  >
+                                    {citation.title}
+                                  </span>
+                                ),
+                              )}
+                            </div>
+                          </div>
+                        )}
+                        {result.proposedActions.map((action) => (
+                          <ActionCard
+                            key={action.id}
+                            action={action}
+                            tenantId={result.tenantId}
+                          />
+                        ))}
+                        <p className="border-l-2 border-[var(--brand-accent)] pl-3 text-[11px] leading-5 text-[var(--muted-foreground)]">
+                          {result.humanReviewNotice}
+                        </p>
+                      </motion.div>
+                    </AnimatePresence>
                   ) : (
-                    <motion.div
-                      initial={{ opacity: 0, y: 6 }}
-                      animate={{ opacity: 1, y: 0 }}
-                    >
-                      <p className="text-sm leading-7 text-[var(--foreground)]">
-                        {response}
+                    <div className="rounded-3xl border border-dashed border-[var(--border-strong)] bg-[var(--surface-subtle)] p-8 text-center">
+                      <Sparkles className="mx-auto size-7 text-[var(--brand-secondary)]" />
+                      <h2 className="mt-4 text-lg font-black">
+                        Ask procurement, not software
+                      </h2>
+                      <p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-[var(--muted-foreground)]">
+                        Claire turns needs and evidence into structured,
+                        reviewable decisions—without taking authority away from
+                        your team.
                       </p>
-                      <div className="mt-4 flex flex-wrap gap-2">
-                        <Badge className="gap-1.5">
-                          <FileText className="size-3" aria-hidden="true" />
-                          CTR-2024-031
-                        </Badge>
-                        <Badge className="gap-1.5">
-                          <Link2 className="size-3" aria-hidden="true" />
-                          7 contract records
-                        </Badge>
-                      </div>
-                    </motion.div>
+                      <Button className="mt-5" onClick={() => void run(submitted, "requisition")}>
+                        Run the hero request
+                      </Button>
+                    </div>
                   )}
                 </div>
               </div>
             </div>
           </div>
-        </div>
 
-        <footer className="border-t border-[var(--border)] bg-[var(--surface)] p-4 sm:px-7 sm:py-5">
-          <div className="mx-auto max-w-3xl">
-            <div className="rounded-2xl border border-[var(--border-strong)] bg-[var(--surface)] p-2 shadow-[var(--shadow-elevated)] focus-within:ring-2 focus-within:ring-[var(--brand-primary)]">
-              <textarea
-                value={prompt}
-                onChange={(event) => setPrompt(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" && !event.shiftKey) {
-                    event.preventDefault();
-                    submitPrompt();
-                  }
-                }}
-                rows={2}
-                placeholder="Ask about spend, suppliers, contracts, risk, or approvals..."
-                aria-label="Message Catalyst AI"
-                className="w-full resize-none bg-transparent px-3 py-2 text-sm leading-6 text-[var(--foreground)] outline-none placeholder:text-[var(--muted-foreground)]"
-              />
-              <div className="flex items-center justify-between gap-3 px-1">
-                <div className="flex items-center gap-1">
-                  <Button variant="ghost" size="icon" aria-label="Attach a file">
-                    <Paperclip className="size-4" />
-                  </Button>
-                  <span className="hidden text-xs text-[var(--muted-foreground)] sm:inline">
-                    Enter to send · Shift + Enter for a new line
-                  </span>
+          <footer className="border-t border-[var(--border)] bg-[var(--surface)] p-4 sm:px-7">
+            <div className="mx-auto max-w-4xl">
+              {attachment && (
+                <div className="mb-2 flex items-center justify-between rounded-xl bg-[var(--surface-muted)] px-3 py-2 text-xs">
+                  <span className="truncate font-bold">{attachment.name}</span>
+                  <button
+                    aria-label="Remove attachment"
+                    onClick={() => setAttachment(null)}
+                  >
+                    <X className="size-4" />
+                  </button>
                 </div>
-                <Button
-                  size="icon"
-                  aria-label="Send message"
-                  disabled={!prompt.trim()}
-                  onClick={() => submitPrompt()}
-                >
-                  <ArrowUp className="size-4" />
-                </Button>
+              )}
+              <div className="rounded-2xl border border-[var(--border-strong)] p-2 shadow-sm focus-within:ring-2 focus-within:ring-[var(--brand-primary)]">
+                <textarea
+                  value={prompt}
+                  onChange={(event) => setPrompt(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && !event.shiftKey) {
+                      event.preventDefault();
+                      void run();
+                    }
+                  }}
+                  rows={2}
+                  placeholder="Describe a purchasing need or ask about spend, risk, contracts, quotes, or invoices…"
+                  className="w-full resize-none bg-transparent px-3 py-2 text-sm leading-6 outline-none"
+                  aria-label="Ask Claire"
+                />
+                <div className="flex flex-wrap items-center justify-between gap-3 px-1">
+                  <div className="flex items-center gap-2">
+                    <input
+                      ref={inputRef}
+                      type="file"
+                      className="hidden"
+                      accept=".pdf,.txt,.csv,.docx,image/png,image/jpeg"
+                      onChange={(event) =>
+                        setAttachment(event.target.files?.[0] ?? null)
+                      }
+                    />
+                    <button
+                      onClick={() => inputRef.current?.click()}
+                      disabled={!acknowledged}
+                      className="flex size-9 items-center justify-center rounded-xl text-[var(--muted-foreground)] hover:bg-[var(--surface-muted)] disabled:cursor-not-allowed disabled:opacity-35"
+                      aria-label="Attach a fictional document"
+                    >
+                      <Paperclip className="size-4" />
+                    </button>
+                    <label className="flex items-center gap-2 text-[10px] font-bold text-[var(--muted-foreground)]">
+                      <input
+                        type="checkbox"
+                        checked={acknowledged}
+                        onChange={(event) => setAcknowledged(event.target.checked)}
+                        className="size-3.5 rounded"
+                      />
+                      I will upload fictional data only
+                    </label>
+                  </div>
+                  <Button
+                    size="icon"
+                    aria-label="Send to Claire"
+                    disabled={!prompt.trim() || loading}
+                    onClick={() => void run()}
+                  >
+                    {loading ? (
+                      <span className="size-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                    ) : (
+                      <ArrowUp className="size-4" />
+                    )}
+                  </Button>
+                </div>
               </div>
+              <p className="mt-2 text-center text-[10px] text-[var(--muted-foreground)]">
+                No member data. Fictional documents only. AI recommendations
+                require human review.
+              </p>
             </div>
-            <p className="mt-2 text-center text-[10px] text-[var(--muted-foreground)]">
-              Catalyst AI can make mistakes. Verify important procurement
-              decisions. Demo interface only.
-            </p>
-          </div>
-        </footer>
-      </section>
+          </footer>
+        </section>
+      </div>
     </div>
   );
 }

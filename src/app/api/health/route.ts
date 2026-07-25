@@ -5,7 +5,7 @@ export function GET() {
     {
       status: "ok",
       service: "catalyst-procurement-os",
-      phase: 3,
+      phase: 4,
     },
     {
       headers: {

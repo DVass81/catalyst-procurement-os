@@ -42,6 +42,10 @@ function activeUser(state: DemoState) {
   return user;
 }
 
+function tenantRecordPrefix(state: DemoState) {
+  return state.organization.organizationId === "org-y12-demo" ? "Y12" : "CCCU";
+}
+
 function appendAudit(
   state: DemoState,
   action: string,
@@ -68,7 +72,7 @@ function appendAudit(
     description,
     source,
     ipPlaceholder: "192.0.2.44",
-    correlationId: "CORR-Y12-LOE-2026-001",
+    correlationId: `CORR-${tenantRecordPrefix(state)}-LOE-2026-001`,
   });
 }
 
@@ -427,7 +431,10 @@ export function createFeaturedPurchaseOrder(state: DemoState) {
   if (!quote) throw new WorkflowError("Approved quote is missing.");
   const po: PurchaseOrder = {
     id: "po-featured",
-    poNumber: FEATURED_PO_NUMBER,
+    poNumber:
+      next.organization.organizationId === "org-y12-demo"
+        ? FEATURED_PO_NUMBER
+        : FEATURED_PO_NUMBER.replace(/^Y12-/, "CCCU-"),
     sourceRequestId: request.id,
     vendorId: request.selectedVendorId,
     buyerId: next.activeUserId,
@@ -440,7 +447,7 @@ export function createFeaturedPurchaseOrder(state: DemoState) {
     taxCents: quote.taxCents,
     totalCents: quote.totalCents,
     status: "awaiting_issuance",
-    contractReference: "Y12-IT-2026-07",
+    contractReference: `${tenantRecordPrefix(next)}-IT-2026-07`,
     approvalReference: next.approvals
       .filter((approval) => approval.requestId === request.id)
       .map((approval) => approval.id)
@@ -518,7 +525,7 @@ export function receiveFeaturedOrder(state: DemoState) {
   if (!po) throw new WorkflowError("Featured purchase order is missing.");
   const receipt: Receipt = {
     id: "receipt-featured",
-    receiptNumber: "Y12-RCV-2026-00291",
+    receiptNumber: `${tenantRecordPrefix(next)}-RCV-2026-00291`,
     purchaseOrderId: po.id,
     receivedBy: next.activeUserId,
     receivedDate: "2026-08-10",
@@ -710,8 +717,8 @@ export function resolveInvoiceException(
   return next;
 }
 
-export function resetDemo() {
-  return createDemoState();
+export function resetDemo(currentState?: DemoState) {
+  return createDemoState(currentState?.organization);
 }
 
 const stageOrder: WorkflowStage[] = [
@@ -735,8 +742,8 @@ const stageOrder: WorkflowStage[] = [
   "correction_requested",
 ];
 
-export function jumpToStage(target: WorkflowStage) {
-  let state = createDemoState();
+export function jumpToStage(target: WorkflowStage, currentState?: DemoState) {
+  let state = createDemoState(currentState?.organization);
   if (target === "draft") return state;
   state = analyzeFeaturedRequest(state);
   if (target === "analyzed") return state;

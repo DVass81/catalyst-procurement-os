@@ -401,8 +401,9 @@ export interface TutorialStep {
 }
 
 export interface DemoState {
-  schemaVersion: 2;
+  schemaVersion: 3;
   organization: OrganizationTheme;
+  presenterMode: boolean;
   activeUserId: string;
   activeRole: DemoRole;
   stage: WorkflowStage;

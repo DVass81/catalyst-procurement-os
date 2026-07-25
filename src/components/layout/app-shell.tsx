@@ -38,10 +38,12 @@ import {
 import { navigationItems, navigationSections } from "@/config/navigation";
 import { CatalystGuide } from "@/components/guide/catalyst-guide";
 import { useCatalystGuide } from "@/components/guide/catalyst-guide-provider";
+import { useDemo } from "@/components/demo/demo-provider";
+import { tenantThemes, type TenantId } from "@/config/organizations";
+import { PresenterDock } from "@/components/presenter/presenter-dock";
 import {
   currentUser,
   notifications,
-  organization,
   searchRecords,
 } from "@/data/mock-data";
 import { cn, titleCase } from "@/lib/utils";
@@ -132,15 +134,20 @@ function Navigation({
 }
 
 function Sidebar({ pathname }: { pathname: string }) {
+  const { state } = useDemo();
+  const organization = state.organization;
   return (
-    <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col overflow-hidden border-r border-white/10 bg-[#041a6c] text-white shadow-[18px_0_50px_rgba(4,26,108,.08)] lg:flex">
+    <aside
+      className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col overflow-hidden border-r border-white/10 text-white shadow-[18px_0_50px_rgba(4,26,108,.08)] lg:flex"
+      style={{ backgroundColor: organization.sidebarColor }}
+    >
       <div className="pointer-events-none absolute -left-16 top-28 size-52 rounded-full bg-[#404287]/55 blur-3xl" />
       <div className="pointer-events-none absolute -right-24 bottom-32 size-56 rounded-full bg-[#cf4427]/22 blur-3xl" />
       <div className="relative flex min-h-[7.25rem] flex-col justify-center border-b border-white/10 px-5">
         <div className="flex items-center justify-between gap-3">
           <Image
             src={organization.logoPath}
-            alt="Y-12 Credit Union"
+            alt={organization.organizationName}
             width={112}
             height={56}
             priority
@@ -165,12 +172,12 @@ function Sidebar({ pathname }: { pathname: string }) {
               Catalyst Guide Live
             </span>
             <Badge className="ml-auto border-white/10 bg-white/10 px-1.5 py-0.5 text-[9px] text-[#f0cb7c]">
-              Phase 3
+              Phase 4
             </Badge>
           </div>
           <p className="mt-2 text-[11px] leading-4.5 text-white/55">
-            Narrated tours, live questions, captions, and a reliable offline
-            fallback.
+            Claire Live, grounded procurement answers, captions, and a
+            presenter-controlled fallback.
           </p>
           <button
             onClick={() =>
@@ -382,21 +389,26 @@ function ThemeMenu({
 }
 
 function OrganizationMenu() {
+  const { state, switchTenant, activeTenantId } = useDemo();
+  const organization = state.organization;
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
         <button className="hidden h-10 items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-left shadow-sm transition-colors hover:bg-[var(--surface-muted)] sm:flex">
-          <span className="flex h-7 w-14 items-center justify-center rounded-lg bg-[#041A6C] px-1">
+          <span
+            className="flex h-7 w-14 items-center justify-center rounded-lg px-1"
+            style={{ backgroundColor: organization.sidebarColor }}
+          >
             <Image
               src={organization.logoPath}
-              alt="Y-12 Credit Union"
+              alt={organization.organizationName}
               width={56}
               height={28}
               className="h-auto w-full"
             />
           </span>
           <span className="max-w-36 truncate text-xs font-bold text-[var(--foreground)]">
-            {organization.name}
+            {organization.organizationName}
           </span>
           <ChevronDown className="size-3.5 text-[var(--muted-foreground)]" />
         </button>
@@ -410,26 +422,48 @@ function OrganizationMenu() {
           <p className="px-2 py-2 text-[10px] font-bold uppercase tracking-wider text-[var(--muted-foreground)]">
             Organizations
           </p>
-          <DropdownMenu.Item className="flex cursor-pointer items-center gap-3 rounded-xl bg-[var(--brand-soft)] p-3 outline-none">
-            <span className="flex h-9 w-16 items-center justify-center rounded-lg bg-[#041A6C] px-1.5">
-              <Image
-                src={organization.logoPath}
-                alt="Y-12 Credit Union"
-                width={60}
-                height={30}
-                className="h-auto w-full"
-              />
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-xs font-bold text-[var(--foreground)]">
-                {organization.name}
-              </span>
-              <span className="block text-[10px] text-[var(--muted-foreground)]">
-                Demo workspace
-              </span>
-            </span>
-            <Check className="size-4 text-[var(--brand-primary)]" />
-          </DropdownMenu.Item>
+          {Object.entries(tenantThemes).map(([tenantId, tenant]) => {
+            const active = tenantId === activeTenantId;
+            return (
+              <DropdownMenu.Item
+                key={tenantId}
+                onSelect={() => switchTenant(tenantId as TenantId)}
+                disabled={!state.presenterMode}
+                className={cn(
+                  "flex cursor-pointer items-center gap-3 rounded-xl p-3 outline-none",
+                  active
+                    ? "bg-[var(--brand-soft)]"
+                    : "hover:bg-[var(--surface-muted)] focus:bg-[var(--surface-muted)]",
+                )}
+              >
+                <span
+                  className="flex h-9 w-16 items-center justify-center rounded-lg px-1.5"
+                  style={{ backgroundColor: tenant.sidebarColor }}
+                >
+                  <Image
+                    src={tenant.logoPath}
+                    alt={tenant.organizationName}
+                    width={60}
+                    height={30}
+                    className="h-auto w-full"
+                  />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-xs font-bold text-[var(--foreground)]">
+                    {tenant.organizationName}
+                  </span>
+                  <span className="block text-[10px] text-[var(--muted-foreground)]">
+                    {tenantId === "org-y12-demo"
+                      ? "Personalized demonstration"
+                      : "Clearly fictional tenant"}
+                  </span>
+                </span>
+                {active && (
+                  <Check className="size-4 text-[var(--brand-primary)]" />
+                )}
+              </DropdownMenu.Item>
+            );
+          })}
           <DropdownMenu.Separator className="my-1 h-px bg-[var(--border)]" />
           <DropdownMenu.Item className="flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-[var(--muted-foreground)] outline-none hover:bg-[var(--surface-muted)] focus:bg-[var(--surface-muted)]">
             <Building2 className="size-4" />
@@ -587,6 +621,8 @@ function ProfileMenu() {
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const guide = useCatalystGuide();
+  const { state } = useDemo();
+  const organization = state.organization;
   const [mobileOpen, setMobileOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [theme, setThemeState] = useState<Theme>("system");
@@ -773,6 +809,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       <SearchPalette open={searchOpen} onOpenChange={setSearchOpen} />
       <CatalystGuide />
+      <PresenterDock />
     </div>
   );
 }

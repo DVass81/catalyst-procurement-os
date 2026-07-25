@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 96" role="img" aria-labelledby="title">
+  <title id="title">Catalyst Community Credit Union</title>
+  <rect width="360" height="96" rx="18" fill="#123B52"/>
+  <g transform="translate(18 17)">
+    <circle cx="31" cy="31" r="29" fill="#00A7A0"/>
+    <path d="M18 31c0-9 6-16 15-16 6 0 11 3 14 8l-9 5c-1-2-3-3-6-3-4 0-7 3-7 7s3 7 7 7c3 0 5-1 7-4l9 5c-3 6-9 9-16 9-8 0-14-4-17-10l-8 4v-10l11-5v3z" fill="#fff"/>
+    <circle cx="48" cy="13" r="5" fill="#F5B942"/>
+  </g>
+  <text x="88" y="41" fill="#fff" font-family="Segoe UI,Arial,sans-serif" font-size="25" font-weight="750">Catalyst Community</text>
+  <text x="89" y="64" fill="#8ED8D3" font-family="Segoe UI,Arial,sans-serif" font-size="14" font-weight="650" letter-spacing="1.6">CREDIT UNION</text>
+</svg>

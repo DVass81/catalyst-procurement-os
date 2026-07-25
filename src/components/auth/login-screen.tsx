@@ -6,9 +6,9 @@ import {
   BarChart3,
   Building2,
   CheckCircle2,
-  Eye,
-  EyeOff,
+  KeyRound,
   LockKeyhole,
+  Mail,
   ShieldCheck,
   Sparkles,
   TrendingUp,
@@ -24,13 +24,46 @@ import { organization } from "@/data/mock-data";
 
 export function LoginScreen() {
   const router = useRouter();
-  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [email, setEmail] = useState("");
+  const [code, setCode] = useState("");
+  const [step, setStep] = useState<"email" | "code">("email");
+  const [message, setMessage] = useState(
+    "Access is limited to pre-invited demonstration users.",
+  );
 
-  function enterDemo(event: React.FormEvent<HTMLFormElement>) {
+  async function enterDemo(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setLoading(true);
-    window.setTimeout(() => router.push("/dashboard"), 450);
+    try {
+      const endpoint =
+        step === "email" ? "/api/auth/request-code" : "/api/auth/verify-code";
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(step === "email" ? { email } : { email, token: code }),
+      });
+      const result = (await response.json()) as {
+        message?: string;
+        redirectTo?: string;
+      };
+      if (!response.ok) {
+        setMessage(result.message ?? "Secure access is unavailable.");
+      } else if (step === "email") {
+        setStep("code");
+        setMessage(
+          result.message ?? "Check your email for the six-digit access code.",
+        );
+      } else {
+        router.push(result.redirectTo ?? "/dashboard");
+      }
+    } catch {
+      setMessage(
+        "Secure sign-in could not be reached. Check the connection and try again.",
+      );
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -181,8 +214,7 @@ export function LoginScreen() {
               Welcome to Catalyst
             </h2>
             <p className="mt-2 text-sm leading-6 text-[var(--muted-foreground)]">
-              Sign in to the fictional Y-12 workspace or enter the guided
-              product demonstration.
+              Sign in with an invited email and a one-time access code.
             </p>
           </div>
 
@@ -197,58 +229,86 @@ export function LoginScreen() {
               <input
                 id="email"
                 type="email"
-                defaultValue="maya.chen@y12cu.example"
-                autoComplete="username"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                autoComplete="email"
+                placeholder="you@creditunion.org"
+                required
+                disabled={step === "code"}
                 className="h-12 w-full rounded-xl border border-[var(--border-strong)] bg-[var(--surface)] px-4 text-sm text-[var(--foreground)] outline-none transition-shadow focus:ring-2 focus:ring-[var(--brand-primary)]"
               />
             </div>
-            <div>
-              <div className="mb-2 flex items-center justify-between">
+            {step === "code" && (
+              <div>
                 <label
-                  htmlFor="password"
-                  className="text-xs font-bold text-[var(--foreground)]"
+                  htmlFor="code"
+                  className="mb-2 block text-xs font-bold text-[var(--foreground)]"
                 >
-                  Password
+                  Six-digit access code
                 </label>
-                <button
-                  type="button"
-                  className="text-xs font-bold text-[var(--brand-primary)] hover:underline"
-                >
-                  Forgot password?
-                </button>
-              </div>
-              <div className="relative">
                 <input
-                  id="password"
-                  type={showPassword ? "text" : "password"}
-                  defaultValue="catalyst-demo"
-                  autoComplete="current-password"
-                  className="h-12 w-full rounded-xl border border-[var(--border-strong)] bg-[var(--surface)] px-4 pr-12 text-sm text-[var(--foreground)] outline-none transition-shadow focus:ring-2 focus:ring-[var(--brand-primary)]"
+                  id="code"
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]{6}"
+                  maxLength={6}
+                  value={code}
+                  onChange={(event) =>
+                    setCode(event.target.value.replace(/\D/g, "").slice(0, 6))
+                  }
+                  autoComplete="one-time-code"
+                  placeholder="000000"
+                  required
+                  className="h-12 w-full rounded-xl border border-[var(--border-strong)] bg-[var(--surface)] px-4 font-mono text-lg tracking-[0.35em] text-[var(--foreground)] outline-none transition-shadow focus:ring-2 focus:ring-[var(--brand-primary)]"
                 />
                 <button
                   type="button"
-                  onClick={() => setShowPassword((value) => !value)}
-                  className="absolute right-2 top-1/2 flex size-9 -translate-y-1/2 items-center justify-center rounded-lg text-[var(--muted-foreground)] hover:bg-[var(--surface-muted)]"
-                  aria-label={showPassword ? "Hide password" : "Show password"}
+                  onClick={() => {
+                    setStep("email");
+                    setCode("");
+                    setMessage(
+                      "Access is limited to pre-invited demonstration users.",
+                    );
+                  }}
+                  className="mt-2 text-xs font-bold text-[var(--brand-primary)] hover:underline"
                 >
-                  {showPassword ? (
-                    <EyeOff className="size-4" />
-                  ) : (
-                    <Eye className="size-4" />
-                  )}
+                  Use a different email
                 </button>
               </div>
+            )}
+
+            <div
+              role="status"
+              className="flex items-start gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface-subtle)] px-3 py-2.5 text-xs leading-5 text-[var(--muted-foreground)]"
+            >
+              {step === "email" ? (
+                <Mail className="mt-0.5 size-4 shrink-0" />
+              ) : (
+                <KeyRound className="mt-0.5 size-4 shrink-0" />
+              )}
+              {message}
             </div>
 
-            <Button type="submit" size="lg" className="w-full" disabled={loading}>
+            <Button
+              type="submit"
+              size="lg"
+              className="w-full"
+              disabled={
+                loading ||
+                !email.trim() ||
+                (step === "code" && code.length !== 6)
+              }
+            >
               {loading ? (
                 <>
                   <span className="size-4 animate-spin rounded-full border-2 border-white/35 border-t-white" />
-                  Opening workspace...
+                  {step === "email" ? "Sending code..." : "Verifying..."}
                 </>
               ) : (
                 <>
-                  Enter demonstration
+                  {step === "email"
+                    ? "Email my access code"
+                    : "Enter demonstration"}
                   <ArrowRight className="size-4" />
                 </>
               )}
@@ -260,7 +320,7 @@ export function LoginScreen() {
               </div>
               <div className="relative flex justify-center text-[10px] uppercase tracking-wider">
                 <span className="bg-[var(--background)] px-3 text-[var(--muted-foreground)]">
-                  Enterprise access
+                  Future enterprise access
                 </span>
               </div>
             </div>
@@ -270,11 +330,11 @@ export function LoginScreen() {
               variant="secondary"
               size="lg"
               className="w-full"
-              onClick={() => setLoading(false)}
+              disabled
             >
               <LockKeyhole className="size-4" />
               Continue with SSO
-              <Badge className="ml-auto">Preview</Badge>
+              <Badge className="ml-auto">Phase 5</Badge>
             </Button>
           </form>
 

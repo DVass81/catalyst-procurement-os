@@ -21,6 +21,7 @@ import type {
   VendorRiskAssessment,
 } from "@/demo/model";
 import { y12DemoTheme } from "@/config/organizations/y12-demo";
+import type { OrganizationTheme } from "@/demo/model";
 
 export const FEATURED_REQUEST_ID = "req-loan-officer-package";
 export const FEATURED_REQUEST_NUMBER = "Y12-PR-2026-00175";
@@ -622,13 +623,34 @@ const tutorialSteps: TutorialStep[] = tutorialBlueprints.map(
   }),
 );
 
-export function createDemoState(): DemoState {
+export function createDemoState(
+  organization: OrganizationTheme = y12DemoTheme,
+): DemoState {
+  const recordPrefix =
+    organization.organizationId === "org-y12-demo" ? "Y12" : "CCCU";
+  const emailDomain =
+    organization.organizationId === "org-y12-demo"
+      ? "y12-demo.example"
+      : "catalyst-community.example";
+  const users = seedUsers.map((user) => ({
+    ...user,
+    email: `${user.email.split("@")[0]}@${emailDomain}`,
+  }));
   const featuredRequest = createFeaturedRequest();
-  const requests = [featuredRequest, ...createOtherRequests()];
-  const purchaseOrders = createPurchaseOrders(requests);
+  const requests = [featuredRequest, ...createOtherRequests()].map(
+    (request) => ({
+      ...request,
+      requestNumber: request.requestNumber.replace(/^Y12-/, `${recordPrefix}-`),
+    }),
+  );
+  const purchaseOrders = createPurchaseOrders(requests).map((purchaseOrder) => ({
+    ...purchaseOrder,
+    poNumber: purchaseOrder.poNumber.replace(/^Y12-/, `${recordPrefix}-`),
+  }));
   return {
-    schemaVersion: 2,
-    organization: y12DemoTheme,
+    schemaVersion: 3,
+    organization,
+    presenterMode: true,
     activeUserId: "user-emma",
     activeRole: "requester",
     stage: "draft",
@@ -636,7 +658,7 @@ export function createDemoState(): DemoState {
     demoHighlights: true,
     tutorialMode: false,
     featuredRequestId: FEATURED_REQUEST_ID,
-    users: seedUsers,
+    users,
     departments: seedDepartments,
     locations: seedLocations,
     vendors: seedVendors,

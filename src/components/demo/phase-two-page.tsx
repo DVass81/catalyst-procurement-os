@@ -26,6 +26,11 @@ import {
 } from "recharts";
 
 import { useDemo } from "@/components/demo/demo-provider";
+import { AiWorkspace } from "@/components/ai/ai-workspace";
+import {
+  tenantThemes,
+  type TenantId,
+} from "@/config/organizations";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -266,10 +271,19 @@ function DashboardView({ state }: { state: DemoState }) {
     <>
       <section
         data-tour-id="dashboard-hero"
-        className="relative overflow-hidden rounded-[2rem] bg-[#041a6c] p-6 text-white shadow-[0_24px_70px_rgba(4,26,108,.24)] sm:p-8"
+        className="relative overflow-hidden rounded-[2rem] p-6 text-white shadow-[0_24px_70px_rgba(4,26,108,.24)] sm:p-8"
+        style={{
+          background: `linear-gradient(135deg, ${state.organization.primaryColor}, ${state.organization.sidebarColor})`,
+        }}
       >
-        <div className="absolute -right-20 -top-24 size-72 rounded-full bg-[#404287]/70 blur-3xl" />
-        <div className="absolute -bottom-28 left-1/3 size-72 rounded-full bg-[#cf4427]/28 blur-3xl" />
+        <div
+          className="absolute -right-20 -top-24 size-72 rounded-full opacity-70 blur-3xl"
+          style={{ backgroundColor: state.organization.secondaryColor }}
+        />
+        <div
+          className="absolute -bottom-28 left-1/3 size-72 rounded-full opacity-30 blur-3xl"
+          style={{ backgroundColor: state.organization.accentColor }}
+        />
         <div className="absolute inset-0 opacity-[0.08] [background-image:linear-gradient(rgba(255,255,255,.35)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.35)_1px,transparent_1px)] [background-size:36px_36px]" />
         <div className="relative flex flex-col justify-between gap-8 xl:flex-row xl:items-end">
           <div className="max-w-3xl">
@@ -277,20 +291,26 @@ function DashboardView({ state }: { state: DemoState }) {
               <span className="flex h-12 w-28 items-center justify-center rounded-xl border border-white/15 bg-white/[0.08] px-3 backdrop-blur">
                 <Image
                   src={state.organization.logoPath}
-                  alt="Y-12 Credit Union"
+                  alt={state.organization.organizationName}
                   width={108}
                   height={54}
                   className="h-auto w-full"
                 />
               </span>
-              <Badge className="border-[#ebbf5d]/25 bg-[#ebbf5d]/10 text-[#f0cb7c]">
+              <Badge
+                className="border-white/20 bg-white/10"
+                style={{ color: state.organization.accentColor }}
+              >
                 Executive command center
               </Badge>
               <Badge className="border-white/10 bg-white/10 text-white/80">
                 Friday, July 24
               </Badge>
             </div>
-            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#f0cb7c]">
+            <p
+              className="text-[10px] font-black uppercase tracking-[0.2em]"
+              style={{ color: state.organization.accentColor }}
+            >
               Catalyst Procurement OS
             </p>
             <h1 className="mt-3 max-w-3xl text-3xl font-black leading-tight tracking-[-0.05em] text-white sm:text-4xl">
@@ -832,6 +852,8 @@ function AuditView({ state }: { state: DemoState }) {
   );
 }
 
+// Retained as a small Phase 2 rollback surface; Phase 4 renders AiWorkspace.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function AiView({ state }: { state: DemoState }) {
   const [prompt, setPrompt] = useState("");
   const [answer, setAnswer] = useState("Ask about the featured request, approvals, PO, invoice exception, spend, contracts, or vendor risk.");
@@ -869,7 +891,12 @@ function GenericView({ section, state }: { section: string; state: DemoState }) 
 }
 
 export function PhaseTwoPage({ section }: { section: string }) {
-  const { state, replace } = useDemo();
+  const {
+    state,
+    replace,
+    activeTenantId,
+    switchTenant,
+  } = useDemo();
   const [message, setMessage] = useState<string | null>(null);
   const currentUser = state.users.find((user) => user.id === state.activeUserId)!;
   const roles = useMemo(() => Array.from(new Set(state.users.map((user) => user.role))), [state.users]);
@@ -887,8 +914,7 @@ export function PhaseTwoPage({ section }: { section: string }) {
     <div className="space-y-5">
       {state.noticeVisible && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-bold leading-5 text-amber-900">
-          Fictional demonstration data. This environment is not connected to Y-12 Credit Union systems.
-          Y-12 Credit Union has not endorsed, purchased, commissioned, approved, or implemented this software.
+          {state.organization.nonEndorsementNotice}
           <span className="ml-1 text-[var(--brand-primary)]">Powered by Catalyst Innovations.</span>
         </div>
       )}
@@ -901,19 +927,33 @@ export function PhaseTwoPage({ section }: { section: string }) {
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
+          <label className="sr-only" htmlFor="demo-tenant">Demo tenant</label>
+          <select
+            id="demo-tenant"
+            value={activeTenantId}
+            onChange={(event) => switchTenant(event.target.value as TenantId)}
+            disabled={!state.presenterMode}
+            className="h-9 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-xs font-bold"
+          >
+            {Object.entries(tenantThemes).map(([tenantId, tenant]) => (
+              <option key={tenantId} value={tenantId}>
+                {tenant.organizationShortName}
+              </option>
+            ))}
+          </select>
           <label className="sr-only" htmlFor="demo-role">Active demo role</label>
           <select id="demo-role" value={state.activeRole} onChange={(event) => execute(() => switchRole(state, event.target.value as DemoRole), "Active role changed")} className="h-9 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-xs font-bold">
             {roles.map((role) => <option key={role} value={role}>{titleCase(role)}</option>)}
           </select>
-          <select aria-label="Jump to workflow stage" defaultValue="" onChange={(event) => { if (event.target.value) { replace(jumpToStage(event.target.value as WorkflowStage)); setMessage(`Loaded ${titleCase(event.target.value)}`); } }} className="h-9 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-xs font-bold">
+          <select aria-label="Jump to workflow stage" defaultValue="" onChange={(event) => { if (event.target.value) { replace(jumpToStage(event.target.value as WorkflowStage, state)); setMessage(`Loaded ${titleCase(event.target.value)}`); } }} className="h-9 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-xs font-bold">
             <option value="">Jump to stage…</option>
             {["draft", "submitted", "approved", "po_draft", "acknowledged", "fully_received", "invoice_exception", "exception_routed"].map((stage) => <option key={stage} value={stage}>{titleCase(stage)}</option>)}
           </select>
-          <Button variant="secondary" size="sm" onClick={() => { replace(resetDemo()); setMessage("Deterministic demo restored"); }}><RefreshCw className="size-3.5" />Reset</Button>
+          <Button variant="secondary" size="sm" onClick={() => { replace(resetDemo(state)); setMessage("Deterministic demo restored"); }}><RefreshCw className="size-3.5" />Reset</Button>
         </div>
       </div>
       <WorkflowRail stage={state.stage} />
-      {section === "dashboard" ? <DashboardView state={state} /> : section === "purchase-requests" ? <RequestView state={state} execute={execute} /> : section === "approvals" ? <ApprovalView state={state} execute={execute} /> : section === "purchase-orders" ? <PurchaseOrderView state={state} execute={execute} /> : section === "receiving" ? <ReceivingView state={state} execute={execute} /> : section === "invoices" ? <InvoiceView state={state} execute={execute} /> : section === "audit-center" ? <AuditView state={state} /> : section === "ai-procurement" ? <AiView state={state} /> : <GenericView section={section} state={state} />}
+      {section === "dashboard" ? <DashboardView state={state} /> : section === "purchase-requests" ? <RequestView state={state} execute={execute} /> : section === "approvals" ? <ApprovalView state={state} execute={execute} /> : section === "purchase-orders" ? <PurchaseOrderView state={state} execute={execute} /> : section === "receiving" ? <ReceivingView state={state} execute={execute} /> : section === "invoices" ? <InvoiceView state={state} execute={execute} /> : section === "audit-center" ? <AuditView state={state} /> : section === "ai-procurement" ? <AiWorkspace /> : <GenericView section={section} state={state} />}
       {message && (
         <div role="status" className="fixed bottom-5 right-5 z-50 flex max-w-sm items-start gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface-elevated)] p-4 shadow-[var(--shadow-elevated)]">
           <Check className="mt-0.5 size-4 text-emerald-600" />

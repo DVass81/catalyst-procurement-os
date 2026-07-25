@@ -4,7 +4,7 @@ services:
   - name: web
     github:
       repo: DVass81/catalyst-procurement-os
-      branch: codex/phase-3-guided-sales-demo
+      branch: codex/phase-4-live-ai-concierge
       deploy_on_push: true
     dockerfile_path: Dockerfile
     http_port: 3000
@@ -24,14 +24,50 @@ services:
       - key: OPENAI_API_KEY
         type: SECRET
         scope: RUN_TIME
-      - key: OPENAI_REALTIME_MODEL
-        value: gpt-realtime
+      - key: APP_BASE_URL
+        value: https://catalyst-procurement-os-demo-6jouh.ondigitalocean.app
         scope: RUN_TIME
-      - key: OPENAI_REALTIME_VOICE
-        value: marin
+      - key: CATALYST_AI_MODE
+        value: auto
         scope: RUN_TIME
-      - key: DEMO_ALLOWED_ORIGINS
-        value: https://demo.catalystinnovations.example
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        type: SECRET
+        scope: RUN_AND_BUILD_TIME
+      - key: NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+        type: SECRET
+        scope: RUN_AND_BUILD_TIME
+      - key: SUPABASE_SECRET_KEY
+        type: SECRET
+        scope: RUN_TIME
+      - key: ACTION_CONFIRMATION_SECRET
+        type: SECRET
+        scope: RUN_TIME
+      - key: ELEVENLABS_API_KEY
+        type: SECRET
+        scope: RUN_TIME
+      - key: ELEVENLABS_AGENT_ID
+        type: SECRET
+        scope: RUN_TIME
+      - key: ELEVENLABS_VOICE_ID
+        type: SECRET
+        scope: RUN_TIME
+      - key: ELEVENLABS_TOOL_SECRET
+        type: SECRET
+        scope: RUN_TIME
+      - key: ELEVENLABS_WEBHOOK_SECRET
+        type: SECRET
+        scope: RUN_TIME
+      - key: GOOGLE_CLIENT_ID
+        type: SECRET
+        scope: RUN_TIME
+      - key: GOOGLE_CLIENT_SECRET
+        type: SECRET
+        scope: RUN_TIME
+      - key: GOOGLE_OAUTH_STATE_SECRET
+        type: SECRET
+        scope: RUN_TIME
+      - key: TOKEN_ENCRYPTION_KEY
+        type: SECRET
         scope: RUN_TIME
 ingress:
   rules:
