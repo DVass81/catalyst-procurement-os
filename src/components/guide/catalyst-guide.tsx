@@ -62,7 +62,7 @@ export function CatalystGuide() {
                 </Badge>
               </div>
               <p className="mt-0.5 text-[10px] text-white/60">
-                Your procurement demonstration concierge
+                Your warm, natural procurement demonstration concierge
               </p>
             </div>
             <button
