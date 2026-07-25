@@ -44,12 +44,10 @@ export async function POST(request: Request) {
     );
   }
   const supabase = await createSupabaseServerClient();
-  const requestUrl = new URL(request.url);
   const { error } = await supabase.auth.signInWithOtp({
     email: parsed.data.email,
     options: {
       shouldCreateUser: false,
-      emailRedirectTo: `${requestUrl.origin}/auth/callback`,
     },
   });
   if (error) {
