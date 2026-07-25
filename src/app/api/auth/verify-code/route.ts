@@ -10,7 +10,7 @@ import {
 
 const bodySchema = z.object({
   email: z.string().trim().email().max(320),
-  token: z.string().trim().regex(/^\d{6}$/),
+  token: z.string().trim().regex(/^[A-Za-z0-9]{6,8}$/),
 });
 
 export async function POST(request: Request) {
