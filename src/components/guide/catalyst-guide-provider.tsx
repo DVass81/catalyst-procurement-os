@@ -13,6 +13,11 @@ import { usePathname, useRouter } from "next/navigation";
 
 import { useDemo } from "@/components/demo/demo-provider";
 import { jumpToStage, switchRole } from "@/demo/workflow";
+import {
+  narrationChunks,
+  narrationRate,
+  selectPreferredNarrator,
+} from "@/lib/natural-narration";
 import { titleCase } from "@/lib/utils";
 import { answerGuideQuestion } from "@/tour/guide-knowledge";
 import { getGuidedTour } from "@/tour/tours";
@@ -62,18 +67,19 @@ function pageTitle(pathname: string) {
   return segment === "ai-procurement" ? "AI Procurement" : titleCase(segment);
 }
 
-function preferredNarrator() {
-  const voices = window.speechSynthesis?.getVoices() ?? [];
-  const preferredNames = ["Ava", "Aria", "Jenny", "Samantha", "Zira", "Female"];
-  return (
-    voices.find(
-      (voice) =>
-        voice.lang.startsWith("en-US") &&
-        preferredNames.some((name) => voice.name.includes(name)),
-    ) ??
-    voices.find((voice) => voice.lang.startsWith("en-US")) ??
-    voices.find((voice) => voice.lang.startsWith("en"))
-  );
+async function loadNarratorVoices() {
+  const synthesis = window.speechSynthesis;
+  const loaded = synthesis.getVoices();
+  if (loaded.length > 0) return loaded;
+
+  return new Promise<SpeechSynthesisVoice[]>((resolve) => {
+    const finish = () => {
+      synthesis.removeEventListener("voiceschanged", finish);
+      resolve(synthesis.getVoices());
+    };
+    synthesis.addEventListener("voiceschanged", finish, { once: true });
+    window.setTimeout(finish, 1_200);
+  });
 }
 
 export function CatalystGuideProvider({
@@ -99,25 +105,56 @@ export function CatalystGuideProvider({
   const peerRef = useRef<RTCPeerConnection | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const narrationRunRef = useRef(0);
   const tour = tourId ? getGuidedTour(tourId) : undefined;
   const step = tour?.steps[stepIndex];
 
   const stopNarration = useCallback(() => {
+    narrationRunRef.current += 1;
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
       window.speechSynthesis.cancel();
     }
   }, []);
 
   const narrate = useCallback(
-    (text: string) => {
+    async (text: string) => {
       stopNarration();
-      if (!narrationEnabled || !("speechSynthesis" in window)) return;
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.voice = preferredNarrator() ?? null;
-      utterance.rate = 0.94;
-      utterance.pitch = 1;
-      utterance.volume = 1;
-      window.speechSynthesis.speak(utterance);
+      if (
+        !narrationEnabled ||
+        !("speechSynthesis" in window) ||
+        !("SpeechSynthesisUtterance" in window)
+      ) {
+        return;
+      }
+
+      const runId = narrationRunRef.current;
+      const synthesis = window.speechSynthesis;
+      const voices = await loadNarratorVoices();
+      if (runId !== narrationRunRef.current) return;
+
+      const voice = selectPreferredNarrator(voices);
+      const chunks = narrationChunks(text);
+
+      const speakChunk = (index: number) => {
+        if (runId !== narrationRunRef.current || index >= chunks.length) return;
+        const utterance = new SpeechSynthesisUtterance(chunks[index]);
+        utterance.voice = voice ?? null;
+        utterance.rate = narrationRate(voice);
+        utterance.pitch = 0.98;
+        utterance.volume = 1;
+        utterance.onend = () => {
+          if (runId !== narrationRunRef.current) return;
+          window.setTimeout(() => speakChunk(index + 1), 180);
+        };
+        utterance.onerror = (event) => {
+          if (event.error !== "canceled" && runId === narrationRunRef.current) {
+            window.setTimeout(() => speakChunk(index + 1), 120);
+          }
+        };
+        synthesis.speak(utterance);
+      };
+
+      speakChunk(0);
     },
     [narrationEnabled, stopNarration],
   );
@@ -143,7 +180,7 @@ export function CatalystGuideProvider({
       target?.scrollIntoView({ behavior: "smooth", block: "center" });
     }, pathname === step.route ? 120 : 560);
     const narrationTimer = window.setTimeout(
-      () => narrate(step.narration),
+      () => void narrate(step.narration),
       pathname === step.route ? 240 : 720,
     );
 
@@ -311,7 +348,7 @@ export function CatalystGuideProvider({
       },
       resume: () => {
         setStatus("running");
-        if (step) narrate(step.narration);
+        if (step) void narrate(step.narration);
       },
       next: () => {
         if (!tour) return;
@@ -345,7 +382,7 @@ export function CatalystGuideProvider({
         setStatus("asking");
         const response = answerGuideQuestion(question, currentContext());
         setAnswer(response);
-        if (narrationEnabled) narrate(response);
+        if (narrationEnabled) void narrate(response);
         return response;
       },
       setCaptionsEnabled,
