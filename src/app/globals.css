@@ -10,37 +10,37 @@
 :root {
   color-scheme: light;
 
-  --background: #f6f7fb;
-  --foreground: #111827;
+  --background: #f7f6f1;
+  --foreground: #101b3b;
   --surface: #ffffff;
-  --surface-subtle: #f9fafb;
-  --surface-muted: #f2f4f7;
+  --surface-subtle: #fbfaf6;
+  --surface-muted: #f1eee7;
   --surface-raised: #ffffff;
   --surface-elevated: #ffffff;
   --surface-overlay: rgb(255 255 255 / 94%);
-  --border: #e4e7ec;
-  --border-strong: #d0d5dd;
-  --input: #d0d5dd;
-  --ring: #0077d4;
+  --border: #e5e1d8;
+  --border-strong: #d4cec2;
+  --input: #d4cec2;
+  --ring: #cf4427;
 
-  --muted: #f2f4f7;
+  --muted: #f1eee7;
   --muted-foreground: #667085;
-  --subtle-foreground: #697386;
+  --subtle-foreground: #73788a;
   --card: #ffffff;
-  --card-foreground: #101828;
+  --card-foreground: #101b3b;
   --popover: #ffffff;
-  --popover-foreground: #101828;
+  --popover-foreground: #101b3b;
 
-  --brand-primary: var(--org-primary, #003c79);
-  --brand-primary-hover: #002f60;
-  --brand-primary-active: #001f40;
+  --brand-primary: var(--org-primary, #041a6c);
+  --brand-primary-hover: #061f7f;
+  --brand-primary-active: #031450;
   --brand-primary-foreground: #ffffff;
-  --brand-secondary: var(--org-secondary, #0077d4);
+  --brand-secondary: var(--org-secondary, #cf4427);
   --brand-secondary-foreground: #ffffff;
-  --brand-accent: var(--org-accent, #f37120);
-  --brand-accent-foreground: #111827;
-  --brand-soft: #e8f5ff;
-  --brand-soft-foreground: #003c79;
+  --brand-accent: var(--org-accent, #ebbf5d);
+  --brand-accent-foreground: #101b3b;
+  --brand-soft: #f9edce;
+  --brand-soft-foreground: #041a6c;
 
   --success: #15803d;
   --success-soft: #ecfdf3;
@@ -51,11 +51,11 @@
   --info: #175cd3;
   --info-soft: #eff8ff;
 
-  --chart-1: #003c79;
-  --chart-2: #0077d4;
-  --chart-3: #f37120;
-  --chart-4: #ffc726;
-  --chart-5: #98ccc9;
+  --chart-1: #041a6c;
+  --chart-2: #cf4427;
+  --chart-3: #ebbf5d;
+  --chart-4: #404287;
+  --chart-5: #f0cb7c;
 
   --elevation-xs: 0 1px 2px rgb(16 24 40 / 5%);
   --elevation-sm:
@@ -68,8 +68,8 @@
     0 4px 12px -4px rgb(16 24 40 / 8%);
   --shadow-card: var(--elevation-xs);
   --shadow-elevated: var(--elevation-lg);
-  --chart-grid: #e9ecf2;
-  --shadow-focus: 0 0 0 3px rgb(0 119 212 / 22%);
+  --chart-grid: #e9e3d8;
+  --shadow-focus: 0 0 0 3px rgb(207 68 39 / 22%);
 
   --radius: 0.75rem;
 
@@ -86,18 +86,18 @@
 .dark {
   color-scheme: dark;
 
-  --background: #0b0d12;
+  --background: #071032;
   --foreground: #f2f4f7;
-  --surface: #12151c;
-  --surface-subtle: #171a22;
-  --surface-muted: #1d212b;
-  --surface-raised: #191d26;
-  --surface-elevated: #191d26;
-  --surface-overlay: rgb(18 21 28 / 94%);
-  --border: #252a35;
-  --border-strong: #343a49;
-  --input: #343a49;
-  --ring: #66b9ff;
+  --surface: #0d1947;
+  --surface-subtle: #111e50;
+  --surface-muted: #17245a;
+  --surface-raised: #142153;
+  --surface-elevated: #142153;
+  --surface-overlay: rgb(13 25 71 / 94%);
+  --border: #28386f;
+  --border-strong: #3a4b86;
+  --input: #3a4b86;
+  --ring: #f0cb7c;
 
   --muted: #1d212b;
   --muted-foreground: #98a2b3;
@@ -107,16 +107,16 @@
   --popover: #191d26;
   --popover-foreground: #f2f4f7;
 
-  --brand-primary: #66b9ff;
-  --brand-primary-hover: #8acaff;
-  --brand-primary-active: #0077d4;
-  --brand-primary-foreground: #11131a;
-  --brand-secondary: #98ccc9;
-  --brand-secondary-foreground: #001f40;
-  --brand-accent: #ff9d62;
-  --brand-accent-foreground: #22140b;
-  --brand-soft: #0b2f53;
-  --brand-soft-foreground: #c7e8ff;
+  --brand-primary: #f0cb7c;
+  --brand-primary-hover: #f6d99a;
+  --brand-primary-active: #ebbf5d;
+  --brand-primary-foreground: #041a6c;
+  --brand-secondary: #f07a60;
+  --brand-secondary-foreground: #ffffff;
+  --brand-accent: #ebbf5d;
+  --brand-accent-foreground: #041a6c;
+  --brand-soft: #27366e;
+  --brand-soft-foreground: #f7e3b4;
 
   --success: #6ce9a6;
   --success-soft: #11362a;
@@ -140,18 +140,18 @@
 @media (prefers-color-scheme: dark) {
   :root:not(.light) {
     color-scheme: dark;
-    --background: #0b0d12;
+    --background: #071032;
     --foreground: #f2f4f7;
-    --surface: #12151c;
-    --surface-subtle: #171a22;
-    --surface-muted: #1d212b;
-    --surface-raised: #191d26;
-    --surface-elevated: #191d26;
-    --surface-overlay: rgb(18 21 28 / 94%);
-    --border: #252a35;
-    --border-strong: #343a49;
-    --input: #343a49;
-    --ring: #66b9ff;
+    --surface: #0d1947;
+    --surface-subtle: #111e50;
+    --surface-muted: #17245a;
+    --surface-raised: #142153;
+    --surface-elevated: #142153;
+    --surface-overlay: rgb(13 25 71 / 94%);
+    --border: #28386f;
+    --border-strong: #3a4b86;
+    --input: #3a4b86;
+    --ring: #f0cb7c;
     --muted: #1d212b;
     --muted-foreground: #98a2b3;
     --subtle-foreground: #a4adbd;
@@ -159,16 +159,16 @@
     --card-foreground: #f2f4f7;
     --popover: #191d26;
     --popover-foreground: #f2f4f7;
-    --brand-primary: #66b9ff;
-    --brand-primary-hover: #8acaff;
-    --brand-primary-active: #0077d4;
-    --brand-primary-foreground: #11131a;
-    --brand-secondary: #98ccc9;
-    --brand-secondary-foreground: #001f40;
-    --brand-accent: #ff9d62;
-    --brand-accent-foreground: #22140b;
-    --brand-soft: #0b2f53;
-    --brand-soft-foreground: #c7e8ff;
+    --brand-primary: #f0cb7c;
+    --brand-primary-hover: #f6d99a;
+    --brand-primary-active: #ebbf5d;
+    --brand-primary-foreground: #041a6c;
+    --brand-secondary: #f07a60;
+    --brand-secondary-foreground: #ffffff;
+    --brand-accent: #ebbf5d;
+    --brand-accent-foreground: #041a6c;
+    --brand-soft: #27366e;
+    --brand-soft-foreground: #f7e3b4;
     --success: #6ce9a6;
     --success-soft: #11362a;
     --warning: #fec84b;
@@ -264,8 +264,9 @@
     overflow-x: clip;
     background-color: var(--background);
     background-image:
-      linear-gradient(rgb(0 60 121 / 0.018) 1px, transparent 1px),
-      linear-gradient(90deg, rgb(0 60 121 / 0.018) 1px, transparent 1px);
+      radial-gradient(circle at 82% 0%, rgb(235 191 93 / 0.08), transparent 28rem),
+      linear-gradient(rgb(4 26 108 / 0.018) 1px, transparent 1px),
+      linear-gradient(90deg, rgb(4 26 108 / 0.018) 1px, transparent 1px);
     background-size: 32px 32px;
     color: var(--foreground);
     font-family: "Aptos", "Segoe UI Variable", "Segoe UI", sans-serif;
@@ -375,6 +376,16 @@
     border-color: var(--border-strong);
     box-shadow: var(--elevation-sm);
     transform: translateY(-1px);
+  }
+
+  [data-tour-active="true"] {
+    position: relative;
+    z-index: 75 !important;
+    border-color: #ebbf5d !important;
+    box-shadow:
+      0 0 0 4px rgb(235 191 93 / 35%),
+      0 24px 72px rgb(4 26 108 / 28%) !important;
+    isolation: isolate;
   }
 
   .glass-panel {

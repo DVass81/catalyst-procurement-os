@@ -34,26 +34,53 @@ export function LoginScreen() {
   }
 
   return (
-    <main className="grid min-h-screen bg-[var(--surface)] lg:grid-cols-[1.05fr_0.95fr]">
-      <section className="relative hidden overflow-hidden border-r border-[var(--border)] bg-[#0f1d36] px-12 py-10 text-white lg:flex lg:flex-col xl:px-16">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_12%_10%,rgba(79,70,229,0.42),transparent_38%),radial-gradient(circle_at_82%_78%,rgba(15,118,110,0.32),transparent_36%)]" />
-        <div className="absolute inset-0 opacity-[0.08] [background-image:linear-gradient(rgba(255,255,255,.35)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.35)_1px,transparent_1px)] [background-size:40px_40px]" />
+    <main className="grid min-h-screen bg-[var(--surface)] lg:grid-cols-[1.08fr_0.92fr]">
+      <section className="relative hidden overflow-hidden border-r border-white/10 bg-[#041a6c] px-12 py-10 text-white lg:flex lg:flex-col xl:px-16">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_12%_10%,rgba(64,66,135,0.72),transparent_38%),radial-gradient(circle_at_82%_78%,rgba(207,68,39,0.34),transparent_36%),radial-gradient(circle_at_52%_42%,rgba(235,191,93,0.12),transparent_30%)]" />
+        <div className="absolute inset-0 opacity-[0.09] [background-image:linear-gradient(rgba(255,255,255,.35)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.35)_1px,transparent_1px)] [background-size:40px_40px]" />
+        <div className="absolute -left-20 bottom-20 size-72 rounded-full border-[52px] border-[#ebbf5d]/10" />
 
-        <div className="relative z-10">
+        <div className="relative z-10 flex items-center justify-between">
           <BrandMark className="[&_p]:text-white [&_p:last-child]:text-white/55" />
+          <Badge className="border-[#ebbf5d]/25 bg-[#ebbf5d]/10 text-[#f0cb7c]">
+            Private sales demonstration
+          </Badge>
         </div>
 
         <div className="relative z-10 my-auto max-w-2xl py-16">
+          <div className="mb-8 flex items-center gap-5">
+            <div className="rounded-2xl border border-white/15 bg-white/[0.08] p-4 shadow-2xl backdrop-blur">
+              <Image
+                src={organization.logoPath}
+                alt="Y-12 Credit Union"
+                width={176}
+                height={88}
+                priority
+                className="h-auto w-44"
+              />
+            </div>
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-[#f0cb7c]">
+                Personalized for
+              </p>
+              <p className="mt-1 text-sm font-bold text-white">
+                Y-12 Credit Union
+              </p>
+              <p className="mt-0.5 text-[10px] text-white/45">
+                Fictional demonstration data
+              </p>
+            </div>
+          </div>
           <Badge className="mb-6 border-white/15 bg-white/10 text-white">
             <Sparkles className="mr-1.5 size-3.5" />
-            The intelligence layer for modern procurement
+            Catalyst Guide Live is ready
           </Badge>
           <h1 className="max-w-xl text-4xl font-bold leading-[1.08] tracking-[-0.045em] text-white xl:text-5xl">
-            Make every purchasing decision count.
+            Procurement that feels ten years ahead.
           </h1>
           <p className="mt-5 max-w-xl text-base leading-7 text-slate-300">
-            Catalyst brings spend, suppliers, contracts, risk, and approvals
-            into one beautifully intelligent operating system.
+            One connected operating system for purchasing, approvals, vendor
+            risk, receiving, invoices, savings, and examiner-ready evidence.
           </p>
 
           <motion.div
@@ -87,7 +114,7 @@ export function LoginScreen() {
                       duration: 0.45,
                       delay: 0.25 + index * 0.025,
                     }}
-                    className="flex-1 rounded-t-md bg-gradient-to-t from-indigo-500/45 to-indigo-300"
+                    className="flex-1 rounded-t-md bg-gradient-to-t from-[#cf4427]/55 to-[#ebbf5d]"
                   />
                 ),
               )}
@@ -104,7 +131,7 @@ export function LoginScreen() {
                     key={item.label}
                     className="rounded-2xl border border-white/10 bg-white/[0.06] p-3"
                   >
-                    <Icon className="size-4 text-indigo-300" />
+                    <Icon className="size-4 text-[#f0cb7c]" />
                     <p className="mt-3 text-lg font-bold text-white">{item.value}</p>
                     <p className="text-[10px] text-slate-400">{item.label}</p>
                   </div>
@@ -134,16 +161,16 @@ export function LoginScreen() {
 
           <div className="mb-8">
             <div className="mb-5 inline-flex items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 shadow-sm">
-              <span className="flex h-8 w-16 items-center justify-center rounded-lg bg-[#003C79] px-1.5">
+              <span className="flex h-12 w-24 items-center justify-center rounded-xl bg-[#041A6C] px-2.5 shadow-lg">
                 <Image
                   src={organization.logoPath}
                   alt="Y-12 Credit Union"
-                  width={60}
-                  height={30}
+                  width={96}
+                  height={48}
                   className="h-auto w-full"
                 />
               </span>
-              <span className="text-xs font-bold text-[var(--foreground)]">
+              <span className="text-sm font-bold text-[var(--foreground)]">
                 {organization.name}
               </span>
               <Badge className="ml-1" tone="info">
@@ -262,8 +289,8 @@ export function LoginScreen() {
                   Safe fictional environment
                 </p>
                 <p className="mt-1 text-[11px] leading-5 text-[var(--muted-foreground)]">
-                  This Phase 1 interface does not authenticate, transmit
-                  credentials, or persist procurement activity.
+                  This private demo uses fictional records and is not connected
+                  to Y-12 systems. Financial actions remain human-controlled.
                 </p>
               </div>
             </div>
