@@ -52,6 +52,12 @@ describe("Catalyst Guide safeguards", () => {
     expect(answerGuideQuestion("What is the pilot price?", context)).toContain(
       "$2,500",
     );
+    expect(
+      answerGuideQuestion(
+        "How much did the inventory recommendation save?",
+        context,
+      ),
+    ).toContain("$1,047");
   });
 
   it("sanitizes browser-supplied context", () => {
