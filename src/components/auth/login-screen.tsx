@@ -214,7 +214,8 @@ export function LoginScreen() {
               Welcome to Catalyst
             </h2>
             <p className="mt-2 text-sm leading-6 text-[var(--muted-foreground)]">
-              Sign in with an invited email and a one-time access code.
+              Sign in with an invited email. We&apos;ll send a secure,
+              one-time sign-in link.
             </p>
           </div>
 
@@ -244,7 +245,7 @@ export function LoginScreen() {
                   htmlFor="code"
                   className="mb-2 block text-xs font-bold text-[var(--foreground)]"
                 >
-                  Six-digit access code
+                  Six-digit access code (if included)
                 </label>
                 <input
                   id="code"
@@ -307,7 +308,7 @@ export function LoginScreen() {
               ) : (
                 <>
                   {step === "email"
-                    ? "Email my access code"
+                    ? "Email my secure sign-in link"
                     : "Enter demonstration"}
                   <ArrowRight className="size-4" />
                 </>
