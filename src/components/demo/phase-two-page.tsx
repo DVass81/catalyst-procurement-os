@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useMemo, useState } from "react";
 import {
   AlertTriangle,
@@ -192,11 +193,21 @@ function MetricCards({
 }) {
   return (
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-      {metrics.map(([label, value, detail]) => (
-        <Card key={label}>
-          <CardContent className="p-4">
+      {metrics.map(([label, value, detail], index) => (
+        <Card
+          key={label}
+          className="group relative overflow-hidden transition duration-200 hover:-translate-y-0.5 hover:shadow-[var(--shadow-elevated)]"
+        >
+          <span
+            className={`absolute inset-x-0 top-0 h-1 ${
+              ["bg-[#041a6c]", "bg-[#cf4427]", "bg-[#ebbf5d]", "bg-[#404287]"][
+                index % 4
+              ]
+            }`}
+          />
+          <CardContent className="p-4 pt-5">
             <p className="text-[11px] font-bold text-[var(--muted-foreground)]">{label}</p>
-            <p className="mt-2 text-2xl font-black tracking-[-0.04em]">{value}</p>
+            <p className="mt-2 text-2xl font-black tracking-[-0.04em] text-[#101b3b] dark:text-white">{value}</p>
             <p className="mt-2 text-[10px] text-[var(--muted-foreground)]">{detail}</p>
           </CardContent>
         </Card>
@@ -253,11 +264,64 @@ function DashboardView({ state }: { state: DemoState }) {
   ] as const;
   return (
     <>
-      <SectionHeader
-        eyebrow="Executive intelligence"
-        title="A connected view of procurement performance"
-        description="Every metric is derived from deterministic fictional records and updates as the featured workflow advances."
-      />
+      <section
+        data-tour-id="dashboard-hero"
+        className="relative overflow-hidden rounded-[2rem] bg-[#041a6c] p-6 text-white shadow-[0_24px_70px_rgba(4,26,108,.24)] sm:p-8"
+      >
+        <div className="absolute -right-20 -top-24 size-72 rounded-full bg-[#404287]/70 blur-3xl" />
+        <div className="absolute -bottom-28 left-1/3 size-72 rounded-full bg-[#cf4427]/28 blur-3xl" />
+        <div className="absolute inset-0 opacity-[0.08] [background-image:linear-gradient(rgba(255,255,255,.35)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.35)_1px,transparent_1px)] [background-size:36px_36px]" />
+        <div className="relative flex flex-col justify-between gap-8 xl:flex-row xl:items-end">
+          <div className="max-w-3xl">
+            <div className="mb-6 flex flex-wrap items-center gap-3">
+              <span className="flex h-12 w-28 items-center justify-center rounded-xl border border-white/15 bg-white/[0.08] px-3 backdrop-blur">
+                <Image
+                  src={state.organization.logoPath}
+                  alt="Y-12 Credit Union"
+                  width={108}
+                  height={54}
+                  className="h-auto w-full"
+                />
+              </span>
+              <Badge className="border-[#ebbf5d]/25 bg-[#ebbf5d]/10 text-[#f0cb7c]">
+                Executive command center
+              </Badge>
+              <Badge className="border-white/10 bg-white/10 text-white/80">
+                Friday, July 24
+              </Badge>
+            </div>
+            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#f0cb7c]">
+              Catalyst Procurement OS
+            </p>
+            <h1 className="mt-3 max-w-3xl text-3xl font-black leading-tight tracking-[-0.05em] text-white sm:text-4xl">
+              Good afternoon, Maya. Procurement is operating within plan.
+            </h1>
+            <p className="mt-4 max-w-2xl text-sm leading-6 text-white/65">
+              One connected view of spend, savings, approvals, vendor risk,
+              contracts, invoice exceptions, and examiner-ready evidence.
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:w-[28rem]">
+            {[
+              ["Control coverage", "98.6%"],
+              ["Spend under contract", "84.2%"],
+              ["Open exceptions", String(projection.invoiceExceptions)],
+            ].map(([label, value]) => (
+              <div
+                key={label}
+                className="rounded-2xl border border-white/10 bg-white/[0.08] p-4 backdrop-blur"
+              >
+                <p className="text-2xl font-black tracking-[-0.04em] text-white">
+                  {value}
+                </p>
+                <p className="mt-1 text-[9px] font-bold uppercase tracking-wider text-white/45">
+                  {label}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
       <MetricCards
         metrics={[
           ["YTD spend", money(projection.yearToDateSpendCents), "From ten fictional department budgets"],
@@ -287,20 +351,20 @@ function DashboardView({ state }: { state: DemoState }) {
               <AreaChart data={chartData}>
                 <defs>
                   <linearGradient id="spend" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#0077D4" stopOpacity={0.3} />
-                    <stop offset="100%" stopColor="#0077D4" stopOpacity={0} />
+                    <stop offset="0%" stopColor="#CF4427" stopOpacity={0.28} />
+                    <stop offset="100%" stopColor="#CF4427" stopOpacity={0} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid stroke="var(--chart-grid)" vertical={false} />
                 <XAxis dataKey="month" tickLine={false} axisLine={false} fontSize={10} />
                 <YAxis tickLine={false} axisLine={false} fontSize={10} width={46} />
                 <Tooltip formatter={(value) => formatCurrency(Number(value))} />
-                <Area dataKey="spend" stroke="#0077D4" fill="url(#spend)" strokeWidth={2.5} />
+                <Area dataKey="spend" stroke="#CF4427" fill="url(#spend)" strokeWidth={2.5} />
               </AreaChart>
             </ResponsiveContainer>
           </CardContent>
         </Card>
-        <Card>
+        <Card data-tour-id="ai-insights" className="overflow-hidden border-[#ebbf5d]/35">
           <CardHeader>
             <div>
               <h2 className="font-black">AI Insights</h2>
@@ -333,7 +397,7 @@ function DashboardView({ state }: { state: DemoState }) {
                   <XAxis dataKey="name" tickLine={false} axisLine={false} fontSize={9} interval={0} angle={-18} textAnchor="end" height={56} />
                   <YAxis tickLine={false} axisLine={false} fontSize={9} width={42} />
                   <Tooltip formatter={(value) => Number(value).toLocaleString("en-US", { maximumFractionDigits: 1 })} />
-                  <Bar dataKey="value" fill="#003C79" radius={[5, 5, 0, 0]} />
+                  <Bar dataKey="value" fill="#041A6C" radius={[5, 5, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </CardContent>
@@ -568,7 +632,7 @@ function ApprovalView({
         title="Approvals"
         description="Process the featured request sequentially with visible role ownership, budget impact, sourcing evidence, and segregation of duties."
       />
-      <Card>
+      <Card data-tour-id="approval-center">
         <CardHeader><h2 className="font-black">Approval queue</h2></CardHeader>
         <CardContent>
           <DataTable
@@ -641,7 +705,7 @@ function PurchaseOrderView({ state, execute }: { state: DemoState; execute: (com
   return (
     <>
       <SectionHeader eyebrow="Purchase order lifecycle" title="Purchase Orders" description="Create, issue, and acknowledge the featured PO only after all required human approvals." />
-      <Card>
+      <Card data-tour-id="purchase-order-lifecycle">
         <CardHeader><h2 className="font-black">Purchase-order lifecycle queue · 50 seeded records</h2></CardHeader>
         <CardContent>
           <DataTable columns={["PO", "Request", "Vendor", "Total", "Status", "Expected", "Receipt", "Invoice", "Contract"]} rows={state.purchaseOrders.map((candidate) => [
@@ -680,7 +744,7 @@ function ReceivingView({ state, execute }: { state: DemoState; execute: (command
   return (
     <>
       <SectionHeader eyebrow="Controlled receiving" title="Receiving" description="Record the external receipt separately from the three-monitor internal transfer." />
-      <Card>
+      <Card data-tour-id="receiving-workspace">
         <CardHeader><h2 className="font-black">Receiving operations</h2></CardHeader>
         <CardContent>
           <DataTable columns={["PO", "Vendor", "Expected", "Lifecycle", "Receipt", "Destination"]} rows={state.purchaseOrders.map((candidate) => [
@@ -735,7 +799,7 @@ function InvoiceView({ state, execute }: { state: DemoState; execute: (command: 
       ) : (
         <>
           <MetricCards metrics={[["PO total", money(po?.totalCents ?? 0), "Approved"], ["Receipt value", money(receipt?.totalValueCents ?? 0), "Accepted"], ["Invoice total", money(invoice.totalCents), "Includes freight"], ["Variance", money(invoice.varianceCents), "Unexpected freight"]]} />
-          <Card className="border-rose-200"><CardContent className="p-5"><div className="flex gap-3"><AlertTriangle className="size-5 text-rose-600" /><div><h2 className="font-black">Exception — Freight variance requires review</h2><p className="mt-1 text-sm text-[var(--muted-foreground)]">{invoice.varianceReason}</p><p className="mt-3 text-xs font-bold text-rose-700">Human approval remains required. Payment is on hold.</p></div></div></CardContent></Card>
+          <Card data-tour-id="invoice-exception" className="border-rose-200 bg-gradient-to-br from-white to-rose-50"><CardContent className="p-5"><div className="flex gap-3"><AlertTriangle className="size-5 text-rose-600" /><div><h2 className="font-black">Exception — Freight variance requires review</h2><p className="mt-1 text-sm text-[var(--muted-foreground)]">{invoice.varianceReason}</p><p className="mt-3 text-xs font-bold text-rose-700">Human approval remains required. Payment is on hold.</p></div></div></CardContent></Card>
           <div className="flex flex-wrap gap-2">
             <Button disabled={state.stage !== "invoice_exception"} onClick={() => execute(() => resolveInvoiceException(state, "route"), "Exception routed to Finance")}>Route for exception approval</Button>
             <Button variant="secondary" disabled={!["invoice_exception", "exception_routed"].includes(state.stage)} onClick={() => execute(() => switchRole(state, "finance_reviewer"), "Switched to Finance Reviewer")}>Switch to Finance</Button>
@@ -760,7 +824,9 @@ function AuditView({ state }: { state: DemoState }) {
         <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--muted-foreground)]" />
         <input value={query} onChange={(event) => setQuery(event.target.value)} aria-label="Filter audit events" placeholder="Filter by event, entity, request, PO, or invoice" className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] pl-9 pr-3 text-xs" />
       </div>
-      <DataTable columns={["Time", "Role", "Action", "Entity", "Previous", "New", "Description"]} rows={events.slice().reverse().map((event) => [event.timestamp, titleCase(event.role), event.action, `${event.entityType} · ${event.entityId}`, event.previousValue ?? "—", event.newValue ?? "—", event.description])} />
+      <div data-tour-id="audit-evidence">
+        <DataTable columns={["Time", "Role", "Action", "Entity", "Previous", "New", "Description"]} rows={events.slice().reverse().map((event) => [event.timestamp, titleCase(event.role), event.action, `${event.entityType} · ${event.entityId}`, event.previousValue ?? "—", event.newValue ?? "—", event.description])} />
+      </div>
       <Button variant="secondary"><FileCheck2 className="size-4" />Export Audit Package</Button>
     </>
   );
@@ -782,7 +848,7 @@ function AiView({ state }: { state: DemoState }) {
   return (
     <>
       <SectionHeader eyebrow="Deterministic assistant" title="AI Procurement" description="Structured Demo AI answers grounded only in fictional seeded records. Human review remains mandatory." />
-      <Card><CardContent className="p-5"><div className="flex gap-3"><Bot className="size-5 text-[var(--brand-secondary)]" /><p className="text-sm leading-6">{answer}</p></div><div className="mt-4 flex gap-2"><input value={prompt} onChange={(event) => setPrompt(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") ask(prompt); }} placeholder="Ask the fictional procurement workspace…" className="h-11 flex-1 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm" /><Button onClick={() => ask(prompt)}>Ask Demo AI</Button></div></CardContent></Card>
+      <Card data-tour-id="demo-ai-workspace" className="overflow-hidden border-[#404287]/25 bg-gradient-to-br from-white via-white to-[#404287]/[0.06]"><CardContent className="p-5"><div className="flex gap-3"><Bot className="size-5 text-[var(--brand-secondary)]" /><p className="text-sm leading-6">{answer}</p></div><div className="mt-4 flex gap-2"><input value={prompt} onChange={(event) => setPrompt(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") ask(prompt); }} placeholder="Ask the fictional procurement workspace…" className="h-11 flex-1 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm" /><Button onClick={() => ask(prompt)}>Ask Demo AI</Button></div></CardContent></Card>
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{["Create a request for three new loan officers.", "What requests are waiting on me?", "Where is purchase order Y12-PO-2026-00482?", "Which invoices have exceptions?"].map((suggestion) => <button key={suggestion} onClick={() => { setPrompt(suggestion); ask(suggestion); }} className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3 text-left text-xs font-bold hover:border-[var(--brand-secondary)]">{suggestion}</button>)}</div>
     </>
   );
@@ -826,12 +892,12 @@ export function PhaseTwoPage({ section }: { section: string }) {
           <span className="ml-1 text-[var(--brand-primary)]">Powered by Catalyst Innovations.</span>
         </div>
       )}
-      <div className="flex flex-col justify-between gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-3 sm:flex-row sm:items-center">
+      <div className="flex flex-col justify-between gap-3 rounded-2xl border border-[#041a6c]/10 bg-gradient-to-r from-white to-[#f9edce]/55 p-3 shadow-sm sm:flex-row sm:items-center">
         <div className="flex items-center gap-3">
           <span className="flex size-9 items-center justify-center rounded-xl bg-[var(--brand-soft)] font-black text-[var(--brand-primary)]">{currentUser.avatar}</span>
           <div>
             <p className="text-xs font-black">{currentUser.name}</p>
-            <p className="text-[10px] text-[var(--muted-foreground)]">{titleCase(state.activeRole)} · {titleCase(state.stage)}</p>
+            <p className="text-[10px] text-[var(--muted-foreground)]">Presenter controls · {titleCase(state.activeRole)} · {titleCase(state.stage)}</p>
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
