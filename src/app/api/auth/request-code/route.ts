@@ -20,7 +20,7 @@ export async function POST(request: Request) {
   );
   if (!rate.allowed) {
     return NextResponse.json(
-      { message: "Too many code requests. Try again later." },
+      { message: "Too many sign-in requests. Try again later." },
       {
         status: 429,
         headers: { "Retry-After": String(rate.retryAfterSeconds) },
@@ -54,7 +54,7 @@ export async function POST(request: Request) {
     return NextResponse.json(
       {
         message:
-          "If this email is invited, a one-time code will arrive shortly.",
+          "If this email is invited, a secure sign-in email will arrive shortly.",
       },
       { status: 202 },
     );
@@ -62,7 +62,7 @@ export async function POST(request: Request) {
   return NextResponse.json(
     {
       message:
-        "Check your email and click the secure Catalyst sign-in link. If your email includes a six-digit code, you can enter it below.",
+        "Open the newest secure Catalyst sign-in link in your email. The link is single-use; check Junk or Microsoft 365 Quarantine if it is not in your inbox.",
     },
     { headers: { "Cache-Control": "no-store" } },
   );

@@ -49,7 +49,8 @@ export function LoginScreen() {
       } else if (step === "email") {
         setStep("code");
         setMessage(
-          result.message ?? "Check your email for the six-digit access code.",
+          result.message ??
+            "Check your email and open the newest secure Catalyst sign-in link.",
         );
       } else {
         router.push(result.redirectTo ?? "/dashboard");
@@ -232,7 +233,7 @@ export function LoginScreen() {
                   htmlFor="code"
                   className="mb-2 block text-xs font-bold text-[var(--foreground)]"
                 >
-                  One-time access code (if included)
+                  One-time access code (only if shown in the email)
                 </label>
                 <input
                   id="code"
@@ -260,12 +261,12 @@ export function LoginScreen() {
                     setStep("email");
                     setCode("");
                     setMessage(
-                      "Access is limited to pre-invited demonstration users.",
+                      "Enter the invited email again to send a fresh, single-use sign-in link.",
                     );
                   }}
                   className="mt-2 text-xs font-bold text-[var(--brand-primary)] hover:underline"
                 >
-                  Use a different email
+                  Send another link or use a different email
                 </button>
               </div>
             )}
@@ -295,7 +296,7 @@ export function LoginScreen() {
               {loading ? (
                 <>
                   <span className="size-4 animate-spin rounded-full border-2 border-white/35 border-t-white" />
-                  {step === "email" ? "Sending code..." : "Verifying..."}
+                  {step === "email" ? "Sending secure link..." : "Verifying..."}
                 </>
               ) : (
                 <>
