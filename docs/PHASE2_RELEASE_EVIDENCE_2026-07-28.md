@@ -14,9 +14,12 @@ verified in the connected demonstration environment. It is not represented as
 a paid pilot, production customer implementation, customer endorsement, or
 regulatory certification.
 
-The strict Phase 2 demo release gate is not yet signed off because four items
-still require either stronger evidence or an explicit, dated demo-only risk
-acceptance:
+The strict Phase 2 demo release gate was signed off for the fictional,
+invite-only demonstration after Daniel Vass approved the named, dated, scoped,
+and expiring acceptance in
+`docs/PHASE2_DEMO_ONLY_RISK_ACCEPTANCE_2026-07-28.md`.
+
+The acceptance records four evidence gaps:
 
 1. Supabase backup restoration cannot be exercised on the current Free plan.
 2. The complete high-cardinality validation envelope has not been materialized.
@@ -25,7 +28,8 @@ acceptance:
 4. The complete story passed functionally, but a human-paced 12–15 minute
    presenter rehearsal has not been witnessed and timed.
 
-No item above is silently waived by this document.
+No item above is claimed as completed. Each is accepted only through
+2026-09-30 and only within the documented demonstration boundary.
 
 ## Application and CI verification
 
@@ -231,8 +235,9 @@ A controlled zero-downtime rollback exercise:
 
 Supabase’s current Free plan explicitly does not include scheduled project
 backups or restore-to-a-new-project. A database restore was therefore not
-fabricated or claimed. Completing that gate requires a plan upgrade and a
-provider backup, or a named, dated, expiring demo-only risk acceptance.
+fabricated or claimed. The gap is accepted temporarily under the controlling
+demo-only risk acceptance and becomes release-blocking again when that
+acceptance expires.
 
 ## Release decision matrix
 
@@ -246,11 +251,12 @@ provider backup, or a named, dated, expiring demo-only risk acceptance.
 | Security controls, CI, and dependency/SBOM checks | Pass with documented Free-plan password warning |
 | DigitalOcean deployment and rollback | Pass |
 | Desktop semantic accessibility and keyboard | Pass |
-| Physical mobile/tablet and screen-reader verification | Open |
+| Physical mobile/tablet and screen-reader verification | Accepted for demo only through 2026-09-30 |
 | Normal 25-user concurrency target | Pass |
-| Complete high-cardinality capacity envelope | Open |
-| Supabase backup restoration | Blocked by current plan |
-| Human-paced 12–15 minute presenter rehearsal | Open |
+| Complete high-cardinality capacity envelope | Accepted for demo only through 2026-09-30 |
+| Supabase backup restoration | Accepted for demo only through 2026-09-30 |
+| Human-paced 12–15 minute presenter rehearsal | Accepted for demo only through 2026-09-30 |
 
-Phase 2 must remain a release candidate until the four open decisions are
-closed by evidence or recorded risk acceptance.
+Within the fictional, invite-only boundary, Phase 2 is approved as a
+demonstration release. The acceptance does not authorize a paid pilot,
+production use, real data, public access, or certification claims.

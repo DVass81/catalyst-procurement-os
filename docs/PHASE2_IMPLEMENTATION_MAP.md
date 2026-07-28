@@ -6,6 +6,8 @@ Status legend:
 - **Verified**: implementation and connected-environment evidence exist.
 - **Partial**: implementation exists, but the strict gate still needs stronger
   evidence or explicit demo-only risk acceptance.
+- **Accepted for demo only**: the evidence gap remains, but a named, dated,
+  scoped, and expiring acceptance closes the fictional demonstration gate.
 - **Deferred**: explicitly outside Phase 2.
 
 | ID | Status | Implementation | Verification |
@@ -34,11 +36,11 @@ Status legend:
 | P2-022 | Verified | Controlled route creates and privately stores a readable PDF summary, CSV event extract, and JSON manifest with source/artifact hashes and signed downloads | Two connected versioned packages; six private artifacts opened and hashes recorded |
 | P2-023 | Implemented | Integer cents, quantity bounds, cumulative acceptance, zero tolerance, immutable corrections | Integrity and boundary tests |
 | P2-024 | Verified | Authoritative, temporary, read-only, working, failed, denied, and empty states | Provider and route tests plus connected browser evidence |
-| P2-025 | Partial | Semantic headings/tables, labels, status regions, keyboard controls, focus styles | Desktop semantic and keyboard checks pass; physical device and actual screen-reader runs remain open |
+| P2-025 | Accepted for demo only | Semantic headings/tables, labels, status regions, keyboard controls, focus styles | Desktop semantic and keyboard checks pass; physical-device and actual screen-reader gap accepted through 2026-09-30 within the demonstration boundary |
 | P2-026 | Verified with documented limitation | RLS, explicit grants, server-only secrets, rate limits, CSP, validation, CI audit/SBOM | Target controls, headers, CI, and advisor review pass; Free-plan leaked-password protection remains unavailable |
-| P2-027 | Partial | Idempotency, retry/dead letter, degraded state, runbook | DigitalOcean rollback passed; database restore is blocked by the current Free plan |
-| P2-028 | Partial | Indexed schema and capacity-conscious chunking | Normal 25-user concurrency passes; complete high-cardinality materialization remains open |
-| P2-029 | Partial | Primary story and presenter stage commands remain implemented | Both deployed stories pass; witnessed human-paced 12–15 minute rehearsal remains open |
+| P2-027 | Accepted for demo only | Idempotency, retry/dead letter, degraded state, runbook | DigitalOcean rollback passed; Free-plan database-restore gap accepted through 2026-09-30 within the demonstration boundary |
+| P2-028 | Accepted for demo only | Indexed schema and capacity-conscious chunking | Normal 25-user concurrency passes; high-cardinality materialization gap accepted through 2026-09-30 within the demonstration boundary |
+| P2-029 | Accepted for demo only | Primary story and presenter stage commands remain implemented | Both deployed stories pass; human-paced rehearsal gap accepted through 2026-09-30 within the demonstration boundary |
 | P2-030 | Implemented | Streamlit remains a deterministic, labeled fallback without backend duplication | Existing Python tests |
 | P2-031 | Implemented | Deferred integrations and payment are absent or explicitly labeled | Scope register |
 | P2-032 | Verified | Architecture, implementation map, runbook, status, KPI, security, and dated release-evidence documentation | Document inventory and `PHASE2_RELEASE_EVIDENCE_2026-07-28.md` |

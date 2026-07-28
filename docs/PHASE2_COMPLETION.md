@@ -45,10 +45,10 @@ The dated evidence record is
 - Versioned private PDF/CSV/JSON audit packages with hashes and signed downloads
 - CI dependency audit and CycloneDX SBOM
 
-## Open Phase 2 release decisions
+## Phase 2 demo release decision
 
-Four strict gates require additional evidence or an explicit, named, dated,
-expiring demo-only risk acceptance:
+Daniel Vass approved a named, dated, scoped, and expiring demo-only risk
+acceptance for the four strict gates below:
 
 1. Supabase database backup restoration is unavailable on the current Free
    plan.
@@ -58,5 +58,11 @@ expiring demo-only risk acceptance:
 4. The complete story has passed functionally, but a human-paced 12–15 minute
    presenter rehearsal has not been witnessed and timed.
 
-Until those four decisions are closed, describe the product as “Phase 2
-deployed release candidate,” not “pilot ready” or “production ready.”
+The controlling acceptance is
+`docs/PHASE2_DEMO_ONLY_RISK_ACCEPTANCE_2026-07-28.md`. It expires on
+2026-09-30 or earlier if the product moves beyond the fictional, invite-only
+demonstration boundary.
+
+Phase 2 is approved for that demonstration boundary. Continue to describe the
+product as a “Phase 2 demonstration release,” not “pilot ready” or “production
+ready.”

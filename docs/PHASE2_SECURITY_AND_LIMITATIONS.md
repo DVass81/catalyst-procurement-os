@@ -34,20 +34,26 @@
 - DigitalOcean deployment, application rollback, restoration, and health checks
   passed.
 
-## Open release risks
+## Accepted demo-only release risks
+
+| Risk | Severity | Owner | Demonstration decision | Expiration |
+| --- | --- | --- | --- | --- |
+| Database backup restore is unavailable on the current Supabase Free plan | High | Platform Owner | Accepted only for fictional, invite-only demonstration with versioned migrations, authoritative reset, and application rollback | 2026-09-30 or scope expansion |
+| Full high-cardinality capacity envelope has not been materialized | Medium | Platform Owner | Accepted only for the bounded demonstration roster and dataset; no scale claim permitted | 2026-09-30 or scope expansion |
+| Physical mobile/tablet and actual screen-reader runs remain outstanding | Medium | Product Owner | Accepted only for the known desktop presentation environment; no accessibility certification claim permitted | 2026-09-30 or scope expansion |
+| Human-paced 12–15 minute presenter rehearsal has not been witnessed and timed | Medium | Demo Owner | Accepted for the demonstration with required pre-demo smoke check; no duration guarantee permitted | 2026-09-30 or scope expansion |
+
+The controlling approval, compensating controls, automatic expiration
+conditions, and prohibited claims are recorded in
+`docs/PHASE2_DEMO_ONLY_RISK_ACCEPTANCE_2026-07-28.md`.
+
+## Paid-pilot limitations
 
 | Risk | Severity | Owner | Mitigation / exit evidence | Expiration |
 | --- | --- | --- | --- | --- |
-| Database backup restore is unavailable on the current Supabase Free plan | High | Platform Owner | Upgrade, obtain a provider backup, restore it in isolation, and reconcile; or approve a named, dated, expiring demo-only exception | Before Phase 2 merge |
-| Full high-cardinality capacity envelope has not been materialized | Medium | Platform Owner | Run the documented synthetic envelope and record p95/error/resource results; or approve a bounded demo-only exception | Before Phase 2 merge |
-| Physical mobile/tablet and actual screen-reader runs remain outstanding | Medium | Product Owner | Complete device and assistive-technology core-flow checks; or approve a bounded demo-only exception | Before Phase 2 merge |
-| Human-paced 12–15 minute presenter rehearsal has not been witnessed and timed | Medium | Demo Owner | Run the complete scripted story with a presenter and record duration/issues; or approve a bounded demo-only exception | Before Phase 2 merge |
 | Scanning/OCR is simulated | Low for demo | Security Owner | Persistent label; activate a reviewed provider before real files | Before paid pilot |
 | Transactional email is simulated | Low for demo | Process Owner | Persistent label; activate a reviewed adapter before pilot notifications | Before paid pilot |
 | Signed links expire after 60 seconds rather than supporting provider-side instant revocation | Medium | Security Owner | Keep TTL short; add an application proxy/revocation service for pilot | Before paid pilot |
-
-No risk is accepted merely by appearing in this table. A real risk acceptance
-requires a named approver, date, reason, compensating controls, and expiration.
 
 ## Explicitly deferred
 
