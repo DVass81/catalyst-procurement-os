@@ -283,8 +283,11 @@ export interface PurchaseOrder {
 export interface ReceiptLine {
   lineId: string;
   quantity: number;
+  acceptedQuantity: number;
+  pendingInspectionQuantity: number;
   damagedQuantity: number;
   rejectedQuantity: number;
+  returnedQuantity: number;
   conditionNote?: string;
 }
 
@@ -301,6 +304,20 @@ export interface Receipt {
   notes: string;
   exceptionStatus: "none" | "accepted_damage" | "rejected_damage";
   totalValueCents: Money;
+  lifecycleStatus:
+    | "draft"
+    | "submitted"
+    | "pending_inspection"
+    | "accepted"
+    | "partially_accepted"
+    | "rejected"
+    | "posted"
+    | "reversed"
+    | "superseded";
+  carrierReference?: string;
+  replacementForReceiptId?: string;
+  reversedAt?: string;
+  reversalReason?: string;
 }
 
 export interface Invoice {
@@ -324,7 +341,7 @@ export interface Invoice {
     | "correction_requested"
     | "accepted_with_justification";
   approvalStatus: "not_required" | "pending" | "approved";
-  paymentStatus: "on_hold" | "ready" | "paid";
+  paymentStatus: "on_hold" | "ready" | "exported";
   uploadedDocument: string;
   varianceCents: Money;
   varianceReason?: string;
@@ -334,7 +351,13 @@ export interface InventoryTransaction {
   id: string;
   itemId: string;
   locationId: string;
-  type: "reservation" | "internal_transfer" | "receipt" | "adjustment";
+  type:
+    | "reservation"
+    | "internal_transfer"
+    | "receipt"
+    | "return_to_vendor"
+    | "reversal"
+    | "adjustment";
   quantity: number;
   sourceTransactionId: string;
   date: string;
@@ -413,6 +436,138 @@ export interface VendorException {
   decisionDate?: string;
 }
 
+export interface PurchaseOrderRevision {
+  id: string;
+  purchaseOrderId: string;
+  revisionNumber: number;
+  status:
+    | "proposed"
+    | "approval_pending"
+    | "approved"
+    | "rejected"
+    | "issued";
+  reason: string;
+  previousTotalCents: Money;
+  proposedTotalCents: Money;
+  requestedBy: string;
+  approvedBy?: string;
+  requestedDate: string;
+  decisionDate?: string;
+}
+
+export interface GovernedConfiguration {
+  id: string;
+  domain: string;
+  version: number;
+  lifecycleState:
+    | "draft"
+    | "validated"
+    | "review_pending"
+    | "approved"
+    | "scheduled"
+    | "active"
+    | "superseded"
+    | "rolled_back";
+  sourceLabel: "synthetic_demo" | "system_default" | "customer_approved";
+  owner: string;
+  backupOwner: string;
+  values: Record<string, string | number | boolean>;
+  validationIssues: string[];
+  simulationSummary: string;
+  effectiveDate?: string;
+  approvedBy?: string;
+}
+
+export interface DemoImportBatch {
+  id: string;
+  importType: "vendor_master" | "catalog" | "opening_inventory";
+  lifecycleState:
+    | "uploaded"
+    | "staged"
+    | "validating"
+    | "failed"
+    | "ready_for_approval"
+    | "approved"
+    | "posted"
+    | "reversed";
+  originalFilename: string;
+  fileHash: string;
+  sourceSystem: string;
+  rowCount: number;
+  validRowCount: number;
+  errorRowCount: number;
+  sourceTotalCents: Money;
+  postedTotalCents: Money;
+  mappingSummary: string;
+  importedBy: string;
+  approvedBy?: string;
+  reversalReason?: string;
+}
+
+export interface DemoDocumentRecord {
+  id: string;
+  parentEntityType: string;
+  parentEntityId: string;
+  lifecycleState:
+    | "uploading"
+    | "scanning"
+    | "available"
+    | "rejected"
+    | "superseded"
+    | "archived"
+    | "held"
+    | "deleted";
+  version: number;
+  filename: string;
+  mimeType: string;
+  sha256: string;
+  scanMode: "simulated" | "live";
+  citation: string;
+  legalHold: boolean;
+}
+
+export interface WorkQueueItem {
+  id: string;
+  queueType: string;
+  entityType: string;
+  entityId: string;
+  assigneeRole: DemoRole;
+  status: "open" | "assigned" | "in_progress" | "blocked" | "completed";
+  priority: "low" | "normal" | "high" | "critical";
+  dueDate: string;
+  blocker?: string;
+  escalationLevel: number;
+}
+
+export interface DemoNotification {
+  id: string;
+  eventType: string;
+  recipientRole: DemoRole;
+  channel: "in_app" | "email_simulated";
+  deliveryState:
+    | "pending"
+    | "processing"
+    | "delivered"
+    | "failed"
+    | "dead_letter";
+  dedupeKey: string;
+  subject: string;
+  mandatory: boolean;
+  attempts: number;
+  acknowledged: boolean;
+}
+
+export interface AuditPackage {
+  id: string;
+  subjectId: string;
+  lifecycleState: "requested" | "generating" | "completed" | "failed" | "expired";
+  version: number;
+  asOf: string;
+  manifestSha256?: string;
+  artifacts: Array<"pdf" | "csv" | "json">;
+  parentPackageId?: string;
+}
+
 export interface TutorialStep {
   stepId: string;
   route: string;
@@ -449,6 +604,7 @@ export interface DemoState {
   approvals: Approval[];
   quotes: VendorQuote[];
   purchaseOrders: PurchaseOrder[];
+  purchaseOrderRevisions: PurchaseOrderRevision[];
   receipts: Receipt[];
   invoices: Invoice[];
   inventoryTransactions: InventoryTransaction[];
@@ -456,6 +612,12 @@ export interface DemoState {
   contracts: Contract[];
   vendorRiskAssessments: VendorRiskAssessment[];
   vendorExceptions: VendorException[];
+  configurationVersions: GovernedConfiguration[];
+  importBatches: DemoImportBatch[];
+  documents: DemoDocumentRecord[];
+  workQueueItems: WorkQueueItem[];
+  notifications: DemoNotification[];
+  auditPackages: AuditPackage[];
   alerts: ProcurementAlert[];
   monthlySpendCents: Money[];
   aiRecommendations: AiRecommendation[];

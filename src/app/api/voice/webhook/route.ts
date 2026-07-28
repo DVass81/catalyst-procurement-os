@@ -45,7 +45,7 @@ export async function POST(request: Request) {
           createUsageEvent({
             tenantId: "voice-session",
             provider: "elevenlabs",
-            model: "elevenlabs-agent-claire",
+            model: "elevenlabs-agent-cate",
             capability: "application_help",
             durationSeconds: duration,
             estimatedCostUsd: (duration / 60) * perMinute,

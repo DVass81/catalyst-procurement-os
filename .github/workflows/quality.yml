@@ -1,11 +1,11 @@
-name: Phase 3 quality
+name: Audit Phase 2 quality
 
 on:
   pull_request:
   push:
     branches:
       - main
-      - codex/phase-3-guided-sales-demo
+      - "codex/**"
 
 permissions:
   contents: read
@@ -38,3 +38,15 @@ jobs:
 
       - name: Build production application
         run: npm run build
+
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Generate CycloneDX software bill of materials
+        run: npm sbom --sbom-format cyclonedx > sbom.cdx.json
+
+      - name: Upload software bill of materials
+        uses: actions/upload-artifact@v4
+        with:
+          name: catalyst-procurement-os-sbom
+          path: sbom.cdx.json

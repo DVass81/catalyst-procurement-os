@@ -210,7 +210,7 @@ export function AiWorkspace() {
         },
       );
       const data = (await response.json()) as AiRunResult & { message?: string };
-      if (!response.ok) throw new Error(data.message ?? "Claire could not answer.");
+      if (!response.ok) throw new Error(data.message ?? "CATE could not answer.");
       setResult(data);
       setPrompt("");
     } catch (runError) {
@@ -237,7 +237,7 @@ export function AiWorkspace() {
             <div>
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className="text-xl font-black tracking-tight sm:text-2xl">
-                  Claire · Live Procurement Concierge
+                  CATE · Catalyst AI for Trusted Evaluation
                 </h1>
                 <Badge className="border-white/15 bg-white/10 text-white">
                   Phase 4
@@ -288,7 +288,7 @@ export function AiWorkspace() {
               Financial guardrails
             </div>
             <p className="mt-2 text-[11px] leading-5">
-              Claire analyzes and proposes. People approve, award, issue,
+              CATE analyzes and proposes. People approve, award, issue,
               receive, resolve, and pay.
             </p>
           </div>
@@ -308,7 +308,7 @@ export function AiWorkspace() {
                   {loading ? (
                     <div className="inline-flex items-center gap-2 rounded-2xl bg-[var(--surface-muted)] px-4 py-3 text-xs font-bold text-[var(--muted-foreground)]">
                       <span className="size-2 animate-pulse rounded-full bg-[var(--brand-secondary)]" />
-                      Claire is checking the evidence…
+                      CATE is checking the evidence…
                     </div>
                   ) : error ? (
                     <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">
@@ -339,6 +339,76 @@ export function AiWorkspace() {
                         <p className="whitespace-pre-line text-sm leading-7 text-[var(--foreground)]">
                           {result.displayText}
                         </p>
+                        <section
+                          aria-labelledby="cate-answer-contract"
+                          className="rounded-2xl border border-[var(--border)] bg-[var(--surface-subtle)] p-4"
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <h2
+                              id="cate-answer-contract"
+                              className="text-xs font-black"
+                            >
+                              CATE decision contract
+                            </h2>
+                            <Badge
+                              tone={
+                                result.confidence.band === "high"
+                                  ? "success"
+                                  : result.confidence.band === "insufficient"
+                                    ? "danger"
+                                    : "warning"
+                              }
+                            >
+                              {result.confidence.band} confidence
+                            </Badge>
+                          </div>
+                          <dl className="mt-3 grid gap-3 text-xs leading-5 md:grid-cols-2">
+                            <div>
+                              <dt className="font-black">Policy</dt>
+                              <dd className="text-[var(--muted-foreground)]">
+                                {result.policyContext.policyName} ·{" "}
+                                {result.policyContext.version}
+                                <br />
+                                {result.policyContext.sourceLabel}
+                              </dd>
+                            </div>
+                            <div>
+                              <dt className="font-black">Confidence rationale</dt>
+                              <dd className="text-[var(--muted-foreground)]">
+                                {result.confidence.reason}
+                              </dd>
+                            </div>
+                            <div>
+                              <dt className="font-black">Assumptions</dt>
+                              <dd className="text-[var(--muted-foreground)]">
+                                {result.assumptions.join(" · ")}
+                              </dd>
+                            </div>
+                            <div>
+                              <dt className="font-black">Missing or conflicting evidence</dt>
+                              <dd className="text-[var(--muted-foreground)]">
+                                {result.evidenceGaps.length
+                                  ? result.evidenceGaps.join(" · ")
+                                  : "None identified in the accessible cited record set."}
+                              </dd>
+                            </div>
+                            <div>
+                              <dt className="font-black">Risks and alternatives</dt>
+                              <dd className="text-[var(--muted-foreground)]">
+                                {result.risksAndAlternatives.join(" · ")}
+                              </dd>
+                            </div>
+                            <div>
+                              <dt className="font-black">Recommended next action</dt>
+                              <dd className="text-[var(--muted-foreground)]">
+                                {result.recommendedNextAction}
+                              </dd>
+                            </div>
+                          </dl>
+                          <p className="mt-3 border-l-2 border-[var(--brand-accent)] pl-3 text-[11px] font-bold leading-5">
+                            {result.humanDecisionBoundary}
+                          </p>
+                        </section>
                         {result.evidenceCards.length > 0 && (
                           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                             {result.evidenceCards.map((card) => (
@@ -415,7 +485,7 @@ export function AiWorkspace() {
                         Ask procurement, not software
                       </h2>
                       <p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-[var(--muted-foreground)]">
-                        Claire turns needs and evidence into structured,
+                        CATE turns needs and evidence into structured,
                         reviewable decisions—without taking authority away from
                         your team.
                       </p>
@@ -455,7 +525,7 @@ export function AiWorkspace() {
                   rows={2}
                   placeholder="Describe a purchasing need or ask about spend, risk, contracts, quotes, or invoices…"
                   className="w-full resize-none bg-transparent px-3 py-2 text-sm leading-6 outline-none"
-                  aria-label="Ask Claire"
+                  aria-label="Ask CATE"
                 />
                 <div className="flex flex-wrap items-center justify-between gap-3 px-1">
                   <div className="flex items-center gap-2">
@@ -488,7 +558,7 @@ export function AiWorkspace() {
                   </div>
                   <Button
                     size="icon"
-                    aria-label="Send to Claire"
+                    aria-label="Send to CATE"
                     disabled={!prompt.trim() || loading}
                     onClick={() => void run()}
                   >

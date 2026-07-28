@@ -14,19 +14,23 @@ export interface AppSession {
   mode: "supabase" | "preview";
 }
 
-function fromUser(user: User): AppSession {
-  const metadata = user.app_metadata ?? {};
-  const tenantIds = Array.isArray(metadata.tenant_ids)
-    ? metadata.tenant_ids.filter(
-        (tenantId): tenantId is string => typeof tenantId === "string",
-      )
-    : [];
+function fromUser(
+  user: User,
+  assignments: Array<{ tenant_id: string; role: string }>,
+): AppSession {
+  const tenantIds = assignments.map((assignment) => assignment.tenant_id);
+  const role =
+    assignments.find((assignment) => assignment.role === "administrator")
+      ?.role ??
+    assignments.find((assignment) => assignment.role === "presenter")?.role ??
+    assignments[0]?.role ??
+    "viewer";
   return {
     userId: user.id,
     email: user.email ?? "",
-    role: typeof metadata.role === "string" ? metadata.role : "viewer",
+    role,
     tenantIds,
-    presenter: metadata.presenter === true,
+    presenter: role === "presenter" || role === "administrator",
     mode: "supabase",
   };
 }
@@ -52,7 +56,13 @@ export async function getAppSession(): Promise<AppSession | null> {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  return user ? fromUser(user) : null;
+  if (!user) return null;
+  const { data: assignments, error } = await supabase
+    .from("tenant_assignments")
+    .select("tenant_id,role")
+    .eq("user_id", user.id);
+  if (error || !assignments?.length) return null;
+  return fromUser(user, assignments);
 }
 
 export async function requireAppSession(tenantId?: string) {

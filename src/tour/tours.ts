@@ -149,7 +149,7 @@ export const guidedTours: GuidedTour[] = [
         targetId: "demo-ai-workspace",
         title: "Natural-language intake",
         instruction:
-          "Start with the new-loan-officer request and let Claire structure the need.",
+          "Start with the new-loan-officer request and let CATE structure the need.",
         narration:
           "An employee describes the business need in plain language. Catalyst structures the items, required date, cost center, coding, and likely approval path.",
         valueStatement: "Replace long intake forms with guided, structured capture.",

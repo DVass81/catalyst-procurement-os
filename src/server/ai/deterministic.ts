@@ -337,6 +337,47 @@ export function deterministicAiOutput(request: AiRunRequest): {
       citations,
       evidenceCards,
       proposedActions: googleProposals(request, capability),
+      policyContext: {
+        policyName: "Synthetic Demo Procurement Controls",
+        version: "demo-policy-2026.1",
+        sourceLabel: "Synthetic configuration — not customer policy",
+      },
+      assumptions: [
+        "All records and amounts in this workspace are fictional demonstration data.",
+        "The cited record versions are the complete accessible evidence for this answer.",
+      ],
+      evidenceGaps:
+        capability === "market_research"
+          ? [
+              "No accessible current public-market source is available in deterministic fallback.",
+            ]
+          : citations.length === 0
+            ? ["No record citation is available for this informational response."]
+            : [],
+      confidence: {
+        band:
+          capability === "market_research"
+            ? "insufficient"
+            : citations.length > 0
+              ? "high"
+              : "moderate",
+        reason:
+          capability === "market_research"
+            ? "A current conclusion requires a live, cited public source."
+            : citations.length > 0
+              ? "The finding is calculated from complete, internally consistent cited demo records."
+              : "The answer is procedural guidance and does not assert a material record conclusion.",
+      },
+      risksAndAlternatives: [
+        "A human reviewer should verify evidence freshness and resolve any conflicting source before acting.",
+        "The alternative is to request additional evidence or retain the current controlled state.",
+      ],
+      recommendedNextAction:
+        capability === "market_research"
+          ? "Use a connected cited research source or continue only with the fictional internal comparison."
+          : "Open the cited record, verify the evidence and policy, then have the assigned human record the decision.",
+      humanDecisionBoundary:
+        "CATE provides evidence-backed analysis only. An authorized person retains every approval, award, issuance, receipt, exception, and payment-readiness decision.",
       humanReviewNotice: HUMAN_REVIEW,
     },
   };

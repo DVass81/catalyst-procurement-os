@@ -38,13 +38,13 @@ export async function POST(request: Request) {
     token: parsed.data.token,
     type: "email",
   });
-  const tenantIds = data.user?.app_metadata?.tenant_ids;
-  if (
-    error ||
-    !data.user ||
-    !Array.isArray(tenantIds) ||
-    tenantIds.length === 0
-  ) {
+  const { data: assignments } = data.user
+    ? await supabase
+        .from("tenant_assignments")
+        .select("tenant_id")
+        .eq("user_id", data.user.id)
+    : { data: null };
+  if (error || !data.user || !assignments?.length) {
     await supabase.auth.signOut();
     return NextResponse.json(
       { message: "This code is invalid, expired, or not assigned to a tenant." },

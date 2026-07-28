@@ -30,7 +30,7 @@ remains the rollback and emergency presentation path.
 4. Disable public signup, pre-create invited users, and put trusted `role`,
    `presenter`, and `tenant_ids` values in `app_metadata`.
 5. Set the DigitalOcean secrets listed in `.env.example`.
-6. Enable authentication on the existing ElevenLabs Claire agent and set
+6. Enable authentication on the existing ElevenLabs CATE agent and set
    `ELEVENLABS_AGENT_ID`.
 7. Configure the signed production URL as an ElevenLabs server tool:
    `/api/voice/procurement-tool`.
@@ -46,7 +46,7 @@ The server tool body is the `AiRunRequest` JSON contract. Required values are
 `tenantId`, `prompt`, `currentRoute`, `role`, and `workflowStage`. The tool must
 use the custom Authorization header `Bearer <ELEVENLABS_TOOL_SECRET>`.
 
-Claire's agent instruction must say:
+CATE's agent instruction must say:
 
 > For every procurement fact, analysis, recommendation, policy answer, spend
 > answer, or document answer, call `catalyst_procurement_reason` and speak its
@@ -79,7 +79,7 @@ day.
 - Confirm Supabase OTP arrives through custom SMTP for Daniel and Josh.
 - Confirm Y-12 and Catalyst Community users cannot cross tenant boundaries.
 - Open Presenter Controls and confirm provider health and remaining budget.
-- Start and end a 30-second Claire session; test mute, interruption, and captions.
+- Start and end a 30-second CATE session; test mute, interruption, and captions.
 - Run the hero requisition and confirm the $1,047 monitor saving.
 - Run the invoice match and confirm the $320 freight exception.
 - Confirm the Gmail action creates a draft and never sends.

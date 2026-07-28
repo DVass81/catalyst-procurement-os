@@ -1,10 +1,10 @@
 # Catalyst Procurement OS
 
 Catalyst Procurement OS is an AI-guided procurement workflow demonstration by
-Catalyst Innovations. Phase 3 preserves the connected Phase 2 request-to-invoice
-workflow and adds a world-class Y-12 visual system, two guided sales tours,
-Catalyst Guide Live, presenter controls, a deterministic presentation fallback,
-private deployment packaging, and a founding-partner sales kit.
+Catalyst Innovations. The Audit Phase 2 program adds a server-authoritative,
+tenant-scoped request-to-invoice workflow, controlled imports and evidence,
+CATE decision support, certified KPI scorecards, and reproducible private audit
+packages to the guided Y-12 sales demonstration.
 
 The fictional Y-12 Credit Union workspace is a private demonstration only. It
 is not affiliated with, endorsed by, or connected to Y-12 Credit Union, and it
@@ -39,7 +39,7 @@ npm.cmd run dev
 Open `http://localhost:3000`. The root route is a fictional, private-demo login;
 the connected workspace begins at `/dashboard`.
 
-Catalyst Guide Live uses a server-created short-lived Realtime credential. Copy
+CATE Live uses a server-created short-lived Realtime credential. Copy
 `.env.example` to `.env.local` and set the server-only `OPENAI_API_KEY` to
 enable it. Without the key, both guided tours, browser narration, captions, and
 typed deterministic answers continue to work.
@@ -59,13 +59,18 @@ npm.cmd run check
 ```
 
 The checks cover linting, strict TypeScript, deterministic workflow tests, tour
-integrity, live-guide safeguards, the production Next.js build, Python domain
+integrity, CATE safeguards, the production Next.js build, Python domain
 tests, and Streamlit interaction regressions. GitHub Actions runs the complete
-clean Node validation for each Phase 3 branch update.
+clean Node validation for main and `codex/**` branch updates.
 
 ## Documentation
 
 - `docs/ARCHITECTURE.md`
+- `docs/PHASE2_IMPLEMENTATION_MAP.md`
+- `docs/PHASE2_KPI_CATALOG.md`
+- `docs/PHASE2_CATE_EVALUATION.md`
+- `docs/PHASE2_RUNBOOK.md`
+- `docs/PHASE2_SECURITY_AND_LIMITATIONS.md`
 - `docs/BRAND.md`
 - `docs/PHASE3_ARCHITECTURE.md`
 - `docs/PHASE3_DEPLOYMENT.md`

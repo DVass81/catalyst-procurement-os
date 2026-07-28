@@ -126,6 +126,73 @@ export function validateDemoIntegrity(state: DemoState) {
     }
   }
 
+  for (const receipt of state.receipts) {
+    const purchaseOrder = purchaseOrderById.get(receipt.purchaseOrderId);
+    if (!purchaseOrder) {
+      issue(issues, "orphan_receipt", receipt.id, "Receipt has no purchase order.");
+      continue;
+    }
+    for (const line of receipt.lines) {
+      const orderedLine = purchaseOrder.lines.find(
+        (candidate) => candidate.id === line.lineId,
+      );
+      if (!orderedLine) {
+        issue(issues, "unknown_receipt_line", receipt.id, "Receipt line is not on the purchase order.");
+        continue;
+      }
+      if (
+        [
+          line.quantity,
+          line.acceptedQuantity,
+          line.pendingInspectionQuantity,
+          line.damagedQuantity,
+          line.rejectedQuantity,
+          line.returnedQuantity,
+        ].some((quantity) => quantity < 0)
+      ) {
+        issue(issues, "negative_receipt_quantity", receipt.id, "Receipt quantities cannot be negative.");
+      }
+      if (
+        line.acceptedQuantity +
+          line.pendingInspectionQuantity +
+          line.rejectedQuantity >
+        line.quantity
+      ) {
+        issue(issues, "receipt_quantity_mismatch", receipt.id, "Receipt disposition exceeds delivered quantity.");
+      }
+      if (line.returnedQuantity > line.rejectedQuantity) {
+        issue(issues, "receipt_return_mismatch", receipt.id, "Returned quantity exceeds rejected quantity.");
+      }
+    }
+  }
+
+  for (const purchaseOrder of state.purchaseOrders) {
+    const activeReceipts = state.receipts.filter(
+      (receipt) =>
+        receipt.purchaseOrderId === purchaseOrder.id &&
+        receipt.lifecycleStatus !== "reversed",
+    );
+    for (const line of purchaseOrder.lines) {
+      const accepted = activeReceipts.reduce(
+        (total, receipt) =>
+          total +
+          (receipt.lines.find((candidate) => candidate.lineId === line.id)
+            ?.acceptedQuantity ?? 0),
+        0,
+      );
+      if (accepted > line.purchaseQuantity) {
+        issue(issues, "receipt_overage", purchaseOrder.id, "Accepted quantity exceeds ordered quantity.");
+      }
+      if (
+        purchaseOrder.receiptStatus === "complete" &&
+        activeReceipts.length > 0 &&
+        accepted !== line.purchaseQuantity
+      ) {
+        issue(issues, "receipt_completion_mismatch", purchaseOrder.id, "Complete receipt status does not reconcile to accepted quantities.");
+      }
+    }
+  }
+
   for (const approval of state.approvals) {
     if (!approval.completedDate) {
       const expected = approvalEscalationStatus(
@@ -142,6 +209,46 @@ export function validateDemoIntegrity(state: DemoState) {
     if (genericPattern.test(contract.name)) {
       issue(issues, "generic_contract", contract.id, "Contract contains development-facing seed language.");
     }
+  }
+
+  const activeConfigurationDomains = new Set<string>();
+  for (const configuration of state.configurationVersions) {
+    if (configuration.lifecycleState !== "active") continue;
+    if (activeConfigurationDomains.has(configuration.domain)) {
+      issue(issues, "multiple_active_configurations", configuration.id, "Only one active configuration version is allowed per domain.");
+    }
+    activeConfigurationDomains.add(configuration.domain);
+  }
+
+  for (const batch of state.importBatches) {
+    if (
+      batch.validRowCount + batch.errorRowCount !== batch.rowCount ||
+      batch.validRowCount < 0 ||
+      batch.errorRowCount < 0
+    ) {
+      issue(issues, "import_row_control_mismatch", batch.id, "Import row control totals do not reconcile.");
+    }
+    if (
+      ["approved", "posted", "reversed"].includes(batch.lifecycleState) &&
+      batch.sourceTotalCents !== batch.postedTotalCents
+    ) {
+      issue(issues, "import_value_control_mismatch", batch.id, "Approved import value controls do not reconcile.");
+    }
+  }
+
+  for (const document of state.documents) {
+    if (!/^[0-9a-f]{64}$/.test(document.sha256)) {
+      issue(issues, "invalid_document_hash", document.id, "Document SHA-256 is invalid.");
+    }
+  }
+
+  const notificationKeys = new Set<string>();
+  for (const notification of state.notifications) {
+    const key = `${notification.channel}:${notification.dedupeKey}`;
+    if (notificationKeys.has(key)) {
+      issue(issues, "duplicate_notification", notification.id, "Notification deduplication key is not unique.");
+    }
+    notificationKeys.add(key);
   }
 
   const projection = dashboardProjection(state);

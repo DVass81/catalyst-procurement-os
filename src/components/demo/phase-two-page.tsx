@@ -27,6 +27,7 @@ import {
 
 import { useDemo } from "@/components/demo/demo-provider";
 import { AiWorkspace } from "@/components/ai/ai-workspace";
+import { CertifiedKpiDashboard } from "@/components/analytics/certified-kpi-dashboard";
 import {
   tenantThemes,
   type TenantId,
@@ -36,33 +37,20 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import type { DemoRole, DemoState, WorkflowStage } from "@/demo/model";
 import {
-  acceptInventoryRecommendation,
-  acceptStandardsSubstitution,
-  analyzeFeaturedRequest,
-  confirmBudgetAndCoding,
-  createFeaturedPurchaseOrder,
   dashboardProjection,
-  decideApproval,
   featuredApprovalsFor,
   featuredFinancials,
-  issueFeaturedPurchaseOrder,
-  jumpToStage,
-  receiveFeaturedOrder,
-  recordVendorAcknowledgment,
-  requestVendorException,
-  decideVendorException,
-  resetDemo,
-  resolveInvoiceException,
-  runThreeWayMatch,
-  selectVendor,
-  submitRequest,
-  switchRole,
-  WorkflowError,
 } from "@/demo/workflow";
 import { formatCurrency, titleCase } from "@/lib/utils";
 import { formatSessionDate } from "@/demo/clock";
 import { statusLabel, statusPresentation } from "@/demo/presentation";
 import { evaluateVendorQuotes } from "@/demo/vendor-policy";
+import type { PhaseTwoCommand } from "@/phase-two/commands";
+
+type ExecuteCommand = (
+  command: PhaseTwoCommand | PhaseTwoCommand[],
+  success: string,
+) => Promise<void>;
 
 const workflowSteps: Array<[string, WorkflowStage]> = [
   ["Request", "draft"],
@@ -246,7 +234,7 @@ function DecisionGuide({ section }: { section: string }) {
       <div className="mt-3 grid gap-3 text-xs leading-5 text-[var(--muted-foreground)] md:grid-cols-3">
         <p><strong className="text-[var(--foreground)]">What and why:</strong> {selected[0]}</p>
         <p><strong className="text-[var(--foreground)]">Suggested action:</strong> {selected[1]}</p>
-        <p><strong className="text-[var(--foreground)]">Evidence and authority:</strong> {selected[2]} Claire advises; authorized employees decide.</p>
+        <p><strong className="text-[var(--foreground)]">Evidence and authority:</strong> {selected[2]} CATE advises; authorized employees decide.</p>
       </div>
     </details>
   );
@@ -425,7 +413,7 @@ function DashboardView({ state }: { state: DemoState }) {
       </section>
       <MetricCards
         metrics={[
-          ["YTD posted spend", money(projection.yearToDateSpendCents), "Approved or paid invoices"],
+          ["YTD posted spend", money(projection.yearToDateSpendCents), "Matched, payment-ready records; no payment executed"],
           ["Realized savings", money(projection.realizedSavingsCents), "Validated completed outcomes"],
           ["Accepted savings", money(projection.acceptedSavingsCents), "Approved opportunities in progress"],
           ["Open requests", projection.openRequests, "Draft, submitted, or returned"],
@@ -470,7 +458,7 @@ function DashboardView({ state }: { state: DemoState }) {
           <CardHeader>
             <div>
               <h2 className="font-black">AI Insights</h2>
-              <p className="text-xs text-[var(--muted-foreground)]">Claire insights grounded in workspace evidence</p>
+              <p className="text-xs text-[var(--muted-foreground)]">CATE insights grounded in workspace evidence</p>
             </div>
             <Sparkles className="size-5 text-[var(--brand-secondary)]" />
           </CardHeader>
@@ -515,7 +503,7 @@ function RequestView({
   execute,
 }: {
   state: DemoState;
-  execute: (command: () => DemoState, success: string) => void;
+  execute: ExecuteCommand;
 }) {
   const request = state.requests.find((candidate) => candidate.id === state.featuredRequestId)!;
   const financials = featuredFinancials(state);
@@ -632,11 +620,13 @@ function RequestView({
               className="mt-4"
               disabled={stageRanks[state.stage] > 0 || request.fieldsLocked}
               onClick={() =>
-                execute(
-                  () =>
-                    state.stage === "draft"
-                      ? acceptInventoryRecommendation(analyzeFeaturedRequest(state))
-                      : acceptInventoryRecommendation(state),
+                void execute(
+                  state.stage === "draft"
+                    ? [
+                        { type: "analyze_request" },
+                        { type: "accept_inventory_recommendation" },
+                      ]
+                    : { type: "accept_inventory_recommendation" },
                   "Inventory allocation accepted",
                 )
               }
@@ -659,8 +649,8 @@ function RequestView({
               className="mt-4"
               disabled={state.stage !== "inventory_reviewed" || request.fieldsLocked}
               onClick={() =>
-                execute(
-                  () => acceptStandardsSubstitution(state),
+                void execute(
+                  { type: "accept_standards_substitution" },
                   "Approved headset substituted",
                 )
               }
@@ -759,7 +749,12 @@ function RequestView({
           </div>
           <Button
             disabled={state.stage !== "standards_reviewed" || !recommendedVendor}
-            onClick={() => execute(() => selectVendor(state), "Recommended vendor selected")}
+            onClick={() =>
+              void execute(
+                { type: "select_vendor" },
+                "Recommended vendor selected",
+              )
+            }
           >
             Select {recommendedVendor?.vendor.displayName ?? "eligible vendor"}
           </Button>
@@ -780,14 +775,14 @@ function RequestView({
                       state.stage !== "standards_reviewed"
                     }
                     onClick={() =>
-                      execute(
-                        () =>
-                          requestVendorException(
-                            state,
-                            exceptionCandidate.vendor.id,
+                      void execute(
+                        {
+                          type: "request_vendor_exception",
+                          vendorId: exceptionCandidate.vendor.id,
+                          businessJustification:
                             "Documented continuity need requires formal review of the otherwise ineligible supplier.",
-                            ["Fictional continuity assessment.pdf"],
-                          ),
+                          evidence: ["Fictional continuity assessment.pdf"],
+                        },
                         "Vendor exception requested",
                       )
                     }
@@ -801,13 +796,12 @@ function RequestView({
                     variant="secondary"
                     disabled={state.activeRole !== "purchasing_manager"}
                     onClick={() =>
-                      execute(
-                        () =>
-                          decideVendorException(
-                            state,
-                            vendorException.id,
-                            "approve",
-                          ),
+                      void execute(
+                        {
+                          type: "decide_vendor_exception",
+                          exceptionId: vendorException.id,
+                          decision: "approve",
+                        },
                         "Purchasing approval recorded",
                       )
                     }
@@ -821,13 +815,12 @@ function RequestView({
                     variant="secondary"
                     disabled={state.activeRole !== "compliance_reviewer"}
                     onClick={() =>
-                      execute(
-                        () =>
-                          decideVendorException(
-                            state,
-                            vendorException.id,
-                            "approve",
-                          ),
+                      void execute(
+                        {
+                          type: "decide_vendor_exception",
+                          exceptionId: vendorException.id,
+                          decision: "approve",
+                        },
                         "Compliance approval recorded",
                       )
                     }
@@ -857,7 +850,12 @@ function RequestView({
             <Button
               className="mt-4 w-full"
               disabled={state.stage !== "vendor_selected"}
-              onClick={() => execute(() => confirmBudgetAndCoding(state), "Budget and GL coding confirmed")}
+              onClick={() =>
+                void execute(
+                  { type: "confirm_budget_and_coding" },
+                  "Budget and GL coding confirmed",
+                )
+              }
             >
               Confirm budget and GL coding
             </Button>
@@ -876,7 +874,9 @@ function RequestView({
             <Button
               className="mt-4 w-full"
               disabled={state.stage !== "budget_confirmed"}
-              onClick={() => execute(() => submitRequest(state), "Request submitted")}
+              onClick={() =>
+                void execute({ type: "submit_request" }, "Request submitted")
+              }
             >
               Submit for Approval
             </Button>
@@ -892,7 +892,7 @@ function ApprovalView({
   execute,
 }: {
   state: DemoState;
-  execute: (command: () => DemoState, success: string) => void;
+  execute: ExecuteCommand;
 }) {
   const approvals = featuredApprovalsFor(state);
   const pending = approvals.find((approval) => approval.status === "pending");
@@ -949,13 +949,13 @@ function ApprovalView({
               </p>
             )}
             <div className="mt-4 flex flex-wrap gap-2">
-              <Button onClick={() => execute(() => decideApproval(state, "approve", "Reviewed and approved."), "Approval recorded")}>
+              <Button onClick={() => void execute({ type: "decide_approval", decision: "approve", comments: "Reviewed and approved." }, "Approval recorded")}>
                 Approve
               </Button>
-              <Button variant="secondary" onClick={() => execute(() => decideApproval(state, "return", "Please clarify delivery staging."), "Request returned")}>
+              <Button variant="secondary" onClick={() => void execute({ type: "decide_approval", decision: "return", comments: "Please clarify delivery staging." }, "Request returned")}>
                 Return for changes
               </Button>
-              <Button variant="danger" onClick={() => execute(() => decideApproval(state, "reject", "Business need not supported."), "Request rejected")}>
+              <Button variant="danger" onClick={() => void execute({ type: "decide_approval", decision: "reject", comments: "Business need not supported." }, "Request rejected")}>
                 Reject
               </Button>
             </div>
@@ -970,8 +970,11 @@ function ApprovalView({
   );
 }
 
-function PurchaseOrderView({ state, execute }: { state: DemoState; execute: (command: () => DemoState, success: string) => void }) {
+function PurchaseOrderView({ state, execute }: { state: DemoState; execute: ExecuteCommand }) {
   const po = state.purchaseOrders.find((candidate) => candidate.id === "po-featured");
+  const revision = state.purchaseOrderRevisions.find(
+    (candidate) => candidate.purchaseOrderId === po?.id,
+  );
   const canManagePo = state.activeRole === "purchasing_manager" || state.activeRole === "purchasing_specialist";
   return (
     <>
@@ -993,25 +996,110 @@ function PurchaseOrderView({ state, execute }: { state: DemoState; execute: (com
         </CardContent>
       </Card>
       {!po ? (
-        <Card><CardContent className="p-5"><p className="text-sm text-[var(--muted-foreground)]">The PO inherits the approved vendor, lines, coding, delivery, quote, and approval history.</p><Button className="mt-4" disabled={state.stage !== "approved" || !canManagePo} title={!canManagePo ? "Switch to a purchasing role" : undefined} onClick={() => execute(() => createFeaturedPurchaseOrder(state), "Purchase order created")}>Create purchase order</Button></CardContent></Card>
+        <Card><CardContent className="p-5"><p className="text-sm text-[var(--muted-foreground)]">The PO inherits the approved vendor, lines, coding, delivery, quote, and approval history.</p><Button className="mt-4" disabled={state.stage !== "approved" || !canManagePo} title={!canManagePo ? "Switch to a purchasing role" : undefined} onClick={() => void execute({ type: "create_purchase_order" }, "Purchase order created")}>Create purchase order</Button></CardContent></Card>
       ) : (
         <>
           <MetricCards metrics={[["PO", po.poNumber, po.status], ["Total", money(po.totalCents), "Tax and freight $0"], ["Expected", po.expectedDate, "Fictional delivery"], ["Receipt", po.receiptStatus, po.invoiceStatus]]} />
           <DataTable columns={["Item", "Quantity", "Unit price", "Extended", "GL"]} rows={po.lines.map((line) => [line.description, line.purchaseQuantity, money(line.unitPriceCents), money(line.purchaseQuantity * line.unitPriceCents), line.glAccount])} />
           <div className="flex flex-wrap gap-2">
-            <Button disabled={state.stage !== "po_draft" || !canManagePo} title={!canManagePo ? "Switch to a purchasing role" : undefined} onClick={() => execute(() => issueFeaturedPurchaseOrder(state), "PO issued")}>Issue PO</Button>
-            <Button variant="secondary" disabled={state.stage !== "po_issued" || !canManagePo} title={!canManagePo ? "Switch to a purchasing role" : undefined} onClick={() => execute(() => recordVendorAcknowledgment(state), "Acknowledgment recorded")}>Record acknowledgment</Button>
+            <Button disabled={state.stage !== "po_draft" || !canManagePo} title={!canManagePo ? "Switch to a purchasing role" : undefined} onClick={() => void execute({ type: "issue_purchase_order" }, "PO issued")}>Issue PO</Button>
+            <Button variant="secondary" disabled={state.stage !== "po_issued" || !canManagePo} title={!canManagePo ? "Switch to a purchasing role" : undefined} onClick={() => void execute({ type: "record_vendor_acknowledgment" }, "Acknowledgment recorded")}>Record acknowledgment</Button>
             <Button variant="ghost">Preview PO</Button>
             <Button variant="ghost">Download placeholder</Button>
           </div>
+          {["issued", "acknowledged"].includes(po.status) && (
+            <Card className="mt-4 border-amber-200 bg-amber-50/50">
+              <CardContent className="p-4">
+                <h3 className="text-sm font-black">Controlled PO revision</h3>
+                <p className="mt-1 text-xs text-[var(--muted-foreground)]">
+                  The issued order is never edited in place. A proposed change
+                  requires independent approval and preserves both amounts.
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {!revision && (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      disabled={state.activeRole !== "purchasing_specialist"}
+                      onClick={() =>
+                        void execute(
+                          {
+                            type: "propose_po_revision",
+                            reason:
+                              "Documented carrier change requires a controlled five-dollar freight adjustment.",
+                            proposedTotalCents: po.totalCents + 500,
+                          },
+                          "PO revision proposed",
+                        )
+                      }
+                    >
+                      Propose revision
+                    </Button>
+                  )}
+                  {revision?.status === "approval_pending" && (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      disabled={state.activeRole !== "purchasing_manager"}
+                      onClick={() =>
+                        void execute(
+                          {
+                            type: "decide_po_revision",
+                            revisionId: revision.id,
+                            decision: "approve",
+                          },
+                          "PO revision approved",
+                        )
+                      }
+                    >
+                      Approve revision
+                    </Button>
+                  )}
+                  {revision?.status === "approved" && (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      disabled={state.activeRole !== "purchasing_specialist"}
+                      onClick={() =>
+                        void execute(
+                          {
+                            type: "issue_po_revision",
+                            revisionId: revision.id,
+                          },
+                          "Approved PO revision issued",
+                        )
+                      }
+                    >
+                      Issue revision
+                    </Button>
+                  )}
+                  {revision && (
+                    <Badge>
+                      Revision {revision.revisionNumber} ·{" "}
+                      {statusLabel(revision.status)}
+                    </Badge>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </>
       )}
     </>
   );
 }
 
-function ReceivingView({ state, execute }: { state: DemoState; execute: (command: () => DemoState, success: string) => void }) {
-  const receipt = state.receipts.find((candidate) => candidate.id === "receipt-featured");
+function ReceivingView({ state, execute }: { state: DemoState; execute: ExecuteCommand }) {
+  const featuredPo = state.purchaseOrders.find(
+    (candidate) => candidate.id === "po-featured",
+  );
+  const receipts = state.receipts.filter(
+    (candidate) => candidate.purchaseOrderId === featuredPo?.id,
+  );
+  const receipt = receipts[0];
+  const partial = receipts.find(
+    (candidate) => candidate.id === "receipt-featured-partial",
+  );
   return (
     <>
       <SectionHeader eyebrow="Controlled receiving" title="Receiving" description="Record the external receipt separately from the three-monitor internal transfer." />
@@ -1030,24 +1118,46 @@ function ReceivingView({ state, execute }: { state: DemoState; execute: (command
         </CardContent>
       </Card>
       {!receipt ? (
-        <Card><CardContent className="p-5"><p className="text-sm text-[var(--muted-foreground)]">Expected: 15 purchased units. One monitor has minor packaging damage but is accepted after inspection.</p><Button className="mt-4" disabled={state.stage !== "acknowledged"} onClick={() => execute(() => receiveFeaturedOrder(state), "Receipt recorded")}>Record full receipt</Button></CardContent></Card>
+        <Card><CardContent className="p-5"><p className="text-sm text-[var(--muted-foreground)]">Choose the primary clean-inspection path or demonstrate cumulative receiving with one rejected monitor and a supplier replacement.</p><div className="mt-4 flex flex-wrap gap-2"><Button disabled={state.stage !== "acknowledged"} onClick={() => void execute({ type: "receive_order" }, "Complete receipt posted")}>Post complete receipt</Button><Button variant="secondary" disabled={state.stage !== "acknowledged"} onClick={() => void execute({ type: "record_partial_receipt" }, "Partial receipt posted; replacement remains open")}>Demo partial and damaged receipt</Button></div></CardContent></Card>
       ) : (
         <>
-          <MetricCards metrics={[["Receipt", receipt.receiptNumber, receipt.exceptionStatus], ["Value", money(receipt.totalValueCents), "Matches PO"], ["Internal transfer", "3 monitors", "Separate from external receipt"], ["Rejected", "0", "All units accepted"]]} />
-          <DataTable columns={["Line", "Received", "Damaged", "Rejected", "Condition"]} rows={receipt.lines.map((line) => [line.lineId, line.quantity, line.damagedQuantity, line.rejectedQuantity, line.conditionNote ?? "Accepted"])} />
+          <MetricCards metrics={[["Receipts", receipts.length, featuredPo?.receiptStatus ?? "pending"], ["Accepted value", money(receipts.reduce((total, candidate) => total + (candidate.lifecycleStatus === "reversed" ? 0 : candidate.totalValueCents), 0)), "Posted, non-reversed receipts"], ["Internal transfer", state.stage === "fully_received" ? "3 monitors" : "Pending", "Separate from external receipt"], ["Rejected", receipts.reduce((total, candidate) => total + candidate.lines.reduce((lineTotal, line) => lineTotal + line.rejectedQuantity, 0), 0), partial ? "Replacement tracked" : "All units accepted"]]} />
+          <DataTable columns={["Receipt", "Lifecycle", "Line", "Received", "Accepted", "Damaged", "Rejected", "Returned", "Condition"]} rows={receipts.flatMap((candidate) => candidate.lines.map((line) => [candidate.receiptNumber, candidate.lifecycleStatus, line.lineId, line.quantity, line.acceptedQuantity, line.damagedQuantity, line.rejectedQuantity, line.returnedQuantity, line.conditionNote ?? "Accepted"]))} />
+          {partial && featuredPo?.receiptStatus === "partial" && (
+            <Button
+              className="mt-4"
+              disabled={state.activeRole !== "receiving_clerk"}
+              onClick={() =>
+                void execute(
+                  { type: "complete_partial_receipt" },
+                  "Replacement accepted; cumulative receiving complete",
+                )
+              }
+            >
+              Inspect and post replacement
+            </Button>
+          )}
         </>
       )}
     </>
   );
 }
 
-function InvoiceView({ state, execute }: { state: DemoState; execute: (command: () => DemoState, success: string) => void }) {
+function InvoiceView({ state, execute }: { state: DemoState; execute: ExecuteCommand }) {
   const po = state.purchaseOrders.find((candidate) => candidate.id === "po-featured");
-  const receipt = state.receipts.find((candidate) => candidate.id === "receipt-featured");
+  const acceptedReceiptValue = state.receipts
+    .filter(
+      (candidate) =>
+        candidate.purchaseOrderId === po?.id &&
+        !["reversed", "superseded", "rejected"].includes(
+          candidate.lifecycleStatus,
+        ),
+    )
+    .reduce((total, candidate) => total + candidate.totalValueCents, 0);
   const invoice = state.invoices.find((candidate) => candidate.id === "invoice-featured");
   return (
     <>
-      <SectionHeader eyebrow="Human-controlled matching" title="Invoices" description="Compare PO, receipt, and invoice facts. Claire explains exceptions but never approves payment." />
+      <SectionHeader eyebrow="Human-controlled matching" title="Invoices" description="Compare PO, receipt, and invoice facts. CATE explains exceptions but never approves payment." />
       <Card>
         <CardHeader><h2 className="font-black">Invoice work queue · 35 records</h2></CardHeader>
         <CardContent>
@@ -1062,20 +1172,35 @@ function InvoiceView({ state, execute }: { state: DemoState; execute: (command: 
             candidate.approvalStatus,
             candidate.paymentStatus,
           ])} />
-          <p className="mt-3 text-xs text-[var(--muted-foreground)]">Human approval remains visible for pending match, exception, duplicate-risk, approval, payment-ready, and paid states.</p>
+          <p className="mt-3 text-xs text-[var(--muted-foreground)]">Human approval remains visible for pending match, exception, duplicate-risk, approval, payment-ready, and exported-handoff states. Catalyst never executes payment.</p>
         </CardContent>
       </Card>
       {!invoice ? (
-        <Card><CardContent className="p-5"><p className="text-sm text-[var(--muted-foreground)]">Complete the featured receipt, then upload the fictional invoice and run the three-way comparison.</p><Button className="mt-4" disabled={state.stage !== "fully_received"} onClick={() => execute(() => runThreeWayMatch(state), "Three-way match found $320 freight variance")}>Upload and run three-way match</Button></CardContent></Card>
+        <Card><CardContent className="p-5"><p className="text-sm text-[var(--muted-foreground)]">Complete the featured receipt, then upload the fictional invoice and run the three-way comparison.</p><Button className="mt-4" disabled={state.stage !== "fully_received"} onClick={() => void execute({ type: "run_invoice_match" }, "Three-way match found $320 freight variance")}>Upload and run three-way match</Button></CardContent></Card>
       ) : (
         <>
-          <MetricCards metrics={[["PO total", money(po?.totalCents ?? 0), "Approved"], ["Receipt value", money(receipt?.totalValueCents ?? 0), "Accepted"], ["Invoice total", money(invoice.totalCents), "Includes freight"], ["Variance", money(invoice.varianceCents), "Unexpected freight"]]} />
+          <MetricCards metrics={[["PO total", money(po?.totalCents ?? 0), "Approved"], ["Receipt value", money(acceptedReceiptValue), "Cumulative accepted receipts"], ["Invoice total", money(invoice.totalCents), "Includes freight"], ["Variance", money(invoice.varianceCents), "Unexpected freight"]]} />
           <Card data-tour-id="invoice-exception" className="border-rose-200 bg-gradient-to-br from-white to-rose-50"><CardContent className="p-5"><div className="flex gap-3"><AlertTriangle className="size-5 text-rose-600" /><div><h2 className="font-black">Exception — Freight variance requires review</h2><p className="mt-1 text-sm text-[var(--muted-foreground)]">{invoice.varianceReason}</p><p className="mt-3 text-xs font-bold text-rose-700">Human approval remains required. Payment is on hold.</p></div></div></CardContent></Card>
           <div className="flex flex-wrap gap-2">
-            <Button disabled={state.stage !== "invoice_exception"} onClick={() => execute(() => resolveInvoiceException(state, "route"), "Exception routed to Finance")}>Route for exception approval</Button>
-            <Button variant="secondary" disabled={!["invoice_exception", "exception_routed"].includes(state.stage)} onClick={() => execute(() => switchRole(state, "finance_reviewer"), "Switched to Finance Reviewer")}>Switch to Finance</Button>
-            <Button variant="secondary" disabled={state.stage !== "exception_routed"} onClick={() => execute(() => resolveInvoiceException(state, "accept", "Carrier evidence reviewed by Finance."), "Variance accepted by Finance")}>Accept with justification</Button>
-            <Button variant="secondary" disabled={!["invoice_exception", "exception_routed"].includes(state.stage)} onClick={() => execute(() => resolveInvoiceException(state, "corrected_invoice"), "Corrected invoice requested")}>Request corrected invoice</Button>
+            <Button disabled={state.stage !== "invoice_exception"} onClick={() => void execute({ type: "resolve_invoice_exception", decision: "route", justification: "" }, "Exception routed to Finance")}>Route for exception approval</Button>
+            <Button variant="secondary" disabled={!["invoice_exception", "exception_routed"].includes(state.stage)} onClick={() => void execute({ type: "switch_role", role: "finance_reviewer" }, "Switched to Finance Reviewer")}>Switch to Finance</Button>
+            <Button variant="secondary" disabled={state.stage !== "exception_routed"} onClick={() => void execute({ type: "resolve_invoice_exception", decision: "accept", justification: "Carrier evidence reviewed by Finance." }, "Variance accepted by Finance")}>Accept with justification</Button>
+            <Button variant="secondary" disabled={!["invoice_exception", "exception_routed"].includes(state.stage)} onClick={() => void execute({ type: "resolve_invoice_exception", decision: "corrected_invoice", justification: "" }, "Corrected invoice requested")}>Request corrected invoice</Button>
+            <Button
+              variant="secondary"
+              disabled={
+                invoice.paymentStatus !== "ready" ||
+                state.activeRole !== "accounts_payable"
+              }
+              onClick={() =>
+                void execute(
+                  { type: "export_payment_readiness" },
+                  "Simulated payment-readiness handoff exported; no payment executed",
+                )
+              }
+            >
+              Export payment readiness
+            </Button>
           </div>
         </>
       )}
@@ -1083,11 +1208,53 @@ function InvoiceView({ state, execute }: { state: DemoState; execute: (command: 
   );
 }
 
-function AuditView({ state }: { state: DemoState }) {
+function AuditView({
+  state,
+  execute,
+  activeTenantId,
+  durableArtifacts,
+}: {
+  state: DemoState;
+  execute: ExecuteCommand;
+  activeTenantId: TenantId;
+  durableArtifacts: boolean;
+}) {
   const [query, setQuery] = useState("");
+  const [artifactMessage, setArtifactMessage] = useState<string | null>(null);
   const events = state.auditEvents
-    .filter((event) => event.correlationId === "CORR-Y12-LOE-2026-001")
+    .filter((event) => event.correlationId.includes("-LOE-"))
     .filter((event) => `${event.action} ${event.entityId} ${event.description}`.toLowerCase().includes(query.toLowerCase()));
+  async function downloadArtifact(
+    subjectId: string,
+    version: number,
+    artifact: "pdf" | "csv" | "json",
+  ) {
+    setArtifactMessage(`Preparing the private ${artifact.toUpperCase()} link…`);
+    const params = new URLSearchParams({
+      tenantId: activeTenantId,
+      subjectId,
+      version: String(version),
+      artifact,
+    });
+    const response = await fetch(
+      `/api/phase-two/audit-packages?${params.toString()}`,
+      { cache: "no-store" },
+    );
+    const result = (await response.json()) as {
+      url?: string;
+      message?: string;
+    };
+    if (!response.ok || !result.url) {
+      setArtifactMessage(
+        result.message ?? "The private artifact is unavailable.",
+      );
+      return;
+    }
+    window.open(result.url, "_blank", "noopener,noreferrer");
+    setArtifactMessage(
+      `Opened a 60-second private ${artifact.toUpperCase()} link.`,
+    );
+  }
   return (
     <>
       <SectionHeader eyebrow="Immutable-style evidence" title="Audit Center" description="Review every material featured-workflow action with actor, role, record, before/after values, source, and correlation." />
@@ -1098,8 +1265,579 @@ function AuditView({ state }: { state: DemoState }) {
       <div data-tour-id="audit-evidence">
         <DataTable columns={["Time", "Role", "Action", "Entity", "Previous", "New", "Description"]} rows={events.slice().reverse().map((event) => [event.timestamp, titleCase(event.role), titleCase(event.action), `${titleCase(event.entityType)} · ${event.entityId}`, event.previousValue ?? "—", event.newValue ?? "—", event.description])} />
       </div>
-      <Button variant="secondary"><FileCheck2 className="size-4" />Export Audit Package</Button>
+      <Card>
+        <CardHeader>
+          <div>
+            <h2 className="font-black">Reproducible audit packages</h2>
+            <p className="text-xs text-[var(--muted-foreground)]">
+              Human-initiated, permission-controlled demo export with readable
+              PDF, CSV extracts, JSON manifest, pinned evidence versions, and
+              SHA-256 hashes.
+            </p>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <DataTable
+            columns={["Package", "Subject", "Version", "As of", "State", "Artifacts", "Manifest hash"]}
+            rows={state.auditPackages.map((candidate) => [
+              candidate.id,
+              candidate.subjectId,
+              candidate.version,
+              candidate.asOf,
+              candidate.lifecycleState,
+              candidate.artifacts.join(", "),
+              candidate.manifestSha256 ?? "Generating",
+            ])}
+          />
+          <div className="mt-4 space-y-2">
+            {state.auditPackages
+              .filter((candidate) => candidate.lifecycleState === "completed")
+              .map((candidate) => (
+                <div
+                  key={`${candidate.id}-downloads`}
+                  className="flex flex-wrap items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface-subtle)] p-3"
+                >
+                  <span className="mr-2 text-xs font-bold">
+                    Version {candidate.version} private artifacts
+                  </span>
+                  {candidate.artifacts.map((artifact) => (
+                    <Button
+                      key={artifact}
+                      size="sm"
+                      variant="secondary"
+                      onClick={() =>
+                        void downloadArtifact(
+                          candidate.subjectId,
+                          candidate.version,
+                          artifact,
+                        )
+                      }
+                    >
+                      Download {artifact.toUpperCase()}
+                    </Button>
+                  ))}
+                </div>
+              ))}
+          </div>
+          {artifactMessage && (
+            <p role="status" className="mt-3 text-xs text-[var(--muted-foreground)]">
+              {artifactMessage}
+            </p>
+          )}
+          <Button
+            className="mt-4"
+            variant="secondary"
+            disabled={
+              !durableArtifacts ||
+              !["auditor", "system_administrator"].includes(state.activeRole)
+            }
+            onClick={() =>
+              void execute(
+                { type: "generate_audit_package" },
+                "Versioned PDF, CSV, and JSON audit package generated",
+              )
+            }
+          >
+            <FileCheck2 className="size-4" />
+            Generate Audit Package
+          </Button>
+          {!durableArtifacts && (
+            <p className="mt-2 text-xs font-bold text-amber-800">
+              Real artifact generation requires authoritative private Storage;
+              temporary preview mode does not pretend files were created.
+            </p>
+          )}
+        </CardContent>
+      </Card>
     </>
+  );
+}
+
+function GovernanceView({
+  state,
+  execute,
+}: {
+  state: DemoState;
+  execute: ExecuteCommand;
+}) {
+  const proposed = state.configurationVersions.find(
+    (candidate) => candidate.id === "config-invoice-tolerance-v2",
+  );
+  const importBatch = state.importBatches[0];
+  return (
+    <>
+      <SectionHeader
+        eyebrow="Controlled administration"
+        title="Configuration, data, and operations"
+        description="Versioned policies, split-duty imports, private evidence metadata, authoritative queues, and visibly simulated email delivery."
+      />
+      <Card>
+        <CardHeader>
+          <div>
+            <h2 className="font-black">Configuration governance</h2>
+            <p className="text-xs text-[var(--muted-foreground)]">
+              Draft → validation and synthetic simulation → independent review
+              → approval → activation. Protected controls cannot be disabled.
+            </p>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <DataTable
+            columns={["Domain", "Version", "State", "Source", "Owner", "Simulation", "Issues"]}
+            rows={state.configurationVersions.map((candidate) => [
+              titleCase(candidate.domain),
+              candidate.version,
+              candidate.lifecycleState,
+              candidate.sourceLabel === "synthetic_demo"
+                ? "Synthetic demo configuration"
+                : titleCase(candidate.sourceLabel),
+              candidate.owner,
+              candidate.simulationSummary,
+              candidate.validationIssues.join("; ") || "None",
+            ])}
+          />
+          {proposed && (
+            <div className="flex flex-wrap gap-2">
+              {proposed.lifecycleState === "draft" && (
+                <Button
+                  size="sm"
+                  disabled={state.activeRole !== "system_administrator"}
+                  onClick={() =>
+                    void execute(
+                      {
+                        type: "validate_configuration",
+                        configurationId: proposed.id,
+                      },
+                      "Configuration validated and simulated",
+                    )
+                  }
+                >
+                  Validate and simulate
+                </Button>
+              )}
+              {proposed.lifecycleState === "validated" && (
+                <Button
+                  size="sm"
+                  disabled={state.activeRole !== "system_administrator"}
+                  onClick={() =>
+                    void execute(
+                      {
+                        type: "submit_configuration_review",
+                        configurationId: proposed.id,
+                      },
+                      "Configuration submitted for independent review",
+                    )
+                  }
+                >
+                  Submit for review
+                </Button>
+              )}
+              {proposed.lifecycleState === "review_pending" && (
+                <Button
+                  size="sm"
+                  disabled={state.activeRole !== "finance_reviewer"}
+                  onClick={() =>
+                    void execute(
+                      {
+                        type: "approve_configuration",
+                        configurationId: proposed.id,
+                      },
+                      "Configuration independently approved",
+                    )
+                  }
+                >
+                  Approve as Finance
+                </Button>
+              )}
+              {proposed.lifecycleState === "approved" && (
+                <Button
+                  size="sm"
+                  disabled={state.activeRole !== "system_administrator"}
+                  onClick={() =>
+                    void execute(
+                      {
+                        type: "activate_configuration",
+                        configurationId: proposed.id,
+                      },
+                      "Approved configuration activated",
+                    )
+                  }
+                >
+                  Activate approved version
+                </Button>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+      <div className="grid gap-4 xl:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <h2 className="font-black">Import control center</h2>
+          </CardHeader>
+          <CardContent>
+            <DataTable
+              columns={["File", "Type", "State", "Rows", "Valid", "Errors", "Hash", "Mapping"]}
+              rows={state.importBatches.map((candidate) => [
+                candidate.originalFilename,
+                candidate.importType,
+                candidate.lifecycleState,
+                candidate.rowCount,
+                candidate.validRowCount,
+                candidate.errorRowCount,
+                candidate.fileHash,
+                candidate.mappingSummary,
+              ])}
+            />
+            {importBatch && (
+              <div className="mt-4 flex flex-wrap gap-2">
+                {importBatch.lifecycleState === "ready_for_approval" && (
+                  <Button
+                    size="sm"
+                    disabled={state.activeRole !== "purchasing_manager"}
+                    onClick={() =>
+                      void execute(
+                        { type: "approve_import", batchId: importBatch.id },
+                        "Reconciled import approved",
+                      )
+                    }
+                  >
+                    Approve import
+                  </Button>
+                )}
+                {importBatch.lifecycleState === "approved" && (
+                  <Button
+                    size="sm"
+                    disabled={state.activeRole !== "system_administrator"}
+                    onClick={() =>
+                      void execute(
+                        { type: "post_import", batchId: importBatch.id },
+                        "Import posted with lineage",
+                      )
+                    }
+                  >
+                    Post approved import
+                  </Button>
+                )}
+                {importBatch.lifecycleState === "posted" && (
+                  <Button
+                    size="sm"
+                    variant="danger"
+                    disabled={state.activeRole !== "system_administrator"}
+                    onClick={() =>
+                      void execute(
+                        {
+                          type: "reverse_import",
+                          batchId: importBatch.id,
+                          reason:
+                            "Presenter-initiated control demonstration reverses the synthetic batch while preserving lineage.",
+                        },
+                        "Import reversed with history preserved",
+                      )
+                    }
+                  >
+                    Reverse posted import
+                  </Button>
+                )}
+              </div>
+            )}
+            <ControlledImportUpload
+              tenantId={state.organization.organizationId}
+            />
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <h2 className="font-black">Evidence and delivery controls</h2>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <DataTable
+              columns={["Document", "Parent", "Version", "State", "Scan", "Citation", "SHA-256"]}
+              rows={state.documents.map((candidate) => [
+                candidate.filename,
+                `${candidate.parentEntityType} · ${candidate.parentEntityId}`,
+                candidate.version,
+                candidate.lifecycleState,
+                `${titleCase(candidate.scanMode)} scanning`,
+                candidate.citation,
+                candidate.sha256,
+              ])}
+            />
+            <p className="rounded-xl bg-amber-50 p-3 text-xs font-bold text-amber-900">
+              Scanning is simulated and labeled in this demo. Production
+              metadata is designed for private Storage and short-lived signed
+              access only.
+            </p>
+            <PrivateDocumentUpload
+              tenantId={state.organization.organizationId}
+              parentEntityId={state.featuredRequestId}
+            />
+            <DataTable
+              columns={["Channel", "Subject", "State", "Attempts", "Mandatory", "Acknowledged"]}
+              rows={state.notifications.map((candidate) => [
+                candidate.channel === "email_simulated"
+                  ? "Simulated email"
+                  : "In-app",
+                candidate.subject,
+                candidate.deliveryState,
+                candidate.attempts,
+                candidate.mandatory ? "Yes" : "No",
+                candidate.acknowledged ? "Yes" : "No",
+              ])}
+            />
+            <div className="flex flex-wrap gap-2">
+              {state.notifications
+                .filter((candidate) =>
+                  ["failed", "dead_letter"].includes(candidate.deliveryState),
+                )
+                .map((candidate) => (
+                  <Button
+                    key={candidate.id}
+                    size="sm"
+                    variant="secondary"
+                    disabled={state.activeRole !== "system_administrator"}
+                    onClick={() =>
+                      void execute(
+                        {
+                          type: "retry_notification",
+                          notificationId: candidate.id,
+                        },
+                        "Simulated notification retry completed",
+                      )
+                    }
+                  >
+                    Retry failed delivery
+                  </Button>
+                ))}
+              {state.notifications
+                .filter(
+                  (candidate) =>
+                    candidate.mandatory &&
+                    !candidate.acknowledged &&
+                    candidate.recipientRole === state.activeRole,
+                )
+                .map((candidate) => (
+                  <Button
+                    key={candidate.id}
+                    size="sm"
+                    onClick={() =>
+                      void execute(
+                        {
+                          type: "acknowledge_notification",
+                          notificationId: candidate.id,
+                        },
+                        "Mandatory notice acknowledged",
+                      )
+                    }
+                  >
+                    Acknowledge control notice
+                  </Button>
+                ))}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+      <Card>
+        <CardHeader>
+          <h2 className="font-black">Authoritative work queues</h2>
+        </CardHeader>
+        <CardContent>
+          <DataTable
+            columns={["Queue", "Entity", "Role", "Priority", "Status", "Due", "Escalation", "Blocker"]}
+            rows={state.workQueueItems.map((candidate) => [
+              candidate.queueType,
+              `${candidate.entityType} · ${candidate.entityId}`,
+              candidate.assigneeRole,
+              candidate.priority,
+              candidate.status,
+              candidate.dueDate,
+              candidate.escalationLevel,
+              candidate.blocker ?? "None",
+            ])}
+          />
+        </CardContent>
+      </Card>
+    </>
+  );
+}
+
+function PrivateDocumentUpload({
+  tenantId,
+  parentEntityId,
+}: {
+  tenantId: string;
+  parentEntityId: string;
+}) {
+  const [file, setFile] = useState<File | null>(null);
+  const [acknowledged, setAcknowledged] = useState(false);
+  const [status, setStatus] = useState("");
+  const [working, setWorking] = useState(false);
+
+  async function upload() {
+    if (!file || !acknowledged) return;
+    setWorking(true);
+    setStatus("");
+    const form = new FormData();
+    form.append("tenantId", tenantId);
+    form.append("parentEntityType", "request");
+    form.append("parentEntityId", parentEntityId);
+    form.append("file", file);
+    try {
+      const response = await fetch("/api/phase-two/documents", {
+        method: "POST",
+        body: form,
+      });
+      const result = (await response.json()) as {
+        message?: string;
+        filename?: string;
+        sha256?: string;
+        scanLabel?: string;
+      };
+      if (!response.ok) {
+        throw new Error(result.message ?? "Private upload failed.");
+      }
+      setStatus(
+        `${result.filename} stored privately · SHA-256 ${result.sha256} · ${result.scanLabel}`,
+      );
+      setFile(null);
+    } catch (error) {
+      setStatus(
+        error instanceof Error ? error.message : "Private upload failed.",
+      );
+    } finally {
+      setWorking(false);
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-[var(--border)] p-3">
+      <p className="text-xs font-black">Private evidence upload</p>
+      <p className="mt-1 text-[11px] text-[var(--muted-foreground)]">
+        PDF, DOCX, XLSX, CSV, PNG, or JPG · 25 MB maximum · executables,
+        archives, macros, and password-protected files are rejected.
+      </p>
+      <input
+        className="mt-3 block w-full text-xs"
+        type="file"
+        accept=".pdf,.docx,.xlsx,.csv,.png,.jpg,.jpeg"
+        onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+        aria-label="Choose fictional evidence file"
+      />
+      <label className="mt-3 flex items-start gap-2 text-[11px] font-bold">
+        <input
+          type="checkbox"
+          checked={acknowledged}
+          onChange={(event) => setAcknowledged(event.target.checked)}
+        />
+        I confirm this file contains fictional demonstration data only.
+      </label>
+      <Button
+        className="mt-3"
+        size="sm"
+        disabled={!file || !acknowledged || working}
+        onClick={() => void upload()}
+      >
+        {working ? "Scanning and storing…" : "Upload private evidence"}
+      </Button>
+      {status && (
+        <p className="mt-3 break-words text-[11px] leading-5" role="status">
+          {status}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function ControlledImportUpload({ tenantId }: { tenantId: string }) {
+  const [file, setFile] = useState<File | null>(null);
+  const [importType, setImportType] = useState<
+    "vendor_master" | "catalog" | "opening_inventory"
+  >("vendor_master");
+  const [status, setStatus] = useState("");
+  const [working, setWorking] = useState(false);
+
+  async function stage() {
+    if (!file) return;
+    setWorking(true);
+    setStatus("");
+    const form = new FormData();
+    form.append("tenantId", tenantId);
+    form.append("importType", importType);
+    form.append("sourceSystem", "Synthetic controlled upload");
+    form.append("file", file);
+    try {
+      const response = await fetch("/api/phase-two/imports", {
+        method: "POST",
+        body: form,
+      });
+      const result = (await response.json()) as {
+        message?: string;
+        batchId?: string;
+        lifecycleState?: string;
+        rowCount?: number;
+        validRowCount?: number;
+        errorRowCount?: number;
+        sha256?: string;
+      };
+      if (!response.ok) throw new Error(result.message ?? "Import staging failed.");
+      setStatus(
+        `Batch ${result.batchId} · ${result.lifecycleState} · ${result.validRowCount}/${result.rowCount} valid rows · ${result.errorRowCount} errors · SHA-256 ${result.sha256}`,
+      );
+      setFile(null);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Import staging failed.");
+    } finally {
+      setWorking(false);
+    }
+  }
+
+  return (
+    <div className="mt-4 rounded-xl border border-[var(--border)] p-3">
+      <p className="text-xs font-black">Stage a controlled import</p>
+      <p className="mt-1 text-[11px] text-[var(--muted-foreground)]">
+        CSV or macro-free XLSX · formulas rejected · duplicates flagged without
+        automatic merge · no member or consumer financial fields.
+      </p>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+        <select
+          aria-label="Import type"
+          value={importType}
+          onChange={(event) =>
+            setImportType(
+              event.target.value as
+                | "vendor_master"
+                | "catalog"
+                | "opening_inventory",
+            )
+          }
+          className="h-10 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-xs"
+        >
+          <option value="vendor_master">Vendor master</option>
+          <option value="catalog">Catalog</option>
+          <option value="opening_inventory">Opening inventory</option>
+        </select>
+        <input
+          type="file"
+          accept=".csv,.xlsx"
+          aria-label="Choose CSV or XLSX import"
+          onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+          className="text-xs"
+        />
+      </div>
+      <Button
+        className="mt-3"
+        size="sm"
+        disabled={!file || working}
+        onClick={() => void stage()}
+      >
+        {working ? "Quarantining and validating…" : "Stage and validate"}
+      </Button>
+      {status && (
+        <p className="mt-3 break-words text-[11px] leading-5" role="status">
+          {status}
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -1116,12 +1854,12 @@ function AiView({ state }: { state: DemoState }) {
       setAnswer(state.purchaseOrders.some((po) => po.id === "po-featured") ? `Y12-PO-2026-00482 is ${statusLabel(state.purchaseOrders.find((po) => po.id === "po-featured")!.status)}.` : "Y12-PO-2026-00482 has not been created; complete the four approvals first.");
     else if (normalized.includes("invoice") || normalized.includes("exception"))
       setAnswer(state.invoices.some((invoice) => invoice.id === "invoice-featured") ? "The featured invoice has an exact $320 unexpected freight variance and remains human-gated." : "The featured invoice has not been matched yet.");
-    else setAnswer("The strongest accepted opportunity is the $1,047 central-monitor allocation. Claire cannot approve or execute a financial action.");
+    else setAnswer("The strongest accepted opportunity is the $1,047 central-monitor allocation. CATE cannot approve or execute a financial action.");
   }
   return (
     <>
-      <SectionHeader eyebrow="Policy-grounded assistant" title="AI Procurement" description="Claire answers from fictional workspace evidence and keeps human review mandatory." />
-      <Card data-tour-id="demo-ai-workspace" className="overflow-hidden border-[#404287]/25 bg-gradient-to-br from-white via-white to-[#404287]/[0.06]"><CardContent className="p-5"><div className="flex gap-3"><Bot className="size-5 text-[var(--brand-secondary)]" /><p className="text-sm leading-6">{answer}</p></div><div className="mt-4 flex gap-2"><input value={prompt} onChange={(event) => setPrompt(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") ask(prompt); }} placeholder="Ask the fictional procurement workspace…" className="h-11 flex-1 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm" /><Button onClick={() => ask(prompt)}>Ask Claire</Button></div></CardContent></Card>
+      <SectionHeader eyebrow="Policy-grounded assistant" title="AI Procurement" description="CATE answers from fictional workspace evidence and keeps human review mandatory." />
+      <Card data-tour-id="demo-ai-workspace" className="overflow-hidden border-[#404287]/25 bg-gradient-to-br from-white via-white to-[#404287]/[0.06]"><CardContent className="p-5"><div className="flex gap-3"><Bot className="size-5 text-[var(--brand-secondary)]" /><p className="text-sm leading-6">{answer}</p></div><div className="mt-4 flex gap-2"><input value={prompt} onChange={(event) => setPrompt(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") ask(prompt); }} placeholder="Ask the fictional procurement workspace…" className="h-11 flex-1 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm" /><Button onClick={() => ask(prompt)}>Ask CATE</Button></div></CardContent></Card>
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{["Create a request for three new loan officers.", "What requests are waiting on me?", "Where is purchase order Y12-PO-2026-00482?", "Which invoices have exceptions?"].map((suggestion) => <button key={suggestion} onClick={() => { setPrompt(suggestion); ask(suggestion); }} className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3 text-left text-xs font-bold hover:border-[var(--brand-secondary)]">{suggestion}</button>)}</div>
     </>
   );
@@ -1144,20 +1882,34 @@ function GenericView({ section, state }: { section: string; state: DemoState }) 
 export function PhaseTwoPage({ section }: { section: string }) {
   const {
     state,
-    replace,
+    dispatch,
     activeTenantId,
     switchTenant,
+    pending,
+    persistence,
+    durability,
+    revision,
+    error: persistenceError,
   } = useDemo();
   const [message, setMessage] = useState<string | null>(null);
   const currentUser = state.users.find((user) => user.id === state.activeUserId)!;
   const roles = useMemo(() => Array.from(new Set(state.users.map((user) => user.role))), [state.users]);
 
-  function execute(command: () => DemoState, success: string) {
+  async function execute(
+    command: PhaseTwoCommand | PhaseTwoCommand[],
+    success: string,
+  ) {
     try {
-      replace(command());
+      for (const item of Array.isArray(command) ? command : [command]) {
+        await dispatch(item);
+      }
       setMessage(success);
     } catch (error) {
-      setMessage(error instanceof WorkflowError ? error.message : "The demo action could not be completed.");
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "The demo action could not be completed.",
+      );
     }
   }
 
@@ -1169,6 +1921,29 @@ export function PhaseTwoPage({ section }: { section: string }) {
           <span className="ml-1 text-[var(--brand-primary)]">Powered by Catalyst Innovations.</span>
         </div>
       )}
+      <div
+        role="status"
+        className={`flex flex-wrap items-center justify-between gap-2 rounded-xl border px-4 py-2 text-[11px] ${
+          durability === "authoritative"
+            ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+            : durability === "temporary"
+              ? "border-amber-200 bg-amber-50 text-amber-900"
+              : "border-rose-200 bg-rose-50 text-rose-900"
+        }`}
+      >
+        <span className="font-bold">
+          {durability === "authoritative"
+            ? `Supabase authoritative state · revision ${revision}`
+            : durability === "temporary"
+              ? `Temporary server fallback · revision ${revision} · resets when the server restarts`
+              : "Read-only deterministic fallback · authoritative state unavailable"}
+        </span>
+        <span>
+          {pending
+            ? "Saving controlled command…"
+            : persistenceError ?? `Persistence: ${persistence}`}
+        </span>
+      </div>
       {state.presenterMode && (
       <div className="flex flex-col justify-between gap-3 rounded-2xl border border-[#041a6c]/10 bg-gradient-to-r from-white to-[#f9edce]/55 p-3 shadow-sm sm:flex-row sm:items-center">
         <div className="flex items-center gap-3">
@@ -1183,8 +1958,16 @@ export function PhaseTwoPage({ section }: { section: string }) {
           <select
             id="demo-tenant"
             value={activeTenantId}
-            onChange={(event) => switchTenant(event.target.value as TenantId)}
-            disabled={!state.presenterMode}
+            onChange={(event) =>
+              void switchTenant(event.target.value as TenantId).catch((cause) =>
+                setMessage(
+                  cause instanceof Error
+                    ? cause.message
+                    : "Tenant switch failed.",
+                ),
+              )
+            }
+            disabled={!state.presenterMode || pending}
             className="h-9 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-xs font-bold"
           >
             {Object.entries(tenantThemes).map(([tenantId, tenant]) => (
@@ -1194,20 +1977,20 @@ export function PhaseTwoPage({ section }: { section: string }) {
             ))}
           </select>
           <label className="sr-only" htmlFor="demo-role">Active demo role</label>
-          <select id="demo-role" value={state.activeRole} onChange={(event) => execute(() => switchRole(state, event.target.value as DemoRole), "Active role changed")} className="h-9 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-xs font-bold">
+          <select id="demo-role" value={state.activeRole} disabled={pending || durability === "read_only"} onChange={(event) => void execute({ type: "switch_role", role: event.target.value as DemoRole }, "Active role changed")} className="h-9 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-xs font-bold">
             {roles.map((role) => <option key={role} value={role}>{titleCase(role)}</option>)}
           </select>
-          <select aria-label="Jump to workflow stage" defaultValue="" onChange={(event) => { if (event.target.value) { replace(jumpToStage(event.target.value as WorkflowStage, state)); setMessage(`Loaded ${titleCase(event.target.value)}`); } }} className="h-9 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-xs font-bold">
+          <select aria-label="Jump to workflow stage" defaultValue="" disabled={pending || durability === "read_only"} onChange={(event) => { if (event.target.value) { void execute({ type: "jump_to_stage", stage: event.target.value as WorkflowStage }, `Loaded ${titleCase(event.target.value)}`); } }} className="h-9 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-xs font-bold">
             <option value="">Jump to stage…</option>
             {["draft", "submitted", "approved", "po_draft", "acknowledged", "fully_received", "invoice_exception", "exception_routed"].map((stage) => <option key={stage} value={stage}>{titleCase(stage)}</option>)}
           </select>
-          <Button variant="secondary" size="sm" onClick={() => { replace(resetDemo(state)); setMessage("Demo baseline restored"); }}><RefreshCw className="size-3.5" />Reset</Button>
+          <Button variant="secondary" size="sm" disabled={pending || durability === "read_only"} onClick={() => void execute({ type: "reset_demo" }, "Demo baseline restored")}><RefreshCw className="size-3.5" />Reset</Button>
         </div>
       </div>
       )}
       <WorkflowRail stage={state.stage} />
       <DecisionGuide section={section} />
-      {section === "dashboard" ? <DashboardView state={state} /> : section === "purchase-requests" ? <RequestView state={state} execute={execute} /> : section === "approvals" ? <ApprovalView state={state} execute={execute} /> : section === "purchase-orders" ? <PurchaseOrderView state={state} execute={execute} /> : section === "receiving" ? <ReceivingView state={state} execute={execute} /> : section === "invoices" ? <InvoiceView state={state} execute={execute} /> : section === "audit-center" ? <AuditView state={state} /> : section === "ai-procurement" ? <AiWorkspace /> : <GenericView section={section} state={state} />}
+      {section === "dashboard" ? <DashboardView state={state} /> : section === "purchase-requests" ? <RequestView state={state} execute={execute} /> : section === "approvals" ? <ApprovalView state={state} execute={execute} /> : section === "purchase-orders" ? <PurchaseOrderView state={state} execute={execute} /> : section === "receiving" ? <ReceivingView state={state} execute={execute} /> : section === "invoices" ? <InvoiceView state={state} execute={execute} /> : section === "analytics" ? <CertifiedKpiDashboard state={state} /> : section === "audit-center" ? <AuditView state={state} execute={execute} activeTenantId={activeTenantId} durableArtifacts={durability === "authoritative"} /> : section === "administration" ? <GovernanceView state={state} execute={execute} /> : section === "ai-procurement" ? <AiWorkspace /> : <GenericView section={section} state={state} />}
       {message && (
         <div role="status" className="fixed bottom-5 right-5 z-50 flex max-w-sm items-start gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface-elevated)] p-4 shadow-[var(--shadow-elevated)]">
           <Check className="mt-0.5 size-4 text-emerald-600" />
@@ -1218,7 +2001,7 @@ export function PhaseTwoPage({ section }: { section: string }) {
       <footer className="rounded-xl border border-[var(--border)] bg-[var(--surface-subtle)] px-4 py-3 text-[11px] leading-5 text-[var(--muted-foreground)]">
         <strong className="text-[var(--foreground)]">Fictional demonstration workspace.</strong>{" "}
         This environment is not connected to Y-12 Credit Union systems and does not
-        represent an endorsement or implementation. Claire explains evidence and
+        represent an endorsement or implementation. CATE explains evidence and
         recommendations; authorized people retain every financial and control decision.
       </footer>
     </div>

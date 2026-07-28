@@ -59,6 +59,17 @@ export interface EvidenceCard {
   sourceCitationIds: string[];
 }
 
+export interface CatePolicyContext {
+  policyName: string;
+  version: string;
+  sourceLabel: string;
+}
+
+export interface CateConfidence {
+  band: "high" | "moderate" | "low" | "insufficient";
+  reason: string;
+}
+
 export type ToolPermission =
   | "read_only"
   | "ui_navigation"
@@ -132,6 +143,13 @@ export interface AiRunResult {
   citations: Citation[];
   evidenceCards: EvidenceCard[];
   proposedActions: ProposedAction[];
+  policyContext: CatePolicyContext;
+  assumptions: string[];
+  evidenceGaps: string[];
+  confidence: CateConfidence;
+  risksAndAlternatives: string[];
+  recommendedNextAction: string;
+  humanDecisionBoundary: string;
   usage: ProviderUsageEvent;
   tourStepToResume?: string;
   humanReviewNotice: string;
@@ -211,6 +229,17 @@ export const proposedActionSchema = z.object({
   href: z.string().optional(),
 });
 
+export const catePolicyContextSchema = z.object({
+  policyName: z.string().min(1).max(200),
+  version: z.string().min(1).max(80),
+  sourceLabel: z.string().min(1).max(200),
+});
+
+export const cateConfidenceSchema = z.object({
+  band: z.enum(["high", "moderate", "low", "insufficient"]),
+  reason: z.string().min(1).max(1_000),
+});
+
 export const aiRunRequestSchema = z.object({
   tenantId: z.string().min(1).max(80),
   prompt: z.string().trim().min(1).max(8_000),
@@ -231,6 +260,13 @@ export const aiModelOutputSchema = z.object({
   citations: z.array(citationSchema).max(12),
   evidenceCards: z.array(evidenceCardSchema).max(8),
   proposedActions: z.array(proposedActionSchema).max(4),
+  policyContext: catePolicyContextSchema,
+  assumptions: z.array(z.string().min(1).max(500)).max(8),
+  evidenceGaps: z.array(z.string().min(1).max(500)).max(8),
+  confidence: cateConfidenceSchema,
+  risksAndAlternatives: z.array(z.string().min(1).max(500)).max(8),
+  recommendedNextAction: z.string().min(1).max(1_000),
+  humanDecisionBoundary: z.string().min(1).max(1_000),
   humanReviewNotice: z.string(),
 });
 

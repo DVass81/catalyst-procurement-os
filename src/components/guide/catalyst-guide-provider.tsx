@@ -14,7 +14,6 @@ import {
 
 import type { AiRunResult, VoiceSession } from "@/ai/types";
 import { useDemo } from "@/components/demo/demo-provider";
-import { jumpToStage, switchRole } from "@/demo/workflow";
 import {
   narrationChunks,
   narrationRate,
@@ -86,14 +85,14 @@ export function CatalystGuideProvider({
 }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { state, replace } = useDemo();
+  const { state, dispatch } = useDemo();
   const [open, setOpen] = useState(false);
   const [status, setStatus] = useState<GuideStatus>("idle");
   const [mode, setMode] = useState<GuideMode>("deterministic");
   const [tourId, setTourId] = useState<TourId | null>(null);
   const [stepIndex, setStepIndex] = useState(0);
   const [answer, setAnswer] = useState(
-    "Choose a tour, ask Claire a procurement question, or start Talk Live.",
+    "Choose a tour, ask CATE a procurement question, or start Talk Live.",
   );
   const [captionsEnabled, setCaptionsEnabled] = useState(true);
   const [narrationEnabled, setNarrationEnabled] = useState(true);
@@ -122,7 +121,7 @@ export function CatalystGuideProvider({
         }),
       });
       if (!response.ok) {
-        throw new Error("Claire could not reach the procurement orchestrator.");
+        throw new Error("CATE could not reach the procurement orchestrator.");
       }
       return (await response.json()) as AiRunResult;
     },
@@ -141,7 +140,7 @@ export function CatalystGuideProvider({
       setLiveStatus("connected");
       setStatus("asking");
       setAnswer(
-        "Claire is listening. Ask a procurement question or interrupt naturally.",
+        "CATE is listening. Ask a procurement question or interrupt naturally.",
       );
     },
     onDisconnect: () => {
@@ -161,7 +160,7 @@ export function CatalystGuideProvider({
         setAnswer(message);
       }
     },
-    onInterruption: () => setAnswer("Claire paused to listen."),
+    onInterruption: () => setAnswer("CATE paused to listen."),
     clientTools: {
       catalyst_procurement_reason: async (parameters: Record<string, unknown>) => {
         const question =
@@ -286,11 +285,20 @@ export function CatalystGuideProvider({
     if (!step || status !== "running") return;
     if (pathname !== step.route) router.push(step.route);
     if (step.stage || step.role) {
-      let nextState = step.stage ? jumpToStage(step.stage) : state;
-      if (step.role && nextState.activeRole !== step.role) {
-        nextState = switchRole(nextState, step.role);
-      }
-      replace(nextState);
+      void (async () => {
+        if (step.stage) {
+          await dispatch({ type: "jump_to_stage", stage: step.stage });
+        }
+        if (step.role) {
+          await dispatch({ type: "switch_role", role: step.role });
+        }
+      })().catch((error) =>
+        setAnswer(
+          error instanceof Error
+            ? error.message
+            : "The guided workflow could not load this step.",
+        ),
+      );
     }
     const highlightTimer = window.setTimeout(() => {
       const target = document.querySelector<HTMLElement>(
@@ -312,7 +320,7 @@ export function CatalystGuideProvider({
     };
     // Each tour step intentionally loads a deterministic workflow snapshot.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [narrate, pathname, replace, router, status, step?.id]);
+  }, [narrate, pathname, dispatch, router, status, step?.id]);
 
   const disconnectLive = useCallback(() => {
     conversation.endSession();
@@ -347,7 +355,7 @@ export function CatalystGuideProvider({
       };
       if (!response.ok || !session.signedUrl) {
         throw new Error(
-          session.message ?? "Claire Live is not configured in this environment.",
+          session.message ?? "CATE Live is not configured in this environment.",
         );
       }
       conversation.startSession({
@@ -365,7 +373,7 @@ export function CatalystGuideProvider({
       disconnectLive();
       setLiveStatus("unavailable");
       setAnswer(
-        `${error instanceof Error ? error.message : "Claire Live is unavailable."} The presentation can continue in typed or deterministic mode.`,
+        `${error instanceof Error ? error.message : "CATE Live is unavailable."} The presentation can continue in typed or deterministic mode.`,
       );
     }
   }, [
@@ -393,8 +401,8 @@ export function CatalystGuideProvider({
       setStatus("asking");
       if (liveStatus === "connected") {
         conversation.sendUserMessage(question);
-        setAnswer("Claire is thinking…");
-        return "Claire is thinking…";
+        setAnswer("CATE is thinking…");
+        return "CATE is thinking…";
       }
       try {
         const result = await runServerQuestion(question);

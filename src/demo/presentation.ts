@@ -46,7 +46,7 @@ const statuses: Record<string, StatusPresentation> = {
   active: { label: "Active", tone: "success" },
   clear: { label: "Clear", tone: "success" },
   ready: { label: "Ready", tone: "success" },
-  paid: { label: "Paid", tone: "success" },
+  exported: { label: "Payment-Readiness Exported", tone: "success" },
   matched: { label: "Matched", tone: "success" },
   issued: { label: "Issued", tone: "info" },
   acknowledged: { label: "Acknowledged", tone: "info" },

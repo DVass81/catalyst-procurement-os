@@ -22,14 +22,14 @@ export async function GET(request: Request) {
 
   const supabase = await createSupabaseServerClient();
   const { data, error } = await supabase.auth.exchangeCodeForSession(code);
-  const tenantIds = data.user?.app_metadata?.tenant_ids;
+  const { data: assignments } = data.user
+    ? await supabase
+        .from("tenant_assignments")
+        .select("tenant_id")
+        .eq("user_id", data.user.id)
+    : { data: null };
 
-  if (
-    error ||
-    !data.user ||
-    !Array.isArray(tenantIds) ||
-    tenantIds.length === 0
-  ) {
+  if (error || !data.user || !assignments?.length) {
     await supabase.auth.signOut();
     return NextResponse.redirect(
       new URL("/?authError=invitation-required", requestUrl.origin),

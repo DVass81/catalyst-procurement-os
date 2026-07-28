@@ -79,6 +79,7 @@ def reset_demo() -> None:
 
 def navigate(page: str) -> None:
     st.session_state.page = page
+    st.session_state._navigation_target = page
 
 
 def advance(stage: str, message: str) -> None:
@@ -892,16 +893,37 @@ def render_sidebar() -> None:
             "Analytics": "↗  Spend Intelligence",
             "Audit Center": "◎  Audit & Examiner",
         }
+        navigation_target = st.session_state.pop("_navigation_target", None)
+        if navigation_target in pages:
+            st.session_state.navigation_page = navigation_target
         chosen = st.radio(
             "Navigation",
             pages,
             index=pages.index(st.session_state.page),
             format_func=lambda page: nav_labels[page],
             label_visibility="collapsed",
+            key="navigation_page",
         )
         if chosen != st.session_state.page:
             navigate(chosen)
             st.rerun()
+        global_search = st.text_input(
+            "Global search",
+            placeholder="Search requests, POs, invoices…",
+            label_visibility="collapsed",
+            key="global-search",
+        )
+        if global_search and (
+            "00175" in global_search.lower()
+            or "loan officer" in global_search.lower()
+        ):
+            if st.button(
+                "Y12-PR-2026-00175 · New Loan Officer Equipment",
+                key="search-result-featured-request",
+                use_container_width=True,
+            ):
+                navigate("Purchase Requests")
+                st.rerun()
         st.divider()
         st.markdown(
             """
@@ -1084,7 +1106,12 @@ def render_dashboard() -> None:
         """,
         unsafe_allow_html=True,
     )
-    if st.button("Run the featured procurement story →", type="primary", use_container_width=True):
+    if st.button(
+        "Run the featured procurement story →",
+        type="primary",
+        use_container_width=True,
+        key="load-featured",
+    ):
         navigate("Purchase Requests")
         st.rerun()
 

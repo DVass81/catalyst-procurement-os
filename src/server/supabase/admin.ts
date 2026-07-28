@@ -16,3 +16,17 @@ export function createSupabasePrivateClient() {
     db: { schema: "private" },
   });
 }
+
+export function createSupabaseServiceClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const secret = process.env.SUPABASE_SECRET_KEY;
+  if (!url || !secret) {
+    throw new Error("The Supabase service client is not configured.");
+  }
+  return createClient(url, secret, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
+}

@@ -58,7 +58,7 @@ export async function POST(request: Request) {
       {
         ...session,
         message:
-          "Claire Live is unavailable. Typed questions, captions, and the scripted tour remain ready.",
+          "CATE Live is unavailable. Typed questions, captions, and the scripted tour remain ready.",
       },
       { status: 503, headers: { "Cache-Control": "private, no-store" } },
     );
@@ -73,7 +73,7 @@ export async function POST(request: Request) {
   );
   if (!response.ok) {
     return NextResponse.json(
-      { message: "Claire Live could not start. Deterministic mode remains available." },
+      { message: "CATE Live could not start. Deterministic mode remains available." },
       { status: 502 },
     );
   }

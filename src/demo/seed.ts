@@ -466,7 +466,7 @@ function createFeaturedRequest(): PurchaseRequest {
       "Headset substitution recommended before submission.",
     ],
     aiSummary:
-      "Claire structured five equipment categories for three new loan officers and identified inventory, standards, vendor, budget, and approval checks for human review.",
+      "CATE structured five equipment categories for three new loan officers and identified inventory, standards, vendor, budget, and approval checks for human review.",
     attachments: ["Fictional staffing plan.pdf", "Equipment standards.pdf"],
     fieldsLocked: false,
     revision: 1,
@@ -492,7 +492,7 @@ export const featuredApprovals: Approval[] = approvalBlueprint.map(
     dueDate: `2026-07-${25 + sequence}`,
     escalationStatus: sequence === 1 ? "approaching_due" : "none",
     aiRecommendation:
-      "Claire recommends approval after human review: within budget, approved standards, an eligible supplier, and documented inventory savings.",
+      "CATE recommends approval after human review: within budget, approved standards, an eligible supplier, and documented inventory savings.",
   }),
 );
 
@@ -596,7 +596,7 @@ function createOtherRequests(): PurchaseRequest[] {
       budgetStatus: index % 9 === 0 ? "review_threshold" : "within_budget",
       inventoryFindings: [],
       policyFindings: ["Approved standard"],
-      aiSummary: "Claire organized the request and identified the applicable human review path.",
+      aiSummary: "CATE organized the request and identified the applicable human review path.",
       attachments: [],
       fieldsLocked: statuses[index % statuses.length] !== "draft",
       revision: 1,
@@ -877,7 +877,7 @@ export function createDemoState(
           ? "none"
           : approvalEscalationStatus(frozenDate, dueDate),
         aiRecommendation:
-          "Claire summarizes the evidence; the assigned employee retains decision authority.",
+          "CATE summarizes the evidence; the assigned employee retains decision authority.",
       };
     }),
   ];
@@ -903,6 +903,7 @@ export function createDemoState(
     approvals,
     quotes,
     purchaseOrders,
+    purchaseOrderRevisions: [],
     receipts: [],
     invoices,
     inventoryTransactions: [],
@@ -935,6 +936,141 @@ export function createDemoState(
             : "Required fictional due diligence is current.",
     })),
     vendorExceptions: [],
+    configurationVersions: [
+      {
+        id: "config-invoice-tolerance-v1",
+        domain: "invoice_matching",
+        version: 1,
+        lifecycleState: "active",
+        sourceLabel: "synthetic_demo",
+        owner: "Finance Control Owner",
+        backupOwner: "Accounts Payable Manager",
+        values: {
+          absoluteToleranceCents: 0,
+          percentageToleranceBasisPoints: 0,
+          autoMatchEnabled: false,
+        },
+        validationIssues: [],
+        simulationSummary:
+          "Zero tolerance routes the featured $320 freight difference to human review.",
+        effectiveDate: frozenDate,
+        approvedBy: "user-harper",
+      },
+      {
+        id: "config-invoice-tolerance-v2",
+        domain: "invoice_matching",
+        version: 2,
+        lifecycleState: "draft",
+        sourceLabel: "synthetic_demo",
+        owner: "Finance Control Owner",
+        backupOwner: "Accounts Payable Manager",
+        values: {
+          absoluteToleranceCents: 5_000,
+          percentageToleranceBasisPoints: 50,
+          autoMatchEnabled: false,
+        },
+        validationIssues: [],
+        simulationSummary: "Not yet validated against the synthetic record set.",
+      },
+    ],
+    importBatches: [
+      {
+        id: "import-vendor-master-001",
+        importType: "vendor_master",
+        lifecycleState: "ready_for_approval",
+        originalFilename: "fictional-vendor-master.csv",
+        fileHash:
+          "71b5ab31db1a1e25a4f06f9dfd5494dce9e67f6ab4014082ae8949d99b9ca2af",
+        sourceSystem: "Synthetic controlled upload",
+        rowCount: 40,
+        validRowCount: 40,
+        errorRowCount: 0,
+        sourceTotalCents: 0,
+        postedTotalCents: 0,
+        mappingSummary:
+          "External vendor ID, legal name, status, risk tier, and document controls mapped.",
+        importedBy: "user-zoe",
+      },
+    ],
+    documents: [
+      {
+        id: "document-featured-quote-v1",
+        parentEntityType: "vendor_quote",
+        parentEntityId: "quote-vector",
+        lifecycleState: "available",
+        version: 1,
+        filename: "Fictional Blue Ridge Quote.pdf",
+        mimeType: "application/pdf",
+        sha256:
+          "c7ad6252199945bd69c3f6ca71610171074819062238ccb6fb4b50a190350123",
+        scanMode: "simulated",
+        citation: "Page 1 · pricing, delivery, warranty, and freight",
+        legalHold: false,
+      },
+    ],
+    workQueueItems: [
+      {
+        id: "queue-featured-request",
+        queueType: "approval",
+        entityType: "purchase_request",
+        entityId: FEATURED_REQUEST_ID,
+        assigneeRole: "department_manager",
+        status: "open",
+        priority: "high",
+        dueDate: addBusinessDays(frozenDate, 1),
+        escalationLevel: 0,
+      },
+      {
+        id: "queue-contract-renewal",
+        queueType: "contract_renewal",
+        entityType: "contract",
+        entityId: "contract-001",
+        assigneeRole: "purchasing_manager",
+        status: "assigned",
+        priority: "critical",
+        dueDate: addBusinessDays(frozenDate, 3),
+        escalationLevel: 1,
+      },
+    ],
+    notifications: [
+      {
+        id: "notification-featured-approval",
+        eventType: "approval.assignment",
+        recipientRole: "department_manager",
+        channel: "in_app",
+        deliveryState: "delivered",
+        dedupeKey: `${recordPrefix}:featured:manager-approval`,
+        subject: "Featured request requires review",
+        mandatory: true,
+        attempts: 1,
+        acknowledged: false,
+      },
+      {
+        id: "notification-featured-email",
+        eventType: "approval.assignment",
+        recipientRole: "department_manager",
+        channel: "email_simulated",
+        deliveryState: "delivered",
+        dedupeKey: `${recordPrefix}:featured:manager-approval-email`,
+        subject: "Simulated email · procurement review assigned",
+        mandatory: false,
+        attempts: 1,
+        acknowledged: false,
+      },
+      {
+        id: "notification-simulated-delivery-failure",
+        eventType: "document.scan_failed",
+        recipientRole: "system_administrator",
+        channel: "email_simulated",
+        deliveryState: "failed",
+        dedupeKey: `${recordPrefix}:simulated:document-failure-email`,
+        subject: "Simulated email delivery failed · document control notice",
+        mandatory: false,
+        attempts: 2,
+        acknowledged: false,
+      },
+    ],
+    auditPackages: [],
     alerts: Array.from({ length: 8 }, (_, index): ProcurementAlert => ({
       id: `alert-${index + 1}`,
       type: ["contract", "budget", "invoice", "vendor_risk"][index % 4]!,
@@ -958,7 +1094,7 @@ export function createDemoState(
         "Analyze recurring freight variances",
       ][index % 5]!,
       explanation:
-        "Claire identified an evidence-backed opportunity and the required human decision.",
+        "CATE identified an evidence-backed opportunity and the required human decision.",
       impactCents: index === 0 ? INVENTORY_SAVINGS_CENTS : 25_000 + index * 4_500,
       href: ["/purchase-requests", "/analytics", "/contracts", "/analytics", "/invoices"][
         index % 5

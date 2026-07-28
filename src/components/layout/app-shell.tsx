@@ -176,7 +176,7 @@ function Sidebar({ pathname }: { pathname: string }) {
             </Badge>
           </div>
           <p className="mt-2 text-[11px] leading-4.5 text-white/55">
-            Claire Live, grounded procurement answers, captions, and a
+            CATE Live, grounded procurement answers, captions, and a
             presenter-controlled fallback.
           </p>
           <button

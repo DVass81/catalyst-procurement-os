@@ -12,6 +12,7 @@ import {
 import { tenantDemoConfigs, tenantThemes } from "@/config/organizations";
 import { createDemoState } from "@/demo/seed";
 import { deterministicAiOutput } from "@/server/ai/deterministic";
+import { recordCateEvaluation } from "@/server/ai/evaluation-ledger";
 import { MODEL_IDS, routeModel } from "@/server/ai/router";
 import { safeErrorMessage } from "@/server/security/redaction";
 import {
@@ -20,9 +21,11 @@ import {
   recordUsage,
 } from "@/server/usage/budget";
 
-const SYSTEM_INSTRUCTIONS = `You are the Catalyst Procurement Concierge for a private financial-institution software demonstration.
+const SYSTEM_INSTRUCTIONS = `You are CATE (Catalyst AI for Trusted Evaluation) for a private financial-institution software demonstration.
 
 Ground every substantive statement in the supplied fictional tenant records, an uploaded fictional document, or a cited public source. Never invent a source.
+Every answer must identify the applicable policy and version, assumptions, missing or conflicting evidence, a qualitative confidence band with its reason, risks and alternatives, the recommended next action, and the boundary between CATE's recommendation and the authorized human decision.
+Use insufficient confidence and refuse to conclude when accessible evidence is insufficient or conflicting. Never invent calibrated confidence percentages.
 Separate concise display text from warm, natural narration text. Narration should sound like a happy, knowledgeable procurement partner speaking to a real person.
 Risk signals are indicators requiring human review, never accusations or final compliance determinations.
 Never approve or reject a request, award a vendor, issue a purchase order, record receipt, accept a variance, release payment, send email, create a calendar event, change a Google label, or modify vendor-risk status.
@@ -138,7 +141,7 @@ export async function runProcurementAi(
       sessionId,
     });
     await recordUsage(usage);
-    return {
+    const result: AiRunResult = {
       runId: crypto.randomUUID(),
       tenantId: request.tenantId,
       capability: fallback.capability,
@@ -149,6 +152,8 @@ export async function runProcurementAi(
       usage,
       tourStepToResume: request.tourStepToResume,
     };
+    await recordCateEvaluation(result).catch(() => undefined);
+    return result;
   }
 
   const routed = routeModel(request, sessionId);
@@ -197,7 +202,7 @@ export async function runProcurementAi(
       sessionId,
     });
     await recordUsage(usage);
-    return {
+    const result: AiRunResult = {
       runId: response.id,
       tenantId: request.tenantId,
       capability: routed.capability,
@@ -208,6 +213,8 @@ export async function runProcurementAi(
       usage,
       tourStepToResume: request.tourStepToResume,
     };
+    await recordCateEvaluation(result).catch(() => undefined);
+    return result;
   } catch (error) {
     const usage = createUsageEvent({
       tenantId: request.tenantId,
@@ -218,7 +225,7 @@ export async function runProcurementAi(
       sessionId,
     });
     await recordUsage(usage);
-    return {
+    const result: AiRunResult = {
       runId: crypto.randomUUID(),
       tenantId: request.tenantId,
       capability: fallback.capability,
@@ -230,5 +237,7 @@ export async function runProcurementAi(
       usage,
       tourStepToResume: request.tourStepToResume,
     };
+    await recordCateEvaluation(result).catch(() => undefined);
+    return result;
   }
 }
