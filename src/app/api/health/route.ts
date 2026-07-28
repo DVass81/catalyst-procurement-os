@@ -1,11 +1,17 @@
 export const dynamic = "force-dynamic";
 
 export function GET() {
+  const releaseChannel =
+    process.env.CATALYST_RELEASE_CHANNEL ?? "audit-phase-2";
+  const syntheticOnly = process.env.CATALYST_SYNTHETIC_ONLY === "1";
+
   return Response.json(
     {
       status: "ok",
       service: "catalyst-procurement-os",
-      releaseProgram: "audit-phase-2",
+      releaseProgram: releaseChannel,
+      releaseChannel,
+      dataClassification: syntheticOnly ? "synthetic-only" : "unspecified",
       capabilities: {
         authoritativeWorkflow:
           Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL) &&
