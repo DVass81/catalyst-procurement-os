@@ -480,7 +480,7 @@ export function submitRequest(state: DemoState) {
     channel: "email_simulated",
     deliveryState: "delivered",
     dedupeKey: `${tenantRecordPrefix(next)}:featured:manager-approval-email`,
-    subject: "Simulated email · procurement review assigned",
+    subject: "Simulated email Â· procurement review assigned",
     mandatory: false,
     attempts: 1,
     acknowledged: false,
@@ -1637,14 +1637,22 @@ export function reverseImportBatch(
   return next;
 }
 
-export function generateFeaturedAuditPackage(state: DemoState) {
+export function generateFeaturedAuditPackage(
+  state: DemoState,
+  requestedVersion?: number,
+) {
   requireRole(state, ["auditor", "system_administrator"]);
   const next = clone(state);
   const existing = next.auditPackages.filter(
     (candidate) => candidate.subjectId === next.featuredRequestId,
   );
-  const version = existing.length + 1;
-  const parent = existing.sort((a, b) => b.version - a.version)[0];
+  const version = requestedVersion ?? existing.length + 1;
+  if (!Number.isInteger(version) || version < 1) {
+    throw new WorkflowError("A valid audit-package version is required.");
+  }
+  const parent =
+    existing.find((candidate) => candidate.version === version - 1) ??
+    existing.sort((a, b) => b.version - a.version)[0];
   next.auditPackages.push({
     id: `audit-package-featured-v${version}`,
     subjectId: next.featuredRequestId,
@@ -1652,7 +1660,9 @@ export function generateFeaturedAuditPackage(state: DemoState) {
     version,
     asOf: `${next.sessionDate}T23:59:59Z`,
     artifacts: ["pdf", "csv", "json"],
-    parentPackageId: parent?.id,
+    parentPackageId:
+      parent?.id ??
+      (version > 1 ? `audit-package-featured-v${version - 1}` : undefined),
   });
   appendAudit(
     next,
@@ -1907,3 +1917,4 @@ export function featuredApprovalsFor(state: DemoState): Approval[] {
     .filter((approval) => approval.requestId === FEATURED_REQUEST_ID)
     .sort((a, b) => a.sequence - b.sequence);
 }
+
