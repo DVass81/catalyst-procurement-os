@@ -116,6 +116,15 @@ export interface Vendor {
   socReportStatus: "current" | "not_required" | "review_due";
   cybersecurityReviewStatus: "current" | "review_due" | "not_required";
   w9Status: "current" | "missing";
+  onboardingStatus: "complete" | "incomplete";
+  sanctionsStatus: "clear" | "possible_match";
+  conflictOfInterestStatus: "clear" | "undisclosed";
+  complianceHold: boolean;
+  criticalCorrectiveAction: boolean;
+  insuranceRequired: boolean;
+  cybersecurityReviewRequired: boolean;
+  serviceHistoryScore: number;
+  strategicCriteriaScore: number;
   lastReviewDate: string;
   nextReviewDate: string;
   fictional: boolean;
@@ -383,7 +392,25 @@ export interface AiRecommendation {
   explanation: string;
   impactCents: Money;
   href: string;
-  confidence: number;
+  confidence: "high" | "moderate" | "low";
+}
+
+export interface VendorException {
+  id: string;
+  requestId: string;
+  vendorId: string;
+  status:
+    | "requested"
+    | "purchasing_approved"
+    | "approved"
+    | "rejected";
+  businessJustification: string;
+  evidence: string[];
+  requestedBy: string;
+  requestedDate: string;
+  purchasingApproverId?: string;
+  complianceApproverId?: string;
+  decisionDate?: string;
 }
 
 export interface TutorialStep {
@@ -401,8 +428,9 @@ export interface TutorialStep {
 }
 
 export interface DemoState {
-  schemaVersion: 3;
+  schemaVersion: 5;
   organization: OrganizationTheme;
+  sessionDate: string;
   presenterMode: boolean;
   activeUserId: string;
   activeRole: DemoRole;
@@ -427,6 +455,7 @@ export interface DemoState {
   auditEvents: AuditEvent[];
   contracts: Contract[];
   vendorRiskAssessments: VendorRiskAssessment[];
+  vendorExceptions: VendorException[];
   alerts: ProcurementAlert[];
   monthlySpendCents: Money[];
   aiRecommendations: AiRecommendation[];

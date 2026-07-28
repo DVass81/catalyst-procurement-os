@@ -10,6 +10,7 @@ import { tenantDemoConfigs, tenantThemes } from "@/config/organizations";
 import { createDemoState, FREIGHT_VARIANCE_CENTS } from "@/demo/seed";
 import { createProposedAction } from "@/server/security/confirmation";
 import { classifyCapability } from "@/server/ai/router";
+import { recommendedVendorEvaluation } from "@/demo/vendor-policy";
 
 const HUMAN_REVIEW =
   "Catalyst surfaces indicators and recommendations for human review. It does not make final purchasing, risk, compliance, approval, or payment decisions.";
@@ -117,6 +118,7 @@ export function deterministicAiOutput(request: AiRunRequest): {
   const recommendedVendor = state.vendors.find(
     (vendor) => vendor.id === recommendedQuote.vendorId,
   )!;
+  const recommendedEvaluation = recommendedVendorEvaluation(state)!;
   const lendingBudget = state.budgets.find(
     (budget) => budget.departmentId === "dept-lending",
   )!;
@@ -201,11 +203,12 @@ export function deterministicAiOutput(request: AiRunRequest): {
         recordCitation("quote-record", "Fictional quote comparison", recommendedQuote.quoteNumber, "/purchase-requests"),
         recordCitation("vendor-record", recommendedVendor.displayName, recommendedVendor.id, "/vendors"),
       ];
-      displayText = `${recommendedVendor.displayName} is the risk-adjusted recommendation. It is not simply the lowest sticker price: the score considers contract pricing, delivery, warranty, payment terms, vendor risk, and historical performance. The recommendation is advisory; an authorized human selects the vendor.`;
+      displayText = `${recommendedVendor.displayName} is the highest-ranked eligible supplier. Risk, required documentation, onboarding, insurance, tax records, cybersecurity review, compliance holds, quote validity, and delivery feasibility were evaluated as award gates before scoring. Its balanced score then considered landed cost, contract status, delivery, performance, and service history. Strategic criteria carry no weight because no approved policy is enabled. Evidence is current as of ${state.sessionDate}; an authorized human still makes the award.`;
       narrationText = `${recommendedVendor.displayName} offers the strongest risk-adjusted value. Price matters, but so do delivery certainty, contract coverage, and vendor performance. A human still makes the award.`;
       evidenceCards = [
-        evidence("quote-score", "AI evaluation", `${recommendedQuote.aiEvaluationScore}/100`, "Highest risk-adjusted score", "positive", ["quote-record"]),
-        evidence("vendor-risk", "Vendor risk", recommendedVendor.riskTier, `${recommendedVendor.performanceScore}/100 performance`, "positive", ["vendor-record"]),
+        evidence("quote-score", "Balanced evaluation", `${recommendedEvaluation.score}/100`, "Highest score among eligible suppliers", "positive", ["quote-record"]),
+        evidence("vendor-eligibility", "Award eligibility", "Eligible", "No mandatory control blockers", "positive", ["vendor-record"]),
+        evidence("vendor-risk", "Supplier risk", recommendedVendor.riskTier, `${recommendedVendor.performanceScore}/100 performance · High confidence from complete current inputs`, "positive", ["vendor-record"]),
       ];
       break;
     case "vendor_risk":
@@ -288,7 +291,7 @@ export function deterministicAiOutput(request: AiRunRequest): {
     case "market_research":
       citations = [];
       displayText =
-        "Live public-market research requires the OpenAI provider and will return source-linked evidence. Deterministic fallback intentionally does not invent current prices or citations. For presentation continuity, Catalyst can still compare the fictional quotes and historical prices already in the tenant data pack.";
+        "Live public-market research requires the connected research provider and returns source-linked evidence. Offline fallback intentionally does not invent current prices or citations. Catalyst can still compare the fictional quotes and historical prices already in the workspace.";
       narrationText =
         "Current public research is unavailable in fallback mode, so I won’t invent a market price. I can still compare the fictional quotes and purchase history already in this tenant.";
       evidenceCards = [

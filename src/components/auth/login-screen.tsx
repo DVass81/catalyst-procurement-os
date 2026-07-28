@@ -3,15 +3,12 @@
 import { motion } from "framer-motion";
 import {
   ArrowRight,
-  BarChart3,
-  Building2,
   CheckCircle2,
   KeyRound,
   LockKeyhole,
   Mail,
   ShieldCheck,
   Sparkles,
-  TrendingUp,
 } from "lucide-react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
@@ -122,41 +119,29 @@ export function LoginScreen() {
             transition={{ duration: 0.55, delay: 0.15 }}
             className="mt-10 max-w-xl rounded-3xl border border-white/10 bg-white/[0.08] p-5 shadow-2xl backdrop-blur-xl"
           >
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs font-semibold text-slate-300">
-                  FY 2026 YTD spend
-                </p>
-                <p className="mt-1 text-3xl font-bold tracking-[-0.04em] text-white">
-                  $18.42M
-                </p>
-              </div>
-              <span className="flex items-center gap-1.5 rounded-full bg-emerald-400/10 px-3 py-1.5 text-xs font-bold text-emerald-300">
-                <TrendingUp className="size-3.5" />
-                4.1% under plan
-              </span>
-            </div>
-            <div className="mt-7 flex h-32 items-end gap-2">
-              {[42, 55, 48, 66, 59, 76, 71, 82, 68, 88, 79, 92].map(
-                (height, index) => (
-                  <motion.span
-                    key={`${height}-${index}`}
-                    initial={{ height: 0 }}
-                    animate={{ height: `${height}%` }}
-                    transition={{
-                      duration: 0.45,
-                      delay: 0.25 + index * 0.025,
-                    }}
-                    className="flex-1 rounded-t-md bg-gradient-to-t from-[#cf4427]/55 to-[#ebbf5d]"
-                  />
-                ),
-              )}
-            </div>
-            <div className="mt-5 grid grid-cols-3 gap-3">
+            <p className="text-xs font-black uppercase tracking-[0.14em] text-[#f0cb7c]">
+              Built for trusted decisions
+            </p>
+            <p className="mt-2 text-lg font-bold text-white">
+              Policy, evidence, and human authority stay connected.
+            </p>
+            <div className="mt-5 grid gap-3 sm:grid-cols-3">
               {[
-                { label: "Savings", value: "$742K", icon: BarChart3 },
-                { label: "Vendors", value: "186", icon: Building2 },
-                { label: "Controls", value: "98.6%", icon: ShieldCheck },
+                {
+                  label: "Eligibility first",
+                  detail: "Award gates remain separate from scoring.",
+                  icon: ShieldCheck,
+                },
+                {
+                  label: "Evidence visible",
+                  detail: "Recommendations show their sources and assumptions.",
+                  icon: Sparkles,
+                },
+                {
+                  label: "Humans decide",
+                  detail: "Authorized employees retain approval authority.",
+                  icon: CheckCircle2,
+                },
               ].map((item) => {
                 const Icon = item.icon;
                 return (
@@ -165,8 +150,10 @@ export function LoginScreen() {
                     className="rounded-2xl border border-white/10 bg-white/[0.06] p-3"
                   >
                     <Icon className="size-4 text-[#f0cb7c]" />
-                    <p className="mt-3 text-lg font-bold text-white">{item.value}</p>
-                    <p className="text-[10px] text-slate-400">{item.label}</p>
+                    <p className="mt-3 text-xs font-bold text-white">{item.label}</p>
+                    <p className="mt-1 text-[10px] leading-4 text-slate-400">
+                      {item.detail}
+                    </p>
                   </div>
                 );
               })}

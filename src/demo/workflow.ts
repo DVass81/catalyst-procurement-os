@@ -6,6 +6,7 @@ import type {
   Invoice,
   PurchaseOrder,
   Receipt,
+  VendorException,
   WorkflowStage,
 } from "@/demo/model";
 import {
@@ -18,6 +19,11 @@ import {
   INVENTORY_SAVINGS_CENTS,
   requestTotal,
 } from "@/demo/seed";
+import { addBusinessDays } from "@/demo/clock";
+import {
+  evaluateVendorQuotes,
+  recommendedVendorEvaluation,
+} from "@/demo/vendor-policy";
 
 export class WorkflowError extends Error {
   constructor(message: string) {
@@ -59,7 +65,7 @@ function appendAudit(
   const sequence = state.auditEvents.length + 1;
   state.auditEvents.push({
     id: `audit-featured-${String(sequence).padStart(4, "0")}`,
-    timestamp: `2026-07-24T${String(9 + Math.floor(sequence / 12)).padStart(2, "0")}:${String(
+    timestamp: `${state.sessionDate}T${String(9 + Math.floor(sequence / 12)).padStart(2, "0")}:${String(
       (sequence * 7) % 60,
     ).padStart(2, "0")}:00-04:00`,
     userId: state.activeUserId,
@@ -72,7 +78,7 @@ function appendAudit(
     description,
     source,
     ipPlaceholder: "192.0.2.44",
-    correlationId: `CORR-${tenantRecordPrefix(state)}-LOE-2026-001`,
+    correlationId: `CORR-${tenantRecordPrefix(state)}-LOE-${state.sessionDate.slice(0, 4)}-001`,
   });
 }
 
@@ -136,7 +142,7 @@ export function analyzeFeaturedRequest(state: DemoState) {
     "request.created",
     "purchase_request",
     request.id,
-    "New Loan Officer Equipment Package created from the deterministic natural-language scenario.",
+    "New Loan Officer Equipment Package created from the controlled natural-language scenario.",
     undefined,
     request.requestNumber,
     "user",
@@ -146,7 +152,7 @@ export function analyzeFeaturedRequest(state: DemoState) {
     "ai.recommendations_generated",
     "purchase_request",
     request.id,
-    "Demo AI generated inventory, standards, sourcing, coding, budget, and approval recommendations.",
+    "Claire generated inventory, standards, sourcing, coding, budget, and approval recommendations for human review.",
     undefined,
     "recommendations_ready",
     "demo_ai",
@@ -163,6 +169,13 @@ export function acceptInventoryRecommendation(state: DemoState) {
   monitor.purchaseQuantity = 3;
   monitor.inventoryQuantity = 3;
   monitor.source = "mixed";
+  const catalogMonitor = next.catalogItems.find(
+    (item) => item.id === monitor.catalogItemId,
+  );
+  if (!catalogMonitor || catalogMonitor.availableInventory < 3) {
+    throw new WorkflowError("Three compatible monitors are no longer available.");
+  }
+  catalogMonitor.availableInventory -= 3;
   request.identifiedSavingsCents += INVENTORY_SAVINGS_CENTS;
   request.recommendedTotalCents = requestTotal(request.lines);
   next.inventoryTransactions.push({
@@ -172,7 +185,7 @@ export function acceptInventoryRecommendation(state: DemoState) {
     type: "reservation",
     quantity: 3,
     sourceTransactionId: request.id,
-    date: "2026-07-24",
+    date: next.sessionDate,
     userId: next.activeUserId,
     notes: "Reserved for transfer to the fictional Riverstone Branch.",
   });
@@ -226,8 +239,12 @@ export function acceptStandardsSubstitution(state: DemoState) {
   return next;
 }
 
-export function selectVendor(state: DemoState, vendorId = "vendor-001") {
+export function selectVendor(
+  state: DemoState,
+  vendorId = recommendedVendorEvaluation(state)?.vendor.id,
+) {
   requireStage(state, ["standards_reviewed", "vendor_selected"]);
+  if (!vendorId) throw new WorkflowError("No eligible vendor is available for award.");
   const next = clone(state);
   const request = featuredRequest(next);
   const quote = next.quotes.find(
@@ -235,6 +252,22 @@ export function selectVendor(state: DemoState, vendorId = "vendor-001") {
       candidate.requestId === request.id && candidate.vendorId === vendorId,
   );
   if (!quote) throw new WorkflowError("The selected vendor does not have a featured quote.");
+  const evaluation = evaluateVendorQuotes(next).find(
+    (candidate) => candidate.vendor.id === vendorId,
+  );
+  const approvedException = next.vendorExceptions.find(
+    (exception) =>
+      exception.requestId === request.id &&
+      exception.vendorId === vendorId &&
+      exception.status === "approved",
+  );
+  if (!evaluation?.eligibility.eligible && !approvedException) {
+    throw new WorkflowError(
+      `This vendor is ineligible for normal award: ${
+        evaluation?.eligibility.blockers.join("; ") ?? "eligibility could not be verified"
+      }. A Purchasing and Compliance exception is required.`,
+    );
+  }
   const previous = request.selectedVendorId;
   request.selectedVendorId = vendorId;
   request.recommendedTotalCents = quote.totalCents;
@@ -248,6 +281,104 @@ export function selectVendor(state: DemoState, vendorId = "vendor-001") {
     previous,
     vendorId,
     "user",
+  );
+  return next;
+}
+
+export function requestVendorException(
+  state: DemoState,
+  vendorId: string,
+  businessJustification: string,
+  evidence: string[],
+) {
+  requireStage(state, ["standards_reviewed", "vendor_selected"]);
+  requireRole(state, ["purchasing_specialist"]);
+  if (businessJustification.trim().length < 20) {
+    throw new WorkflowError("A substantive written business justification is required.");
+  }
+  if (evidence.length === 0) {
+    throw new WorkflowError("At least one supporting evidence item is required.");
+  }
+  const evaluation = evaluateVendorQuotes(state).find(
+    (candidate) => candidate.vendor.id === vendorId,
+  );
+  if (!evaluation || evaluation.eligibility.eligible) {
+    throw new WorkflowError("An exception is only available for an ineligible quoted vendor.");
+  }
+  const next = clone(state);
+  const request = featuredRequest(next);
+  const existing = next.vendorExceptions.find(
+    (exception) =>
+      exception.requestId === request.id && exception.vendorId === vendorId,
+  );
+  if (existing) throw new WorkflowError("An exception request already exists.");
+  const exception: VendorException = {
+    id: `vendor-exception-${next.vendorExceptions.length + 1}`,
+    requestId: request.id,
+    vendorId,
+    status: "requested",
+    businessJustification: businessJustification.trim(),
+    evidence: [...evidence],
+    requestedBy: next.activeUserId,
+    requestedDate: next.sessionDate,
+  };
+  next.vendorExceptions.push(exception);
+  appendAudit(
+    next,
+    "vendor.exception_requested",
+    "vendor_exception",
+    exception.id,
+    `Purchasing requested an exception for ${evaluation.vendor.displayName}; dual approval and supporting evidence are required.`,
+    undefined,
+    JSON.stringify({
+      status: exception.status,
+      justification: exception.businessJustification,
+      evidence: exception.evidence,
+    }),
+  );
+  return next;
+}
+
+export function decideVendorException(
+  state: DemoState,
+  exceptionId: string,
+  decision: "approve" | "reject",
+) {
+  requireRole(state, ["purchasing_manager", "compliance_reviewer"]);
+  const next = clone(state);
+  const exception = next.vendorExceptions.find(
+    (candidate) => candidate.id === exceptionId,
+  );
+  if (!exception) throw new WorkflowError("Vendor exception request not found.");
+  const previous = exception.status;
+  if (decision === "reject") {
+    exception.status = "rejected";
+    exception.decisionDate = next.sessionDate;
+  } else if (next.activeRole === "purchasing_manager") {
+    if (exception.status !== "requested") {
+      throw new WorkflowError("Purchasing approval is not available in this state.");
+    }
+    if (exception.requestedBy === next.activeUserId) {
+      throw new WorkflowError("The exception requester cannot provide Purchasing approval.");
+    }
+    exception.purchasingApproverId = next.activeUserId;
+    exception.status = "purchasing_approved";
+  } else {
+    if (exception.status !== "purchasing_approved") {
+      throw new WorkflowError("Purchasing Manager approval is required first.");
+    }
+    exception.complianceApproverId = next.activeUserId;
+    exception.status = "approved";
+    exception.decisionDate = next.sessionDate;
+  }
+  appendAudit(
+    next,
+    `vendor.exception_${decision === "approve" ? exception.status : "rejected"}`,
+    "vendor_exception",
+    exception.id,
+    `${next.activeRole.replaceAll("_", " ")} recorded the ${decision} decision.`,
+    previous,
+    exception.status,
   );
   return next;
 }
@@ -347,7 +478,7 @@ export function decideApproval(
     );
   }
   approval.comments = comments;
-  approval.completedDate = "2026-07-24";
+  approval.completedDate = next.sessionDate;
   approval.decision = decision;
 
   if (decision === "return") {
@@ -438,7 +569,7 @@ export function createFeaturedPurchaseOrder(state: DemoState) {
     sourceRequestId: request.id,
     vendorId: request.selectedVendorId,
     buyerId: next.activeUserId,
-    orderDate: "2026-07-24",
+    orderDate: next.sessionDate,
     expectedDate: quote.deliveryDate,
     deliveryLocationId: request.locationId,
     lines: request.lines.filter((line) => line.purchaseQuantity > 0),
@@ -447,7 +578,10 @@ export function createFeaturedPurchaseOrder(state: DemoState) {
     taxCents: quote.taxCents,
     totalCents: quote.totalCents,
     status: "awaiting_issuance",
-    contractReference: `${tenantRecordPrefix(next)}-IT-2026-07`,
+    contractReference:
+      next.contracts.find(
+        (contract) => contract.vendorId === request.selectedVendorId,
+      )?.id ?? "",
     approvalReference: next.approvals
       .filter((approval) => approval.requestId === request.id)
       .map((approval) => approval.id)
@@ -500,7 +634,7 @@ export function recordVendorAcknowledgment(state: DemoState) {
   const po = next.purchaseOrders.find((candidate) => candidate.id === "po-featured");
   if (!po) throw new WorkflowError("Featured purchase order is missing.");
   po.status = "acknowledged";
-  po.vendorAcknowledgment = "Fictional acknowledgment recorded 2026-07-25.";
+  po.vendorAcknowledgment = `Fictional acknowledgment recorded ${next.sessionDate}.`;
   next.stage = "acknowledged";
   appendAudit(
     next,
@@ -525,10 +659,10 @@ export function receiveFeaturedOrder(state: DemoState) {
   if (!po) throw new WorkflowError("Featured purchase order is missing.");
   const receipt: Receipt = {
     id: "receipt-featured",
-    receiptNumber: `${tenantRecordPrefix(next)}-RCV-2026-00291`,
+    receiptNumber: `${tenantRecordPrefix(next)}-RCV-${next.sessionDate.slice(0, 4)}-00291`,
     purchaseOrderId: po.id,
     receivedBy: next.activeUserId,
-    receivedDate: "2026-08-10",
+    receivedDate: addBusinessDays(next.sessionDate, 10),
     locationId: po.deliveryLocationId,
     lines: po.lines.map((line) => ({
       lineId: line.id,
@@ -540,11 +674,11 @@ export function receiveFeaturedOrder(state: DemoState) {
           ? "One monitor had minor packaging damage and was accepted after inspection."
           : undefined,
     })),
-    packingSlip: "Fictional packing slip VTP-PS-2026-482.pdf",
+    packingSlip: `Fictional packing slip ${tenantRecordPrefix(next)}-PS-${next.sessionDate.slice(0, 4)}-482.pdf`,
     photos: ["Monitor packaging inspection placeholder.jpg"],
     notes: "All purchased items accepted. One monitor packaging condition documented.",
     exceptionStatus: "accepted_damage",
-    totalValueCents: po.totalCents,
+    totalValueCents: po.subtotalCents,
   };
   next.receipts.push(receipt);
   po.status = "fully_received";
@@ -556,7 +690,7 @@ export function receiveFeaturedOrder(state: DemoState) {
     type: "internal_transfer",
     quantity: 3,
     sourceTransactionId: FEATURED_REQUEST_ID,
-    date: "2026-08-10",
+    date: addBusinessDays(next.sessionDate, 10),
     userId: next.activeUserId,
     notes: "Three monitors transferred from Central Supply Room; not part of vendor receipt.",
   });
@@ -609,11 +743,11 @@ export function runThreeWayMatch(state: DemoState) {
     invoiceNumber: FEATURED_INVOICE_NUMBER,
     vendorId: po.vendorId,
     purchaseOrderId: po.id,
-    invoiceDate: "2026-08-11",
-    dueDate: "2026-09-10",
+    invoiceDate: addBusinessDays(next.sessionDate, 11),
+    dueDate: addBusinessDays(next.sessionDate, 33),
     lines: po.lines,
     subtotalCents: po.subtotalCents,
-    shippingCents: FREIGHT_VARIANCE_CENTS,
+    shippingCents: po.shippingCents + FREIGHT_VARIANCE_CENTS,
     taxCents: 0,
     totalCents: po.totalCents + FREIGHT_VARIANCE_CENTS,
     matchStatus: "exception",
@@ -621,9 +755,10 @@ export function runThreeWayMatch(state: DemoState) {
     exceptionStatus: "freight_variance",
     approvalStatus: "pending",
     paymentStatus: "on_hold",
-    uploadedDocument: "Fictional VTP invoice.pdf",
+    uploadedDocument: "Fictional Blue Ridge invoice.pdf",
     varianceCents: FREIGHT_VARIANCE_CENTS,
-    varianceReason: "Unexpected freight was not present on the approved quote or PO.",
+    varianceReason:
+      "Invoice freight exceeds the approved quote and purchase order by $320.",
   };
   next.invoices.unshift(invoice);
   po.status = "invoiced";
@@ -718,7 +853,10 @@ export function resolveInvoiceException(
 }
 
 export function resetDemo(currentState?: DemoState) {
-  return createDemoState(currentState?.organization);
+  return createDemoState(
+    currentState?.organization,
+    currentState?.sessionDate,
+  );
 }
 
 const stageOrder: WorkflowStage[] = [
@@ -743,7 +881,10 @@ const stageOrder: WorkflowStage[] = [
 ];
 
 export function jumpToStage(target: WorkflowStage, currentState?: DemoState) {
-  let state = createDemoState(currentState?.organization);
+  let state = createDemoState(
+    currentState?.organization,
+    currentState?.sessionDate,
+  );
   if (target === "draft") return state;
   state = analyzeFeaturedRequest(state);
   if (target === "analyzed") return state;
@@ -795,9 +936,10 @@ export function canSelfApprove(state: DemoState) {
 export function featuredFinancials(state: DemoState) {
   const request = featuredRequest(state);
   const budget = state.budgets.find((candidate) => candidate.departmentId === request.departmentId)!;
-  const transferCents =
+  const inventoryValueCents =
     request.lines.find((line) => line.id === "line-monitor")!.inventoryQuantity * 34_900;
-  const totalBudgetImpactCents = request.recommendedTotalCents + transferCents;
+  const transferCents = 0;
+  const totalBudgetImpactCents = request.recommendedTotalCents;
   const postApprovalUsedCents =
     budget.actualSpendCents + budget.committedCents + totalBudgetImpactCents;
   const availableAfterCents = budget.revisedBudgetCents - postApprovalUsedCents;
@@ -806,11 +948,12 @@ export function featuredFinancials(state: DemoState) {
     baselineCents: request.estimatedTotalCents,
     externalCommitmentCents: request.recommendedTotalCents,
     transferCents,
+    inventoryValueCents,
     totalBudgetImpactCents,
     postApprovalUsedCents,
     availableAfterCents,
     utilizationAfter,
-    forecastBalanceCents: budget.revisedBudgetCents - 114_979_900,
+    forecastBalanceCents: availableAfterCents,
   };
 }
 
@@ -818,12 +961,18 @@ export function dashboardProjection(state: DemoState) {
   const featured = featuredRequest(state);
   const featuredPo = state.purchaseOrders.find((po) => po.id === "po-featured");
   const featuredInvoice = state.invoices.find((invoice) => invoice.id === "invoice-featured");
-  const yearToDateSpendCents = state.invoices.reduce(
+  const postedInvoices = state.invoices.filter(
+    (invoice) =>
+      invoice.matchStatus === "matched" &&
+      invoice.paymentStatus !== "on_hold" &&
+      invoice.invoiceDate.slice(0, 4) === state.sessionDate.slice(0, 4),
+  );
+  const yearToDateSpendCents = postedInvoices.reduce(
     (total, invoice) => total + invoice.totalCents,
     0,
   );
   const purchaseOrderById = new Map(state.purchaseOrders.map((po) => [po.id, po]));
-  const spendUnderContractCents = state.invoices.reduce((total, invoice) => {
+  const spendUnderContractCents = postedInvoices.reduce((total, invoice) => {
     const po = purchaseOrderById.get(invoice.purchaseOrderId);
     return total + (po?.contractReference ? invoice.totalCents : 0);
   }, 0);
@@ -851,6 +1000,32 @@ export function dashboardProjection(state: DemoState) {
       (total, request) => total + request.identifiedSavingsCents,
       0,
     ),
+    acceptedSavingsCents: state.requests.reduce(
+      (total, request) =>
+        total +
+        Math.max(
+          0,
+          Math.min(
+            request.identifiedSavingsCents,
+            request.estimatedTotalCents - request.recommendedTotalCents,
+          ),
+        ),
+      0,
+    ),
+    realizedSavingsCents: state.requests
+      .filter((request) => request.status === "converted_to_po")
+      .reduce(
+        (total, request) =>
+          total +
+          Math.max(
+            0,
+            Math.min(
+              request.identifiedSavingsCents,
+              request.estimatedTotalCents - request.recommendedTotalCents,
+            ),
+          ),
+        0,
+      ),
     openRequests: state.requests.filter((request) =>
       ["draft", "submitted", "returned"].includes(request.status),
     ).length,

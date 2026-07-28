@@ -49,6 +49,8 @@ import {
   jumpToStage,
   receiveFeaturedOrder,
   recordVendorAcknowledgment,
+  requestVendorException,
+  decideVendorException,
   resetDemo,
   resolveInvoiceException,
   runThreeWayMatch,
@@ -58,6 +60,9 @@ import {
   WorkflowError,
 } from "@/demo/workflow";
 import { formatCurrency, titleCase } from "@/lib/utils";
+import { formatSessionDate } from "@/demo/clock";
+import { statusLabel, statusPresentation } from "@/demo/presentation";
+import { evaluateVendorQuotes } from "@/demo/vendor-policy";
 
 const workflowSteps: Array<[string, WorkflowStage]> = [
   ["Request", "draft"],
@@ -151,12 +156,17 @@ function WorkflowRail({ stage }: { stage: WorkflowStage }) {
 function DataTable({
   columns,
   rows,
+  pageSize = 10,
 }: {
   columns: string[];
   rows: Array<Array<string | number>>;
+  pageSize?: number;
 }) {
+  const [showAll, setShowAll] = useState(false);
+  const visibleRows = showAll ? rows : rows.slice(0, pageSize);
   return (
-    <div className="overflow-x-auto rounded-2xl border border-[var(--border)]">
+    <div className="overflow-hidden rounded-2xl border border-[var(--border)]">
+      <div className="overflow-x-auto">
       <table className="w-full min-w-[760px] border-collapse text-left text-xs">
         <thead className="bg-[var(--surface-subtle)]">
           <tr>
@@ -171,7 +181,7 @@ function DataTable({
           </tr>
         </thead>
         <tbody>
-          {rows.map((row, rowIndex) => (
+          {visibleRows.map((row, rowIndex) => (
             <tr key={rowIndex} className="border-b border-[var(--border)] last:border-0">
               {row.map((cell, cellIndex) => (
                 <td
@@ -180,14 +190,65 @@ function DataTable({
                     cellIndex === 0 ? "font-bold text-[var(--foreground)]" : ""
                   }`}
                 >
-                  {cell}
+                  {statusPresentation(String(cell)) ? (
+                    <Badge tone={statusPresentation(String(cell))!.tone}>
+                      <span aria-hidden="true">●</span>
+                      {statusPresentation(String(cell))!.label}
+                    </Badge>
+                  ) : (
+                    cell
+                  )}
                 </td>
               ))}
             </tr>
           ))}
         </tbody>
       </table>
+      </div>
+      {rows.length > pageSize && (
+        <div className="flex items-center justify-between border-t border-[var(--border)] bg-[var(--surface-subtle)] px-4 py-3 text-xs">
+          <span className="text-[var(--muted-foreground)]">
+            Showing {showAll ? rows.length : Math.min(pageSize, rows.length)} of {rows.length} records
+          </span>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => setShowAll((current) => !current)}
+          >
+            {showAll ? "Show prioritized records" : "Show complete dataset"}
+          </Button>
+        </div>
+      )}
     </div>
+  );
+}
+
+function DecisionGuide({ section }: { section: string }) {
+  const guidance: Record<string, [string, string, string]> = {
+    dashboard: ["Review enterprise performance and exceptions.", "Open the highest-priority control or savings item.", "Posted invoices, budgets, approvals, contracts, and supplier controls."],
+    "purchase-requests": ["Review the need, alternatives, budget effect, and approval path.", "Complete each evidence-backed decision before submission.", "Request lines, inventory, standards, quotes, budgets, and approvals."],
+    approvals: ["Review the decision currently assigned to an authorized role.", "Approve, return, or reject with a documented reason.", "Prior decisions, sourcing evidence, budget effect, and policy findings."],
+    "purchase-orders": ["Review approved commitments and fulfillment status.", "Issue or acknowledge only after the approval route is complete.", "Approved request, selected quote, coding, delivery, and approval evidence."],
+    receiving: ["Compare delivered goods with the approved purchase order.", "Record receipt conditions and discrepancies.", "Purchase order lines, packing slip, inspection notes, and inventory movement."],
+    invoices: ["Compare invoice, purchase order, and receipt facts.", "Route or resolve documented variances.", "Line values, receipt quantities, approved freight, and exception history."],
+    "audit-center": ["Follow who did what, when, and why.", "Filter the correlated trail or prepare an evidence package.", "Actors, roles, before-and-after values, sources, and correlation IDs."],
+  };
+  const selected = guidance[section] ?? [
+    `Review the ${titleCase(section)} records and control signals.`,
+    "Open the highest-priority record and review its supporting evidence.",
+    "Connected fictional records, dates, ownership, statuses, and policy context.",
+  ];
+  return (
+    <details className="rounded-xl border border-[var(--border)] bg-[var(--surface-subtle)] px-4 py-3">
+      <summary className="cursor-pointer text-xs font-black text-[var(--foreground)]">
+        How to use this workspace
+      </summary>
+      <div className="mt-3 grid gap-3 text-xs leading-5 text-[var(--muted-foreground)] md:grid-cols-3">
+        <p><strong className="text-[var(--foreground)]">What and why:</strong> {selected[0]}</p>
+        <p><strong className="text-[var(--foreground)]">Suggested action:</strong> {selected[1]}</p>
+        <p><strong className="text-[var(--foreground)]">Evidence and authority:</strong> {selected[2]} Claire advises; authorized employees decide.</p>
+      </div>
+    </details>
   );
 }
 
@@ -212,8 +273,12 @@ function MetricCards({
           />
           <CardContent className="p-4 pt-5">
             <p className="text-[11px] font-bold text-[var(--muted-foreground)]">{label}</p>
-            <p className="mt-2 text-2xl font-black tracking-[-0.04em] text-[#101b3b] dark:text-white">{value}</p>
-            <p className="mt-2 text-[10px] text-[var(--muted-foreground)]">{detail}</p>
+            <p className="mt-2 text-2xl font-black tracking-[-0.04em] text-[#101b3b] dark:text-white">
+              {statusPresentation(String(value))?.label ?? value}
+            </p>
+            <p className="mt-2 text-[10px] text-[var(--muted-foreground)]">
+              {statusPresentation(detail)?.label ?? detail}
+            </p>
           </CardContent>
         </Card>
       ))}
@@ -224,9 +289,18 @@ function MetricCards({
 function DashboardView({ state }: { state: DemoState }) {
   const projection = dashboardProjection(state);
   const chartData = state.monthlySpendCents.map((value, index) => ({
-    month: ["Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul"][
-      index
-    ],
+    month: new Intl.DateTimeFormat("en-US", {
+      month: "short",
+      timeZone: "UTC",
+    }).format(
+      new Date(
+        Date.UTC(
+          Number(state.sessionDate.slice(0, 4)),
+          Number(state.sessionDate.slice(5, 7)) - 12 + index,
+          1,
+        ),
+      ),
+    ),
     spend: value / 100,
   }));
   const departmentData = state.budgets.map((budget) => ({
@@ -253,11 +327,13 @@ function DashboardView({ state }: { state: DemoState }) {
   for (const approval of state.approvals) {
     if (!approval.completedDate) continue;
     const hours = (new Date(`${approval.completedDate}T12:00:00Z`).getTime() - new Date(`${approval.assignedDate}T12:00:00Z`).getTime()) / 3_600_000;
-    approvalMap.set(approval.role, [...(approvalMap.get(approval.role) ?? []), hours]);
+    const role = titleCase(approval.role);
+    approvalMap.set(role, [...(approvalMap.get(role) ?? []), hours]);
   }
   const riskMap = new Map<string, number>();
   for (const vendor of state.vendors) {
-    riskMap.set(vendor.riskTier, (riskMap.get(vendor.riskTier) ?? 0) + 1);
+    const riskTier = statusLabel(vendor.riskTier);
+    riskMap.set(riskTier, (riskMap.get(riskTier) ?? 0) + 1);
   }
   const supportingCharts = [
     ["Spend by department", departmentData],
@@ -304,7 +380,7 @@ function DashboardView({ state }: { state: DemoState }) {
                 Executive command center
               </Badge>
               <Badge className="border-white/10 bg-white/10 text-white/80">
-                Friday, July 24
+                {formatSessionDate(state.sessionDate)}
               </Badge>
             </div>
             <p
@@ -323,8 +399,13 @@ function DashboardView({ state }: { state: DemoState }) {
           </div>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:w-[28rem]">
             {[
-              ["Control coverage", "98.6%"],
-              ["Spend under contract", "84.2%"],
+              ["Budget utilization", `${(projection.budgetUtilization * 100).toFixed(1)}%`],
+              [
+                "Spend under contract",
+                projection.yearToDateSpendCents
+                  ? `${((projection.spendUnderContractCents / projection.yearToDateSpendCents) * 100).toFixed(1)}%`
+                  : "0.0%",
+              ],
               ["Open exceptions", String(projection.invoiceExceptions)],
             ].map(([label, value]) => (
               <div
@@ -344,8 +425,9 @@ function DashboardView({ state }: { state: DemoState }) {
       </section>
       <MetricCards
         metrics={[
-          ["YTD spend", money(projection.yearToDateSpendCents), "From ten fictional department budgets"],
-          ["Identified savings", money(projection.identifiedSavingsCents), "Accepted decisions only"],
+          ["YTD posted spend", money(projection.yearToDateSpendCents), "Approved or paid invoices"],
+          ["Realized savings", money(projection.realizedSavingsCents), "Validated completed outcomes"],
+          ["Accepted savings", money(projection.acceptedSavingsCents), "Approved opportunities in progress"],
           ["Open requests", projection.openRequests, "Draft, submitted, or returned"],
           ["Awaiting approval", projection.awaitingApproval, "Derived from approval records"],
           ["Open POs", projection.openPurchaseOrders, "Active lifecycle records"],
@@ -363,7 +445,7 @@ function DashboardView({ state }: { state: DemoState }) {
           <CardHeader>
             <div>
               <h2 className="font-black">Monthly spend</h2>
-              <p className="text-xs text-[var(--muted-foreground)]">Deterministic twelve-month history</p>
+              <p className="text-xs text-[var(--muted-foreground)]">Twelve-month posted invoice history</p>
             </div>
           </CardHeader>
           <CardContent className="h-72 p-4">
@@ -388,7 +470,7 @@ function DashboardView({ state }: { state: DemoState }) {
           <CardHeader>
             <div>
               <h2 className="font-black">AI Insights</h2>
-              <p className="text-xs text-[var(--muted-foreground)]">Deterministic Demo AI</p>
+              <p className="text-xs text-[var(--muted-foreground)]">Claire insights grounded in workspace evidence</p>
             </div>
             <Sparkles className="size-5 text-[var(--brand-secondary)]" />
           </CardHeader>
@@ -437,6 +519,25 @@ function RequestView({
 }) {
   const request = state.requests.find((candidate) => candidate.id === state.featuredRequestId)!;
   const financials = featuredFinancials(state);
+  const acceptedSavingsCents = Math.max(
+    0,
+    Math.min(
+      request.identifiedSavingsCents,
+      request.estimatedTotalCents - request.recommendedTotalCents,
+    ),
+  );
+  const vendorEvaluations = evaluateVendorQuotes(state);
+  const recommendedVendor = vendorEvaluations.find(
+    (evaluation) => evaluation.eligibility.eligible,
+  );
+  const exceptionCandidate = vendorEvaluations.find(
+    (evaluation) => !evaluation.eligibility.eligible,
+  );
+  const vendorException = state.vendorExceptions.find(
+    (exception) =>
+      exception.requestId === request.id &&
+      exception.vendorId === exceptionCandidate?.vendor.id,
+  );
   const [requestQuery, setRequestQuery] = useState("");
   const [requestStatus, setRequestStatus] = useState("all");
   const visibleRequests = state.requests
@@ -447,13 +548,29 @@ function RequestView({
       return haystack.includes(requestQuery.toLowerCase()) &&
         (requestStatus === "all" || candidate.status === requestStatus);
     })
-    .sort((a, b) => a.requiredDate.localeCompare(b.requiredDate));
+    .sort((a, b) => {
+      if (a.id === state.featuredRequestId) return -1;
+      if (b.id === state.featuredRequestId) return 1;
+      const priorityRank = { urgent: 0, high: 1, normal: 2 };
+      return (
+        priorityRank[a.priority] - priorityRank[b.priority] ||
+        a.requiredDate.localeCompare(b.requiredDate)
+      );
+    });
   return (
     <>
       <SectionHeader
         eyebrow="AI-assisted request"
         title={request.title}
         description={request.businessJustification}
+      />
+      <MetricCards
+        metrics={[
+          ["Request", request.requestNumber, request.status],
+          ["Baseline", money(request.estimatedTotalCents), "Original interpreted need"],
+          ["External commitment", money(request.recommendedTotalCents), "Current purchase requirement"],
+          ["Accepted savings", money(acceptedSavingsCents), "Net of the selected quote and freight"],
+        ]}
       />
       <Card>
         <CardHeader>
@@ -467,7 +584,7 @@ function RequestView({
             <input aria-label="Search requests" value={requestQuery} onChange={(event) => setRequestQuery(event.target.value)} placeholder="Search number, title, requester, or department" className="h-10 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm outline-none focus:ring-2 focus:ring-[var(--focus)]" />
             <select aria-label="Filter request status" value={requestStatus} onChange={(event) => setRequestStatus(event.target.value)} className="h-10 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm outline-none focus:ring-2 focus:ring-[var(--focus)]">
               <option value="all">All statuses</option>
-              {["draft", "submitted", "approved", "returned", "rejected", "converted_to_po"].map((status) => <option key={status} value={status}>{titleCase(status)}</option>)}
+              {["draft", "submitted", "approved", "returned", "rejected", "converted_to_po"].map((status) => <option key={status} value={status}>{statusLabel(status)}</option>)}
             </select>
           </div>
           <DataTable
@@ -478,7 +595,9 @@ function RequestView({
               state.departments.find((department) => department.id === candidate.departmentId)?.name ?? candidate.departmentId,
               candidate.requiredDate,
               money(candidate.recommendedTotalCents),
-              candidate.priority,
+              candidate.priority === "normal"
+                ? "Standard Priority"
+                : `${titleCase(candidate.priority)} Priority`,
               candidate.status,
               candidate.budgetStatus,
               candidate.selectedVendorId ? "Selected" : "Pending",
@@ -486,14 +605,6 @@ function RequestView({
           />
         </CardContent>
       </Card>
-      <MetricCards
-        metrics={[
-          ["Request", request.requestNumber, request.status],
-          ["Baseline", money(request.estimatedTotalCents), "Original interpreted need"],
-          ["Recommended", money(request.recommendedTotalCents), "Current external commitment"],
-          ["Savings", money(request.identifiedSavingsCents), "Accepted inventory and standards decisions"],
-        ]}
-      />
       <DataTable
         columns={["Item", "Requested", "Buy", "Inventory", "Unit price", "Extended", "GL"]}
         rows={request.lines.map((line) => [
@@ -564,32 +675,172 @@ function RequestView({
           <div>
             <h2 className="font-black">Vendor comparison</h2>
             <p className="text-xs text-[var(--muted-foreground)]">
-              Human award decision; Demo AI recommends risk-adjusted value.
+              Eligibility is checked before balanced, risk-adjusted scoring. Humans retain award authority.
             </p>
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
           <DataTable
-            columns={["Vendor", "Total", "Contract", "Delivery", "Risk", "Performance", "Score"]}
-            rows={state.quotes.map((quote) => {
-              const vendor = state.vendors.find((candidate) => candidate.id === quote.vendorId)!;
+            columns={["Vendor", "Eligibility", "Total", "Contract", "Delivery", "Risk", "Performance", "Score"]}
+            rows={vendorEvaluations.map((evaluation) => {
+              const { quote, vendor, eligibility } = evaluation;
               return [
                 vendor.displayName,
+                eligibility.eligible ? "Eligible" : "Ineligible",
                 money(quote.totalCents),
                 quote.contractPricing ? "Yes" : "No",
                 quote.deliveryDate,
                 vendor.riskTier,
                 vendor.performanceScore,
-                quote.aiEvaluationScore,
+                evaluation.score ?? "Not scored",
               ];
             })}
           />
+          <div className="grid gap-3 lg:grid-cols-3">
+            {vendorEvaluations.map((evaluation) => (
+              <details
+                key={evaluation.vendor.id}
+                className={`rounded-xl border p-4 ${
+                  evaluation.eligibility.eligible
+                    ? "border-emerald-200 bg-emerald-50/50"
+                    : "border-rose-200 bg-rose-50/50"
+                }`}
+              >
+                <summary className="cursor-pointer text-sm font-black">
+                  {evaluation.vendor.displayName} ·{" "}
+                  {evaluation.eligibility.eligible
+                    ? `${evaluation.score}/100`
+                    : "Ineligible"}
+                </summary>
+                <div className="mt-3 space-y-3 text-xs leading-5 text-[var(--muted-foreground)]">
+                  <p>
+                    <strong className="text-[var(--foreground)]">Recommendation:</strong>{" "}
+                    {evaluation.vendor.id === recommendedVendor?.vendor.id
+                      ? "Best eligible balanced value"
+                      : evaluation.eligibility.eligible
+                        ? "Eligible alternative"
+                        : "Blocked from normal award"}
+                  </p>
+                  {evaluation.eligibility.blockers.length > 0 && (
+                    <p>
+                      <strong className="text-rose-700">Control blockers:</strong>{" "}
+                      {evaluation.eligibility.blockers.join("; ")}
+                    </p>
+                  )}
+                  {evaluation.eligibility.warnings.length > 0 && (
+                    <p>
+                      <strong className="text-amber-700">Warnings:</strong>{" "}
+                      {evaluation.eligibility.warnings.join("; ")}
+                    </p>
+                  )}
+                  {evaluation.factors.map((factor) => (
+                    <div key={factor.key} className="flex justify-between gap-3 border-t border-black/5 pt-2">
+                      <span>
+                        {factor.label} ({factor.weight.toFixed(1)}%)<br />
+                        <small>{factor.evidence}</small>
+                      </span>
+                      <strong>{factor.score.toFixed(1)}</strong>
+                    </div>
+                  ))}
+                  <p>
+                    <strong className="text-[var(--foreground)]">Confidence:</strong>{" "}
+                    {titleCase(evaluation.confidence)} — based on eligibility evidence,
+                    current policy coverage, quote freshness, and complete scoring inputs.
+                  </p>
+                  <p>
+                    <strong className="text-[var(--foreground)]">Human action:</strong>{" "}
+                    Review the evidence and explicitly select an eligible supplier. An
+                    ineligible supplier requires joint Purchasing and Compliance approval,
+                    written justification, and supporting evidence.
+                  </p>
+                </div>
+              </details>
+            ))}
+          </div>
           <Button
-            disabled={state.stage !== "standards_reviewed"}
+            disabled={state.stage !== "standards_reviewed" || !recommendedVendor}
             onClick={() => execute(() => selectVendor(state), "Recommended vendor selected")}
           >
-            Select Volunteer Technology Partners
+            Select {recommendedVendor?.vendor.displayName ?? "eligible vendor"}
           </Button>
+          {state.presenterMode && exceptionCandidate && (
+            <div className="rounded-xl border border-dashed border-rose-300 bg-rose-50/40 p-4 text-xs">
+              <p className="font-black text-rose-800">Presenter-only exception demonstration</p>
+              <p className="mt-1 text-rose-700">
+                This path does not replace the recommended award. It demonstrates the
+                dual-control process for {exceptionCandidate.vendor.displayName}.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {!vendorException && (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={
+                      state.activeRole !== "purchasing_specialist" ||
+                      state.stage !== "standards_reviewed"
+                    }
+                    onClick={() =>
+                      execute(
+                        () =>
+                          requestVendorException(
+                            state,
+                            exceptionCandidate.vendor.id,
+                            "Documented continuity need requires formal review of the otherwise ineligible supplier.",
+                            ["Fictional continuity assessment.pdf"],
+                          ),
+                        "Vendor exception requested",
+                      )
+                    }
+                  >
+                    Request documented exception
+                  </Button>
+                )}
+                {vendorException?.status === "requested" && (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={state.activeRole !== "purchasing_manager"}
+                    onClick={() =>
+                      execute(
+                        () =>
+                          decideVendorException(
+                            state,
+                            vendorException.id,
+                            "approve",
+                          ),
+                        "Purchasing approval recorded",
+                      )
+                    }
+                  >
+                    Purchasing approval
+                  </Button>
+                )}
+                {vendorException?.status === "purchasing_approved" && (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={state.activeRole !== "compliance_reviewer"}
+                    onClick={() =>
+                      execute(
+                        () =>
+                          decideVendorException(
+                            state,
+                            vendorException.id,
+                            "approve",
+                          ),
+                        "Compliance approval recorded",
+                      )
+                    }
+                  >
+                    Compliance approval
+                  </Button>
+                )}
+                {vendorException && (
+                  <Badge>{statusPresentation(vendorException.status)?.label ?? titleCase(vendorException.status)}</Badge>
+                )}
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
       <div className="grid gap-4 xl:grid-cols-2">
@@ -598,8 +849,8 @@ function RequestView({
             <h2 className="font-black">Budget and GL confirmation</h2>
             <div className="mt-4 grid grid-cols-2 gap-3 text-xs">
               <div><span className="text-[var(--muted-foreground)]">External PO</span><p className="font-black">{money(financials.externalCommitmentCents)}</p></div>
-              <div><span className="text-[var(--muted-foreground)]">Internal transfer</span><p className="font-black">{money(financials.transferCents)}</p></div>
-              <div><span className="text-[var(--muted-foreground)]">Total impact</span><p className="font-black">{money(financials.totalBudgetImpactCents)}</p></div>
+              <div><span className="text-[var(--muted-foreground)]">Inventory value used</span><p className="font-black">{money(financials.inventoryValueCents)}</p><small>No new budget commitment</small></div>
+              <div><span className="text-[var(--muted-foreground)]">New budget commitment</span><p className="font-black">{money(financials.totalBudgetImpactCents)}</p></div>
               <div><span className="text-[var(--muted-foreground)]">Utilization</span><p className="font-black">{(financials.utilizationAfter * 100).toFixed(1)}%</p></div>
             </div>
             <Badge tone="warning" className="mt-4">Within 0.9 points of 80% review threshold</Badge>
@@ -726,7 +977,7 @@ function PurchaseOrderView({ state, execute }: { state: DemoState; execute: (com
     <>
       <SectionHeader eyebrow="Purchase order lifecycle" title="Purchase Orders" description="Create, issue, and acknowledge the featured PO only after all required human approvals." />
       <Card data-tour-id="purchase-order-lifecycle">
-        <CardHeader><h2 className="font-black">Purchase-order lifecycle queue · 50 seeded records</h2></CardHeader>
+        <CardHeader><h2 className="font-black">Purchase-order lifecycle queue · 50 records</h2></CardHeader>
         <CardContent>
           <DataTable columns={["PO", "Request", "Vendor", "Total", "Status", "Expected", "Receipt", "Invoice", "Contract"]} rows={state.purchaseOrders.map((candidate) => [
             candidate.poNumber,
@@ -796,9 +1047,9 @@ function InvoiceView({ state, execute }: { state: DemoState; execute: (command: 
   const invoice = state.invoices.find((candidate) => candidate.id === "invoice-featured");
   return (
     <>
-      <SectionHeader eyebrow="Human-controlled matching" title="Invoices" description="Compare PO, receipt, and invoice facts. Demo AI explains exceptions but never approves payment." />
+      <SectionHeader eyebrow="Human-controlled matching" title="Invoices" description="Compare PO, receipt, and invoice facts. Claire explains exceptions but never approves payment." />
       <Card>
-        <CardHeader><h2 className="font-black">Invoice work queue · 35 seeded records</h2></CardHeader>
+        <CardHeader><h2 className="font-black">Invoice work queue · 35 records</h2></CardHeader>
         <CardContent>
           <DataTable columns={["Invoice", "PO", "Vendor", "Total", "Match", "Exception", "Duplicate risk", "Approval", "Payment"]} rows={state.invoices.map((candidate) => [
             candidate.invoiceNumber,
@@ -845,7 +1096,7 @@ function AuditView({ state }: { state: DemoState }) {
         <input value={query} onChange={(event) => setQuery(event.target.value)} aria-label="Filter audit events" placeholder="Filter by event, entity, request, PO, or invoice" className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] pl-9 pr-3 text-xs" />
       </div>
       <div data-tour-id="audit-evidence">
-        <DataTable columns={["Time", "Role", "Action", "Entity", "Previous", "New", "Description"]} rows={events.slice().reverse().map((event) => [event.timestamp, titleCase(event.role), event.action, `${event.entityType} · ${event.entityId}`, event.previousValue ?? "—", event.newValue ?? "—", event.description])} />
+        <DataTable columns={["Time", "Role", "Action", "Entity", "Previous", "New", "Description"]} rows={events.slice().reverse().map((event) => [event.timestamp, titleCase(event.role), titleCase(event.action), `${titleCase(event.entityType)} · ${event.entityId}`, event.previousValue ?? "—", event.newValue ?? "—", event.description])} />
       </div>
       <Button variant="secondary"><FileCheck2 className="size-4" />Export Audit Package</Button>
     </>
@@ -862,15 +1113,15 @@ function AiView({ state }: { state: DemoState }) {
     if (normalized.includes("loan officer") || normalized.includes("create"))
       setAnswer("I structured Y12-PR-2026-00175: 3 laptops, 6 monitors, 3 docks, 3 headsets, and 3 chairs. Three monitors are available in central inventory. Open Purchase Requests to review each human-controlled recommendation.");
     else if (normalized.includes("00482") || normalized.includes("purchase order"))
-      setAnswer(state.purchaseOrders.some((po) => po.id === "po-featured") ? `Y12-PO-2026-00482 is ${state.purchaseOrders.find((po) => po.id === "po-featured")!.status}.` : "Y12-PO-2026-00482 has not been created; complete the four approvals first.");
+      setAnswer(state.purchaseOrders.some((po) => po.id === "po-featured") ? `Y12-PO-2026-00482 is ${statusLabel(state.purchaseOrders.find((po) => po.id === "po-featured")!.status)}.` : "Y12-PO-2026-00482 has not been created; complete the four approvals first.");
     else if (normalized.includes("invoice") || normalized.includes("exception"))
       setAnswer(state.invoices.some((invoice) => invoice.id === "invoice-featured") ? "The featured invoice has an exact $320 unexpected freight variance and remains human-gated." : "The featured invoice has not been matched yet.");
-    else setAnswer("The strongest accepted opportunity is the $1,047 central-monitor allocation. Demo AI cannot approve or execute a financial action.");
+    else setAnswer("The strongest accepted opportunity is the $1,047 central-monitor allocation. Claire cannot approve or execute a financial action.");
   }
   return (
     <>
-      <SectionHeader eyebrow="Deterministic assistant" title="AI Procurement" description="Structured Demo AI answers grounded only in fictional seeded records. Human review remains mandatory." />
-      <Card data-tour-id="demo-ai-workspace" className="overflow-hidden border-[#404287]/25 bg-gradient-to-br from-white via-white to-[#404287]/[0.06]"><CardContent className="p-5"><div className="flex gap-3"><Bot className="size-5 text-[var(--brand-secondary)]" /><p className="text-sm leading-6">{answer}</p></div><div className="mt-4 flex gap-2"><input value={prompt} onChange={(event) => setPrompt(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") ask(prompt); }} placeholder="Ask the fictional procurement workspace…" className="h-11 flex-1 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm" /><Button onClick={() => ask(prompt)}>Ask Demo AI</Button></div></CardContent></Card>
+      <SectionHeader eyebrow="Policy-grounded assistant" title="AI Procurement" description="Claire answers from fictional workspace evidence and keeps human review mandatory." />
+      <Card data-tour-id="demo-ai-workspace" className="overflow-hidden border-[#404287]/25 bg-gradient-to-br from-white via-white to-[#404287]/[0.06]"><CardContent className="p-5"><div className="flex gap-3"><Bot className="size-5 text-[var(--brand-secondary)]" /><p className="text-sm leading-6">{answer}</p></div><div className="mt-4 flex gap-2"><input value={prompt} onChange={(event) => setPrompt(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") ask(prompt); }} placeholder="Ask the fictional procurement workspace…" className="h-11 flex-1 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm" /><Button onClick={() => ask(prompt)}>Ask Claire</Button></div></CardContent></Card>
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{["Create a request for three new loan officers.", "What requests are waiting on me?", "Where is purchase order Y12-PO-2026-00482?", "Which invoices have exceptions?"].map((suggestion) => <button key={suggestion} onClick={() => { setPrompt(suggestion); ask(suggestion); }} className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3 text-left text-xs font-bold hover:border-[var(--brand-secondary)]">{suggestion}</button>)}</div>
     </>
   );
@@ -881,12 +1132,12 @@ function GenericView({ section, state }: { section: string; state: DemoState }) 
     inventory: ["Stock intelligence", "Approved standards, availability, reorder signals, reservations, and transfers.", ["SKU", "Item", "Category", "Available", "Reorder", "Standard"], state.catalogItems.slice(0, 40).map((item) => [item.sku, item.description, item.category, item.availableInventory, item.reorderPoint, item.standardStatus])],
     vendors: ["Supplier network", "Commercial, contract, documentation, performance, and risk context for fictional suppliers.", ["Vendor", "Category", "Preferred", "Risk", "Performance", "Documentation"], state.vendors.map((vendor) => [vendor.displayName, vendor.category, vendor.preferred ? "Yes" : "No", vendor.riskTier, vendor.performanceScore, vendor.documentationStatus])],
     "vendor-risk": ["Third-party controls", "Unfavorable findings appear only on clearly fictional vendors.", ["Vendor", "Risk", "Documentation", "Review date", "Finding"], state.vendorRiskAssessments.map((risk) => [state.vendors.find((vendor) => vendor.id === risk.vendorId)?.displayName ?? risk.vendorId, risk.riskTier, risk.documentationStatus, risk.reviewDate, risk.finding])],
-    contracts: ["Obligation intelligence", "Renewal timing, notice dates, owner context, and fictional agreement values.", ["Contract", "Name", "Vendor", "Value", "End date", "Status"], state.contracts.map((contract) => [contract.id, contract.name, state.vendors.find((vendor) => vendor.id === contract.vendorId)?.displayName ?? contract.vendorId, money(contract.valueCents), contract.endDate, contract.status])],
-    analytics: ["Spend and savings", "Reconciled deterministic trends, budgets, accepted savings, and workflow metrics.", ["Department", "Budget", "Actual", "Committed", "Available", "Utilization"], state.budgets.map((budget) => { const department = state.departments.find((candidate) => candidate.id === budget.departmentId)!; const available = budget.revisedBudgetCents - budget.actualSpendCents - budget.committedCents; return [department.name, money(budget.revisedBudgetCents), money(budget.actualSpendCents), money(budget.committedCents), money(available), `${(((budget.actualSpendCents + budget.committedCents) / budget.revisedBudgetCents) * 100).toFixed(1)}%`]; })],
+    contracts: ["Obligation intelligence", "Renewal timing, notice dates, owner context, and fictional agreement values.", ["Contract", "Name", "Vendor", "Value", "Notice deadline", "End date", "Status"], state.contracts.map((contract) => [contract.id, contract.name, state.vendors.find((vendor) => vendor.id === contract.vendorId)?.displayName ?? contract.vendorId, money(contract.valueCents), contract.noticeDeadline, contract.endDate, contract.status])],
+    analytics: ["Spend and savings", `Calendar-year ${state.sessionDate.slice(0, 4)} posted invoice actuals, open commitments, available budget, and utilization.`, ["Department", "Budget", "Posted actual", "Open commitments", "Available", "Utilization"], state.budgets.map((budget) => { const department = state.departments.find((candidate) => candidate.id === budget.departmentId)!; const available = budget.revisedBudgetCents - budget.actualSpendCents - budget.committedCents; return [department.name, money(budget.revisedBudgetCents), money(budget.actualSpendCents), money(budget.committedCents), money(available), `${(((budget.actualSpendCents + budget.committedCents) / budget.revisedBudgetCents) * 100).toFixed(1)}%`]; })],
     administration: ["Organization governance", "Fictional users, roles, approval authority, departments, and locations.", ["User", "Title", "Role", "Department", "Location", "Authority"], state.users.map((user) => [user.name, user.jobTitle, titleCase(user.role), state.departments.find((department) => department.id === user.departmentId)?.name ?? user.departmentId, state.locations.find((location) => location.id === user.locationId)?.name ?? user.locationId, money(user.approvalAuthorityCents)])],
     settings: ["Demo configuration", "Central organization theme, terminology, accessibility, and tutorial preparation.", ["Setting", "Value", "Scope"], [["Organization", state.organization.organizationName, "White-label"], ["Primary color", state.organization.primaryColor, "Theme"], ["Support", state.organization.supportContact, "Organization"], ["Tutorial mode", "Preview only", "Future phase"], ["Locale", state.organization.locale, "Formatting"], ["Timezone", state.organization.timezone, "Formatting"]]],
   };
-  const [title, description, columns, rows] = config[section] ?? ["Connected workspace", "Deterministic fictional records for the Phase 2 demonstration.", ["Record", "Status"], [["Featured workflow", state.stage]]];
+  const [title, description, columns, rows] = config[section] ?? ["Connected workspace", "Controlled fictional records for the product demonstration.", ["Record", "Status"], [["Featured workflow", state.stage]]];
   return <><SectionHeader eyebrow={title} title={titleCase(section)} description={description} /><DataTable columns={columns} rows={rows} /></>;
 }
 
@@ -918,6 +1169,7 @@ export function PhaseTwoPage({ section }: { section: string }) {
           <span className="ml-1 text-[var(--brand-primary)]">Powered by Catalyst Innovations.</span>
         </div>
       )}
+      {state.presenterMode && (
       <div className="flex flex-col justify-between gap-3 rounded-2xl border border-[#041a6c]/10 bg-gradient-to-r from-white to-[#f9edce]/55 p-3 shadow-sm sm:flex-row sm:items-center">
         <div className="flex items-center gap-3">
           <span className="flex size-9 items-center justify-center rounded-xl bg-[var(--brand-soft)] font-black text-[var(--brand-primary)]">{currentUser.avatar}</span>
@@ -949,10 +1201,12 @@ export function PhaseTwoPage({ section }: { section: string }) {
             <option value="">Jump to stage…</option>
             {["draft", "submitted", "approved", "po_draft", "acknowledged", "fully_received", "invoice_exception", "exception_routed"].map((stage) => <option key={stage} value={stage}>{titleCase(stage)}</option>)}
           </select>
-          <Button variant="secondary" size="sm" onClick={() => { replace(resetDemo(state)); setMessage("Deterministic demo restored"); }}><RefreshCw className="size-3.5" />Reset</Button>
+          <Button variant="secondary" size="sm" onClick={() => { replace(resetDemo(state)); setMessage("Demo baseline restored"); }}><RefreshCw className="size-3.5" />Reset</Button>
         </div>
       </div>
+      )}
       <WorkflowRail stage={state.stage} />
+      <DecisionGuide section={section} />
       {section === "dashboard" ? <DashboardView state={state} /> : section === "purchase-requests" ? <RequestView state={state} execute={execute} /> : section === "approvals" ? <ApprovalView state={state} execute={execute} /> : section === "purchase-orders" ? <PurchaseOrderView state={state} execute={execute} /> : section === "receiving" ? <ReceivingView state={state} execute={execute} /> : section === "invoices" ? <InvoiceView state={state} execute={execute} /> : section === "audit-center" ? <AuditView state={state} /> : section === "ai-procurement" ? <AiWorkspace /> : <GenericView section={section} state={state} />}
       {message && (
         <div role="status" className="fixed bottom-5 right-5 z-50 flex max-w-sm items-start gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface-elevated)] p-4 shadow-[var(--shadow-elevated)]">
@@ -961,6 +1215,12 @@ export function PhaseTwoPage({ section }: { section: string }) {
           <button onClick={() => setMessage(null)} aria-label="Dismiss message">×</button>
         </div>
       )}
+      <footer className="rounded-xl border border-[var(--border)] bg-[var(--surface-subtle)] px-4 py-3 text-[11px] leading-5 text-[var(--muted-foreground)]">
+        <strong className="text-[var(--foreground)]">Fictional demonstration workspace.</strong>{" "}
+        This environment is not connected to Y-12 Credit Union systems and does not
+        represent an endorsement or implementation. Claire explains evidence and
+        recommendations; authorized people retain every financial and control decision.
+      </footer>
     </div>
   );
 }

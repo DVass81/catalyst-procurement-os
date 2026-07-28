@@ -20,7 +20,7 @@ import {
 const ACTIVE_TENANT_KEY = "catalyst-procurement-os-active-tenant-v1";
 
 function storageKey(tenantId: TenantId) {
-  return `catalyst-procurement-os-${tenantId}-v3`;
+  return `catalyst-procurement-os-${tenantId}-v5`;
 }
 
 interface DemoContextValue {
@@ -39,7 +39,7 @@ function isDemoState(value: unknown): value is DemoState {
     typeof value === "object" &&
     value !== null &&
     "schemaVersion" in value &&
-    value.schemaVersion === 3 &&
+    value.schemaVersion === 5 &&
     "featuredRequestId" in value
   );
 }
@@ -69,23 +69,31 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
       if (cancelled) return;
 
       try {
+        const presenterMode =
+          new URLSearchParams(window.location.search).get("presenter") === "1";
         const storedTenant = window.localStorage.getItem(ACTIVE_TENANT_KEY);
         const tenantId =
-          storedTenant && isTenantId(storedTenant)
+          presenterMode && storedTenant && isTenantId(storedTenant)
             ? storedTenant
             : "org-y12-demo";
         setActiveTenantId(tenantId);
-        const stored = window.localStorage.getItem(storageKey(tenantId));
+        const stored = window.sessionStorage.getItem(storageKey(tenantId));
         if (stored) {
           const parsed: unknown = JSON.parse(stored);
           if (isTenantDemoState(parsed, tenantId)) {
-            setState(parsed);
+            setState({ ...parsed, presenterMode });
           } else {
-            window.localStorage.removeItem(storageKey(tenantId));
-            setState(createDemoState(tenantThemes[tenantId]));
+            window.sessionStorage.removeItem(storageKey(tenantId));
+            setState({
+              ...createDemoState(tenantThemes[tenantId]),
+              presenterMode,
+            });
           }
         } else {
-          setState(createDemoState(tenantThemes[tenantId]));
+          setState({
+            ...createDemoState(tenantThemes[tenantId]),
+            presenterMode,
+          });
         }
       } catch {
         window.localStorage.removeItem(ACTIVE_TENANT_KEY);
@@ -103,7 +111,7 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!hydrated) return;
     window.localStorage.setItem(ACTIVE_TENANT_KEY, activeTenantId);
-    window.localStorage.setItem(storageKey(activeTenantId), JSON.stringify(state));
+    window.sessionStorage.setItem(storageKey(activeTenantId), JSON.stringify(state));
   }, [activeTenantId, hydrated, state]);
 
   const apply = useCallback(
@@ -116,8 +124,8 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
   const switchTenant = useCallback(
     (tenantId: TenantId) => {
       if (!state.presenterMode || tenantId === activeTenantId) return;
-      window.localStorage.setItem(storageKey(activeTenantId), JSON.stringify(state));
-      const stored = window.localStorage.getItem(storageKey(tenantId));
+      window.sessionStorage.setItem(storageKey(activeTenantId), JSON.stringify(state));
+      const stored = window.sessionStorage.getItem(storageKey(tenantId));
       if (stored) {
         try {
           const parsed: unknown = JSON.parse(stored);
@@ -127,11 +135,14 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
             return;
           }
         } catch {
-          window.localStorage.removeItem(storageKey(tenantId));
+          window.sessionStorage.removeItem(storageKey(tenantId));
         }
       }
       setActiveTenantId(tenantId);
-      setState(createDemoState(tenantThemes[tenantId]));
+      setState({
+        ...createDemoState(tenantThemes[tenantId], state.sessionDate),
+        presenterMode: state.presenterMode,
+      });
     },
     [activeTenantId, state],
   );
