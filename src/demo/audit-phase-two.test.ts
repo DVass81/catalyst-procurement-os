@@ -248,6 +248,20 @@ describe("Audit Phase 2 controls", () => {
     expect(state.auditPackages[1]!.manifestSha256).toMatch(/^[0-9a-f]{64}$/);
   });
 
+  it("continues persisted audit-package versions after a demo reset", () => {
+    let resetState = switchRole(
+      createDemoState(undefined, "2026-07-24"),
+      "auditor",
+    );
+    resetState = generateFeaturedAuditPackage(resetState, 2);
+    expect(resetState.auditPackages[0]).toMatchObject({
+      id: "audit-package-featured-v2",
+      version: 2,
+      parentPackageId: "audit-package-featured-v1",
+      lifecycleState: "generating",
+    });
+  });
+
   it("implements the complete CATE evidence and human-authority contract", () => {
     const { output } = deterministicAiOutput({
       tenantId: "org-y12-demo",
@@ -282,3 +296,4 @@ describe("Audit Phase 2 controls", () => {
     );
   });
 });
+
