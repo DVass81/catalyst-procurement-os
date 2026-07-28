@@ -1,21 +1,30 @@
-# Audit Phase 2 implementation status
+# Audit Phase 2 release status
 
 ## Current result
 
-The repository now contains the Audit Phase 2 implementation. It is not yet
-claimed as deployed or database-verified by this document.
+Audit Phase 2 is implemented, deployed as a release candidate, and verified in
+the connected demonstration environment at commit
+`a9147c0d1b70bb0d002677d9b1a6133db9909fda`.
 
-Application-level verification completed locally:
+Verified release evidence includes:
 
-- ESLint
-- strict TypeScript
-- deterministic and control-focused Vitest suites
-- production Next.js build
+- 56 of 56 Vitest tests across 7 files
+- 23 of 23 legacy Streamlit Python tests
+- strict TypeScript, ESLint, and Next.js 16.2.12 production build
+- GitHub Actions `Audit Phase 2 quality` run 44
+- four applied Supabase release migrations
+- direct same-tenant and cross-tenant RLS checks
+- private Storage isolation and signed-link checks
+- primary and adverse receiving end-to-end stories
+- CSV and XLSX staging, duty separation, posting, and reversal
+- private versioned PDF, CSV, and JSON audit packages
+- live CATE response, usage-ledger record, and immutable evaluation record
+- desktop semantic accessibility and keyboard checks
+- normal 25-concurrent-user performance target
+- DigitalOcean deployment and controlled application rollback
 
-Database, Storage, RLS, backup/restore, DigitalOcean deployment, and browser
-acceptance evidence require the migration and application release to be
-executed in the connected environments. Those are release activities, not
-facts inferred from source code.
+The dated evidence record is
+`docs/PHASE2_RELEASE_EVIDENCE_2026-07-28.md`.
 
 ## Implemented
 
@@ -36,16 +45,18 @@ facts inferred from source code.
 - Versioned private PDF/CSV/JSON audit packages with hashes and signed downloads
 - CI dependency audit and CycloneDX SBOM
 
-## Release-blocking evidence not yet produced
+## Open Phase 2 release decisions
 
-- Applied migration evidence from the target Supabase project
-- Positive and negative direct RLS tests against the target database
-- Private Storage cross-tenant and signed-link tests
-- Backup restore exercise and measured RPO/RTO
-- DigitalOcean deployment and rollback exercise
-- Browser-level keyboard, screen-reader, responsive, and end-to-end evidence
-- Synthetic load results for the Phase 2 validation envelope
-- Final 12–15 minute presenter run after deployment
+Four strict gates require additional evidence or an explicit, named, dated,
+expiring demo-only risk acceptance:
 
-Until those are completed, describe the code as “Phase 2 implemented locally,
-release verification pending,” not “Phase 2 deployed” or “pilot ready.”
+1. Supabase database backup restoration is unavailable on the current Free
+   plan.
+2. The complete high-cardinality capacity envelope has not been materialized.
+3. Physical mobile/tablet and assistive-technology screen-reader runs remain
+   outstanding.
+4. The complete story has passed functionally, but a human-paced 12–15 minute
+   presenter rehearsal has not been witnessed and timed.
+
+Until those four decisions are closed, describe the product as “Phase 2
+deployed release candidate,” not “pilot ready” or “production ready.”

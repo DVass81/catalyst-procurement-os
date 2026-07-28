@@ -1,11 +1,12 @@
 # Audit Phase 2 security, risk, and deferred-scope register
 
-## Implemented security controls
+## Verified security controls
 
 - Invite-only Supabase authentication; no public registration
 - Database-authoritative tenant assignments
 - Deny-by-default server commands and domain role checks
 - RLS on every exposed Phase 2 table and private Storage
+- Direct same-tenant success and cross-tenant denial checks
 - Explicit grants required for Data API access
 - Service credentials isolated in `server-only` modules
 - Server-side Zod validation and rate limiting
@@ -19,18 +20,31 @@
 - CI production-dependency audit and CycloneDX SBOM
 - No payment rail, email send tool, autonomous award, or autonomous approval
 
+## Closed release risks
+
+- All four release migrations were applied to the target Supabase project.
+- Direct positive and negative tenant RLS tests passed.
+- Private Storage tenant isolation and 60-second signed access passed.
+- Versioned PDF, CSV, and JSON audit packages were generated, hash-checked, and
+  opened from private Storage.
+- Primary and adverse end-to-end stories passed after authoritative resets.
+- CATE generated a live demo response and durable usage and evaluation records.
+- Desktop semantic accessibility, keyboard behavior, and target sizes passed.
+- The normal 25-concurrent-user performance target passed without errors.
+- DigitalOcean deployment, application rollback, restoration, and health checks
+  passed.
+
 ## Open release risks
 
 | Risk | Severity | Owner | Mitigation / exit evidence | Expiration |
 | --- | --- | --- | --- | --- |
-| Migration and RLS not yet exercised in target project | High | Platform Owner | Apply migration and pass positive/negative tenant tests | Before deployment |
-| Backup restore not yet exercised | High | Platform Owner | Isolated restore and reconciliation report | Before demo release gate |
-| Browser accessibility evidence incomplete | Medium | Product Owner | WCAG 2.2 AA automated and manual core-flow report | Before demo release gate |
-| Capacity envelope not measured | Medium | Platform Owner | Synthetic p95 load report | Before demo release gate |
-| Scanning/OCR is simulated | Low for demo | Security Owner | Persistent label; activate reviewed provider before real files | Before paid pilot |
-| Transactional email is simulated | Low for demo | Process Owner | Persistent label; activate reviewed adapter before pilot notifications | Before paid pilot |
-| Signed links expire after 60 seconds rather than supporting provider-side instant revocation | Medium | Security Owner | Keep TTL short; add application proxy/revocation service for pilot | Before paid pilot |
-| Audit-package rendering and download have not been exercised against target private Storage | High | Records and Evidence Owner | Generate PDF/CSV/JSON, validate hashes, and run same/cross-tenant download tests | Before demo release gate |
+| Database backup restore is unavailable on the current Supabase Free plan | High | Platform Owner | Upgrade, obtain a provider backup, restore it in isolation, and reconcile; or approve a named, dated, expiring demo-only exception | Before Phase 2 merge |
+| Full high-cardinality capacity envelope has not been materialized | Medium | Platform Owner | Run the documented synthetic envelope and record p95/error/resource results; or approve a bounded demo-only exception | Before Phase 2 merge |
+| Physical mobile/tablet and actual screen-reader runs remain outstanding | Medium | Product Owner | Complete device and assistive-technology core-flow checks; or approve a bounded demo-only exception | Before Phase 2 merge |
+| Human-paced 12–15 minute presenter rehearsal has not been witnessed and timed | Medium | Demo Owner | Run the complete scripted story with a presenter and record duration/issues; or approve a bounded demo-only exception | Before Phase 2 merge |
+| Scanning/OCR is simulated | Low for demo | Security Owner | Persistent label; activate a reviewed provider before real files | Before paid pilot |
+| Transactional email is simulated | Low for demo | Process Owner | Persistent label; activate a reviewed adapter before pilot notifications | Before paid pilot |
+| Signed links expire after 60 seconds rather than supporting provider-side instant revocation | Medium | Security Owner | Keep TTL short; add an application proxy/revocation service for pilot | Before paid pilot |
 
 No risk is accepted merely by appearing in this table. A real risk acceptance
 requires a named approver, date, reason, compensating controls, and expiration.

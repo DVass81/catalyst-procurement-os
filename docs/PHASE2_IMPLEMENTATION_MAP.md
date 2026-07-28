@@ -3,21 +3,22 @@
 Status legend:
 
 - **Implemented**: source and automated application verification exist.
-- **Release verification**: implementation exists; connected-environment
-  evidence is still required.
+- **Verified**: implementation and connected-environment evidence exist.
+- **Partial**: implementation exists, but the strict gate still needs stronger
+  evidence or explicit demo-only risk acceptance.
 - **Deferred**: explicitly outside Phase 2.
 
 | ID | Status | Implementation | Verification |
 | --- | --- | --- | --- |
 | P2-001 | Implemented | Persistent disclosures in workspace, login, AI, upload, and footer surfaces | Phase 1 credibility tests; UI source scan |
 | P2-002 | Implemented | `reset_demo` is an authoritative command using the frozen session date and approved seed | Workflow reset tests |
-| P2-003 | Release verification | Server state route, repository, private commit function, Postgres snapshot | TypeScript tests pass; migration application pending |
-| P2-004 | Release verification | RLS on all public Phase 2 tables and private Storage; DB assignments used in policies | Direct target-database positive/negative tests pending |
-| P2-005 | Implemented / release verification | Database tenant membership, server presenter boundary, domain-role command rules | Role-denial tests; target RLS tests pending |
+| P2-003 | Verified | Server state route, repository, private commit function, Postgres snapshot | TypeScript tests, applied migrations, and connected snapshot |
+| P2-004 | Verified | RLS on all public Phase 2 tables and private Storage; DB assignments used in policies | Direct same-tenant and cross-tenant database and Storage tests |
+| P2-005 | Verified | Database tenant membership, server presenter boundary, domain-role command rules | Role-denial tests and connected RLS tests |
 | P2-006 | Implemented | Requester self-approval, buyer receipt, receiver invoice match, and same-actor revision blocks | Workflow and Audit Phase 2 tests |
 | P2-007 | Implemented | Draft, validation, simulation, review, approval, activation, supersession | Audit Phase 2 configuration test |
-| P2-008 | Implemented / release verification | CSV/XLSX staging, mapping, quarantine, duplicate flag, hash, row/value controls, split duties, post/reversal | Pure workflow tests; connected import integration pending |
-| P2-009 | Implemented / release verification | Private bucket, content checks, version metadata, simulated scan label, signed access, access audit | Route compile; connected Storage isolation pending |
+| P2-008 | Verified | CSV/XLSX staging, mapping, quarantine, duplicate flag, hash, row/value controls, split duties, post/reversal | Workflow tests plus connected CSV/XLSX staging, approval, posting, and reversal |
+| P2-009 | Verified | Private bucket, content checks, version metadata, simulated scan label, signed access, access audit | Connected Storage isolation, private upload, signed view/download, and access-event checks |
 | P2-010 | Implemented | Request through human selection, approvals, PO, acknowledgment, and revision | Workflow and revision tests |
 | P2-011 | Implemented | Complete or cumulative partial receipt, inspection, reject/return/replacement, reversal | Cumulative receiving test |
 | P2-012 | Implemented | Cumulative accepted-quantity three-way match, zero tolerance, duplicate-risk field, typed exception | Workflow and integrity tests |
@@ -30,17 +31,17 @@ Status legend:
 | P2-019 | Implemented | 32 versioned KPI definitions with full contracts | KPI catalog test |
 | P2-020 | Implemented | Role scorecards and contributing-record accessible table | Component and catalog source |
 | P2-021 | Implemented | KPIs calculate from the same state and dashboard projection | KPI reconciliation test |
-| P2-022 | Implemented / release verification | Controlled route creates and privately stores a readable PDF summary, CSV event extract, and JSON manifest with source/artifact hashes and signed downloads | Workflow/hash tests and route compile; connected Storage generation/download test pending |
+| P2-022 | Verified | Controlled route creates and privately stores a readable PDF summary, CSV event extract, and JSON manifest with source/artifact hashes and signed downloads | Two connected versioned packages; six private artifacts opened and hashes recorded |
 | P2-023 | Implemented | Integer cents, quantity bounds, cumulative acceptance, zero tolerance, immutable corrections | Integrity and boundary tests |
-| P2-024 | Implemented | Authoritative, temporary, read-only, working, failed, denied, and empty states | Provider and route source; browser evidence pending |
-| P2-025 | Release verification | Semantic headings/tables, labels, status regions, keyboard controls, focus styles | Automated/browser WCAG evidence pending |
-| P2-026 | Release verification | RLS, explicit grants, server-only secrets, rate limits, CSP, validation, CI audit/SBOM | Target scans and exception review pending |
-| P2-027 | Release verification | Idempotency, retry/dead letter, degraded state, runbook | Backup/restore and rollback exercises pending |
-| P2-028 | Release verification | Indexed schema and capacity-conscious chunking | Synthetic load test pending |
-| P2-029 | Release verification | Primary story and presenter stage commands remain implemented | Post-deployment 12–15 minute run pending |
+| P2-024 | Verified | Authoritative, temporary, read-only, working, failed, denied, and empty states | Provider and route tests plus connected browser evidence |
+| P2-025 | Partial | Semantic headings/tables, labels, status regions, keyboard controls, focus styles | Desktop semantic and keyboard checks pass; physical device and actual screen-reader runs remain open |
+| P2-026 | Verified with documented limitation | RLS, explicit grants, server-only secrets, rate limits, CSP, validation, CI audit/SBOM | Target controls, headers, CI, and advisor review pass; Free-plan leaked-password protection remains unavailable |
+| P2-027 | Partial | Idempotency, retry/dead letter, degraded state, runbook | DigitalOcean rollback passed; database restore is blocked by the current Free plan |
+| P2-028 | Partial | Indexed schema and capacity-conscious chunking | Normal 25-user concurrency passes; complete high-cardinality materialization remains open |
+| P2-029 | Partial | Primary story and presenter stage commands remain implemented | Both deployed stories pass; witnessed human-paced 12–15 minute rehearsal remains open |
 | P2-030 | Implemented | Streamlit remains a deterministic, labeled fallback without backend duplication | Existing Python tests |
 | P2-031 | Implemented | Deferred integrations and payment are absent or explicitly labeled | Scope register |
-| P2-032 | Implemented | Architecture, implementation map, runbook, status, KPI and security documentation | Document inventory |
+| P2-032 | Verified | Architecture, implementation map, runbook, status, KPI, security, and dated release-evidence documentation | Document inventory and `PHASE2_RELEASE_EVIDENCE_2026-07-28.md` |
 
 ## Migration inventory
 
@@ -49,6 +50,10 @@ Status legend:
 2. `202607270001_audit_phase2_foundation.sql` — authoritative Phase 2 state,
    roles/scopes, control domains, RLS/grants, private Storage, immutable events,
    and transactional command commit.
+3. `20260728183905_phase2_release_hardening.sql` — explicit grants, indexed
+   foreign keys, and RLS initialization-plan hardening.
+4. `20260728184701_phase2_service_rpc.sql` — service-only wrappers for
+   authoritative command and CATE usage persistence.
 
 ## Environment inventory
 
