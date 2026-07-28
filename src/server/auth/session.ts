@@ -14,10 +14,6 @@ export interface AppSession {
   mode: "supabase" | "preview";
 }
 
-// Temporary testing access approved on 2026-07-28. Remove this override after
-// Supabase SMTP delivery is configured and verified.
-const TEMPORARY_PUBLIC_DEMO_BYPASS = true;
-
 function fromUser(
   user: User,
   assignments: Array<{ tenant_id: string; role: string }>,
@@ -40,16 +36,6 @@ function fromUser(
 }
 
 export async function getAppSession(): Promise<AppSession | null> {
-  if (TEMPORARY_PUBLIC_DEMO_BYPASS) {
-    return {
-      userId: "preview-presenter",
-      email: "preview@catalystinnovations.example",
-      role: "system_administrator",
-      tenantIds: ["org-y12-demo", "org-catalyst-community-demo"],
-      presenter: true,
-      mode: "preview",
-    };
-  }
   if (!isSupabaseConfigured()) {
     if (
       process.env.NODE_ENV !== "production" ||
