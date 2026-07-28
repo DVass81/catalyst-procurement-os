@@ -33,7 +33,7 @@ export function CertifiedKpiDashboard({ state }: { state: DemoState }) {
   return (
     <div className="space-y-5">
       <div>
-        <p className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-[var(--brand-secondary)]">
+        <p className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-[var(--brand-secondary-text)]">
           Certified decision scorecard
         </p>
         <h1 className="mt-2 text-2xl font-black tracking-[-0.04em] sm:text-3xl">

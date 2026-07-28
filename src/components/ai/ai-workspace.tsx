@@ -507,6 +507,7 @@ export function AiWorkspace() {
                   <button
                     aria-label="Remove attachment"
                     onClick={() => setAttachment(null)}
+                    className="flex size-9 shrink-0 items-center justify-center rounded-xl"
                   >
                     <X className="size-4" />
                   </button>
@@ -546,12 +547,12 @@ export function AiWorkspace() {
                     >
                       <Paperclip className="size-4" />
                     </button>
-                    <label className="flex items-center gap-2 text-[10px] font-bold text-[var(--muted-foreground)]">
+                    <label className="flex min-h-6 items-center gap-2 text-[10px] font-bold text-[var(--muted-foreground)]">
                       <input
                         type="checkbox"
                         checked={acknowledged}
                         onChange={(event) => setAcknowledged(event.target.checked)}
-                        className="size-3.5 rounded"
+                        className="size-4 rounded"
                       />
                       I will upload fictional data only
                     </label>
