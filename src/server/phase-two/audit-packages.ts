@@ -14,6 +14,26 @@ interface MaterializedAuditPackage {
   reused: boolean;
 }
 
+export async function nextAuditPackageVersion(
+  tenantId: string,
+  subjectId: string,
+) {
+  const client = createSupabaseServiceClient();
+  const { data, error } = await client
+    .from("audit_packages")
+    .select("version")
+    .eq("tenant_id", tenantId)
+    .eq("package_type", "featured_request")
+    .eq("subject_id", subjectId)
+    .order("version", { ascending: false })
+    .limit(1)
+    .maybeSingle<{ version: number }>();
+  if (error) {
+    throw new Error(`AUDIT_PACKAGE_VERSION_LOOKUP_FAILED:${error.code}`);
+  }
+  return (data?.version ?? 0) + 1;
+}
+
 function sha256(value: Buffer | string) {
   return createHash("sha256").update(value).digest("hex");
 }
@@ -436,3 +456,4 @@ export async function createPrivateAuditPackageAccess(input: {
     artifact: input.artifact,
   };
 }
+
