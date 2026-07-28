@@ -36,20 +36,20 @@ function fromUser(
 }
 
 export async function getAppSession(): Promise<AppSession | null> {
+  if (
+    process.env.NODE_ENV !== "production" ||
+    process.env.DEMO_AUTH_BYPASS === "1"
+  ) {
+    return {
+      userId: "preview-presenter",
+      email: "preview@catalystinnovations.example",
+      role: "system_administrator",
+      tenantIds: ["org-y12-demo", "org-catalyst-community-demo"],
+      presenter: true,
+      mode: "preview",
+    };
+  }
   if (!isSupabaseConfigured()) {
-    if (
-      process.env.NODE_ENV !== "production" ||
-      process.env.DEMO_AUTH_BYPASS === "1"
-    ) {
-      return {
-        userId: "preview-presenter",
-        email: "preview@catalystinnovations.example",
-        role: "system_administrator",
-        tenantIds: ["org-y12-demo", "org-catalyst-community-demo"],
-        presenter: true,
-        mode: "preview",
-      };
-    }
     return null;
   }
   const supabase = await createSupabaseServerClient();
