@@ -25,7 +25,7 @@ services:
         value: ${APP_URL}
         scope: RUN_TIME
       - key: DEMO_AUTH_BYPASS
-        value: "1"
+        value: "0"
         scope: RUN_TIME
       - key: CATALYST_SYNTHETIC_ONLY
         value: "1"
