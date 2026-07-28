@@ -42,7 +42,7 @@ export function CatalystGuide() {
         />
       )}
       <aside
-        aria-label="Catalyst Guide Live"
+        aria-label="CATE Guide"
         data-tour-id="catalyst-guide"
         className="fixed bottom-4 right-4 z-[90] w-[min(27rem,calc(100vw-2rem))] overflow-hidden rounded-[1.75rem] border border-white/15 bg-[#061b5f] text-white shadow-[0_30px_90px_rgba(4,26,108,.42)]"
       >
@@ -56,7 +56,7 @@ export function CatalystGuide() {
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <p className="truncate text-sm font-black text-white">
-                  Catalyst Guide Live
+                  CATE Guide
                 </p>
                 <Badge className="border-white/15 bg-white/10 text-[9px] text-white">
                   {guide.mode === "live" ? "LIVE AI" : "SAFE DEMO"}
@@ -71,7 +71,7 @@ export function CatalystGuide() {
                 if (guide.status !== "idle") guide.pause();
                 guide.setOpen(false);
               }}
-              aria-label="Close Catalyst Guide"
+              aria-label="Close CATE Guide"
               className="flex size-9 items-center justify-center rounded-xl text-white/70 transition hover:bg-white/10 hover:text-white"
             >
               <X className="size-4" />

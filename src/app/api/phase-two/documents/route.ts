@@ -27,6 +27,7 @@ const parentSchema = z.object({
     "audit_package",
   ]),
   parentEntityId: z.string().min(1).max(160),
+  syntheticDataAttestation: z.literal("true"),
 });
 
 const noStore = { "Cache-Control": "private, no-store", Vary: "Cookie" };
@@ -57,6 +58,7 @@ export async function POST(request: Request) {
     tenantId: form?.get("tenantId"),
     parentEntityType: form?.get("parentEntityType"),
     parentEntityId: form?.get("parentEntityId"),
+    syntheticDataAttestation: form?.get("syntheticDataAttestation"),
   });
   const file = form?.get("file");
   if (!parsed.success || !(file instanceof File)) {
@@ -68,7 +70,9 @@ export async function POST(request: Request) {
   try {
     const session = await requireAppSession(parsed.data.tenantId);
     const result = await storePrivateDocument({
-      ...parsed.data,
+      tenantId: parsed.data.tenantId,
+      parentEntityType: parsed.data.parentEntityType,
+      parentEntityId: parsed.data.parentEntityId,
       actorId: session.userId,
       file,
     });

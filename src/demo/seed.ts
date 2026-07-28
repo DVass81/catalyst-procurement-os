@@ -29,6 +29,7 @@ import {
   sessionDate,
   shiftFromAnchor,
 } from "@/demo/clock";
+import { createPhaseThreeState } from "@/phase-three/seed";
 
 export const FEATURED_REQUEST_ID = "req-loan-officer-package";
 export const FEATURED_REQUEST_NUMBER = "Y12-PR-2026-00175";
@@ -92,6 +93,10 @@ const userBlueprints: Array<[string, string, string, string, DemoRole]> = [
   ["user-avery", "Avery Morgan", "Chief Administrative Officer", "dept-exec", "executive"],
   ["user-noah", "Noah Williams", "Internal Auditor", "dept-compliance", "auditor"],
   ["user-liam", "Liam Foster", "Platform Administrator", "dept-it", "system_administrator"],
+  ["user-ariel", "Ariel Foster", "Supplier Portal Contact", "dept-finance", "supplier_user"],
+  ["user-nadia", "Nadia Pierce", "Contract Intelligence Manager", "dept-finance", "contract_manager"],
+  ["user-devon", "Devon Ellis", "Security Assurance Reviewer", "dept-it", "security_reviewer"],
+  ["user-remy", "Remy Parker", "Operations Response Manager", "dept-it", "operations_manager"],
 ];
 
 export const seedUsers: DemoUser[] = Array.from({ length: 30 }, (_, index) => {
@@ -882,7 +887,7 @@ export function createDemoState(
     }),
   ];
   return {
-    schemaVersion: 5,
+    schemaVersion: 6,
     organization,
     sessionDate: frozenDate,
     presenterMode: false,
@@ -1102,6 +1107,10 @@ export function createDemoState(
       confidence: index % 4 === 0 ? "moderate" : "high",
     })),
     tutorialSteps,
+    phaseThree: createPhaseThreeState(
+      frozenDate,
+      organization.organizationId,
+    ),
   };
 }
 

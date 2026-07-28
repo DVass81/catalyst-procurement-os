@@ -103,7 +103,7 @@ export function LoginScreen() {
           </div>
           <Badge className="mb-6 border-white/15 bg-white/10 text-white">
             <Sparkles className="mr-1.5 size-3.5" />
-            Catalyst Guide Live is ready
+            CATE Guide is ready
           </Badge>
           <h1 className="max-w-xl text-4xl font-bold leading-[1.08] tracking-[-0.045em] text-white xl:text-5xl">
             Procurement that feels ten years ahead.

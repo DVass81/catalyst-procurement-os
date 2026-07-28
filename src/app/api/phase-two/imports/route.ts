@@ -44,11 +44,13 @@ export async function POST(request: Request) {
         "opening_inventory",
       ]),
       sourceSystem: z.string().trim().min(3).max(120),
+      syntheticDataAttestation: z.literal("true"),
     })
     .safeParse({
       tenantId: form?.get("tenantId"),
       importType: form?.get("importType"),
       sourceSystem: form?.get("sourceSystem"),
+      syntheticDataAttestation: form?.get("syntheticDataAttestation"),
     });
   const file = form?.get("file");
   if (!parsed.success || !(file instanceof File)) {
@@ -69,7 +71,9 @@ export async function POST(request: Request) {
       );
     }
     const result = await stageControlledImport({
-      ...parsed.data,
+      tenantId: parsed.data.tenantId,
+      importType: parsed.data.importType,
+      sourceSystem: parsed.data.sourceSystem,
       actorId: session.userId,
       file,
     });

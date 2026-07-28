@@ -1684,6 +1684,7 @@ function PrivateDocumentUpload({
     form.append("tenantId", tenantId);
     form.append("parentEntityType", "request");
     form.append("parentEntityId", parentEntityId);
+    form.append("syntheticDataAttestation", "true");
     form.append("file", file);
     try {
       const response = await fetch("/api/phase-two/documents", {
@@ -1816,6 +1817,7 @@ function PrivateDocumentUpload({
 
 function ControlledImportUpload({ tenantId }: { tenantId: string }) {
   const [file, setFile] = useState<File | null>(null);
+  const [acknowledged, setAcknowledged] = useState(false);
   const [importType, setImportType] = useState<
     "vendor_master" | "catalog" | "opening_inventory"
   >("vendor_master");
@@ -1823,13 +1825,14 @@ function ControlledImportUpload({ tenantId }: { tenantId: string }) {
   const [working, setWorking] = useState(false);
 
   async function stage() {
-    if (!file) return;
+    if (!file || !acknowledged) return;
     setWorking(true);
     setStatus("");
     const form = new FormData();
     form.append("tenantId", tenantId);
     form.append("importType", importType);
     form.append("sourceSystem", "Synthetic controlled upload");
+    form.append("syntheticDataAttestation", "true");
     form.append("file", file);
     try {
       const response = await fetch("/api/phase-two/imports", {
@@ -1850,6 +1853,7 @@ function ControlledImportUpload({ tenantId }: { tenantId: string }) {
         `Batch ${result.batchId} · ${result.lifecycleState} · ${result.validRowCount}/${result.rowCount} valid rows · ${result.errorRowCount} errors · SHA-256 ${result.sha256}`,
       );
       setFile(null);
+      setAcknowledged(false);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Import staging failed.");
     } finally {
@@ -1890,10 +1894,19 @@ function ControlledImportUpload({ tenantId }: { tenantId: string }) {
           className="text-xs"
         />
       </div>
+      <label className="mt-3 flex min-h-6 items-center gap-2 text-[11px] font-bold">
+        <input
+          type="checkbox"
+          checked={acknowledged}
+          onChange={(event) => setAcknowledged(event.target.checked)}
+          className="size-4"
+        />
+        I confirm this import contains synthetic demonstration data only.
+      </label>
       <Button
         className="mt-3"
         size="sm"
-        disabled={!file || working}
+        disabled={!file || !acknowledged || working}
         onClick={() => void stage()}
       >
         {working ? "Quarantining and validating…" : "Stage and validate"}

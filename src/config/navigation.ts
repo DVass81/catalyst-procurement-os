@@ -1,5 +1,6 @@
 import {
   BarChart3,
+  Accessibility,
   Boxes,
   BrainCircuit,
   Building2,
@@ -7,13 +8,19 @@ import {
   FileCheck2,
   FileText,
   Gauge,
+  GitBranch,
+  KeyRound,
   Landmark,
+  Network,
   PackageCheck,
   ReceiptText,
   Settings,
   ShieldCheck,
   ShoppingCart,
   SlidersHorizontal,
+  Smartphone,
+  Users,
+  Workflow,
   type LucideIcon,
 } from "lucide-react";
 
@@ -47,6 +54,12 @@ export const navigationSections = [
         description: "Procurement intelligence assistant",
         badge: "AI",
       },
+      {
+        label: "Golden Thread",
+        href: "/golden-thread",
+        icon: GitBranch,
+        description: "Presenter story, preflight, and evidence",
+      },
     ],
   },
   {
@@ -78,6 +91,12 @@ export const navigationSections = [
         description: "Deliveries and receipts",
       },
       {
+        label: "Mobile Work",
+        href: "/mobile-work",
+        icon: Smartphone,
+        description: "Responsive approval and receiving",
+      },
+      {
         label: "Inventory",
         href: "/inventory",
         icon: Boxes,
@@ -101,6 +120,12 @@ export const navigationSections = [
         description: "Supplier relationships",
       },
       {
+        label: "Supplier Onboarding",
+        href: "/supplier-onboarding",
+        icon: Users,
+        description: "Supplier evidence and lifecycle controls",
+      },
+      {
         label: "Vendor Risk",
         href: "/vendor-risk",
         icon: ShieldCheck,
@@ -111,6 +136,12 @@ export const navigationSections = [
         href: "/contracts",
         icon: FileText,
         description: "Agreements and renewals",
+      },
+      {
+        label: "Contract Intelligence",
+        href: "/contract-intelligence",
+        icon: FileText,
+        description: "Cited findings, obligations, and conflicts",
       },
     ],
   },
@@ -124,10 +155,28 @@ export const navigationSections = [
         description: "Spend and performance insights",
       },
       {
+        label: "Reporting Studio",
+        href: "/reporting-studio",
+        icon: BarChart3,
+        description: "Certified measures and governed reports",
+      },
+      {
         label: "Audit Center",
         href: "/audit-center",
         icon: Landmark,
         description: "Controls and audit trail",
+      },
+      {
+        label: "Trust Center",
+        href: "/trust-center",
+        icon: ShieldCheck,
+        description: "Capability truth and assurance evidence",
+      },
+      {
+        label: "Accessibility",
+        href: "/accessibility-center",
+        icon: Accessibility,
+        description: "Inclusive experience evidence",
       },
     ],
   },
@@ -139,6 +188,30 @@ export const navigationSections = [
         href: "/administration",
         icon: SlidersHorizontal,
         description: "Organization configuration",
+      },
+      {
+        label: "Integration Center",
+        href: "/integration-center",
+        icon: Network,
+        description: "Mappings, runs, and reconciliation",
+      },
+      {
+        label: "Enterprise Access",
+        href: "/enterprise-access",
+        icon: KeyRound,
+        description: "Identity templates and Catalyst authority",
+      },
+      {
+        label: "Workflow Studio",
+        href: "/workflow-studio",
+        icon: Workflow,
+        description: "Governed workflow configuration",
+      },
+      {
+        label: "Operations Center",
+        href: "/operations-center",
+        icon: Gauge,
+        description: "Health, incidents, support, and fallback",
       },
       {
         label: "Settings",

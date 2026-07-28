@@ -1,10 +1,10 @@
-name: catalyst-procurement-os-demo
+name: catalyst-procurement-os-phase3-staging
 region: nyc
 services:
   - name: web
     github:
       repo: DVass81/catalyst-procurement-os
-      branch: codex/phase-4-live-ai-concierge
+      branch: codex/phase3-commercialization-demo
       deploy_on_push: true
     dockerfile_path: Dockerfile
     http_port: 3000
@@ -25,7 +25,16 @@ services:
         type: SECRET
         scope: RUN_TIME
       - key: APP_BASE_URL
-        value: https://catalyst-procurement-os-demo-6jouh.ondigitalocean.app
+        value: ${APP_URL}
+        scope: RUN_TIME
+      - key: DEMO_AUTH_BYPASS
+        value: "0"
+        scope: RUN_TIME
+      - key: CATALYST_SYNTHETIC_ONLY
+        value: "1"
+        scope: RUN_TIME
+      - key: CATALYST_RELEASE_CHANNEL
+        value: commercialization-staging
         scope: RUN_TIME
       - key: CATALYST_AI_MODE
         value: auto

@@ -21,12 +21,13 @@ import type {
   PhaseTwoCommand,
   PhaseTwoStateEnvelope,
 } from "@/phase-two/commands";
+import type { PhaseThreeCommand } from "@/phase-three/commands";
 
 const ACTIVE_TENANT_KEY = "catalyst-procurement-os-active-tenant-v1";
 
 interface DemoContextValue {
   state: DemoState;
-  dispatch: (command: PhaseTwoCommand) => Promise<DemoState>;
+  dispatch: (command: PhaseTwoCommand | PhaseThreeCommand) => Promise<DemoState>;
   switchTenant: (tenantId: TenantId) => Promise<void>;
   activeTenantId: TenantId;
   hydrated: boolean;
@@ -134,7 +135,7 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
   }, [acceptEnvelope]);
 
   const dispatch = useCallback(
-    async (command: PhaseTwoCommand) => {
+    async (command: PhaseTwoCommand | PhaseThreeCommand) => {
       if (durability === "read_only") {
         throw new Error(
           "The workspace is in read-only fallback because authoritative state is unavailable.",
@@ -144,8 +145,9 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
       setPending(true);
       setError(null);
       try {
-        const endpoint =
-          command.type === "generate_audit_package"
+        const endpoint = command.type.startsWith("phase3_")
+          ? "/api/phase-three/state"
+          : command.type === "generate_audit_package"
             ? "/api/phase-two/audit-packages"
             : "/api/phase-two/state";
         const response = await fetch(endpoint, {
