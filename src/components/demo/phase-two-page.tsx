@@ -180,7 +180,7 @@ function DataTable({
                 >
                   {statusPresentation(String(cell)) ? (
                     <Badge tone={statusPresentation(String(cell))!.tone}>
-                      <span aria-hidden="true">●</span>
+                      <span aria-hidden="true">â—</span>
                       {statusPresentation(String(cell))!.label}
                     </Badge>
                   ) : (
@@ -563,7 +563,7 @@ function RequestView({
       <Card>
         <CardHeader>
           <div>
-            <h2 className="font-black">Request portfolio · 75 fictional records</h2>
+            <h2 className="font-black">Request portfolio Â· 75 fictional records</h2>
             <p className="text-xs text-[var(--muted-foreground)]">Search, filter, and sort the connected request register.</p>
           </div>
         </CardHeader>
@@ -697,7 +697,7 @@ function RequestView({
                 }`}
               >
                 <summary className="cursor-pointer text-sm font-black">
-                  {evaluation.vendor.displayName} ·{" "}
+                  {evaluation.vendor.displayName} Â·{" "}
                   {evaluation.eligibility.eligible
                     ? `${evaluation.score}/100`
                     : "Ineligible"}
@@ -734,7 +734,7 @@ function RequestView({
                   ))}
                   <p>
                     <strong className="text-[var(--foreground)]">Confidence:</strong>{" "}
-                    {titleCase(evaluation.confidence)} — based on eligibility evidence,
+                    {titleCase(evaluation.confidence)} â€” based on eligibility evidence,
                     current policy coverage, quote freshness, and complete scoring inputs.
                   </p>
                   <p>
@@ -866,10 +866,10 @@ function RequestView({
             <h2 className="font-black">AI-generated request summary</h2>
             <p className="mt-3 text-sm leading-6 text-[var(--muted-foreground)]">{request.aiSummary}</p>
             <ul className="mt-3 space-y-1 text-xs text-[var(--muted-foreground)]">
-              <li>• Four sequential human approvals</li>
-              <li>• Executive approval not required below $25,000</li>
-              <li>• Expected delivery August 10, 2026</li>
-              <li>• No policy exception after accepted substitution</li>
+              <li>â€¢ Four sequential human approvals</li>
+              <li>â€¢ Executive approval not required below $25,000</li>
+              <li>â€¢ Expected delivery August 10, 2026</li>
+              <li>â€¢ No policy exception after accepted substitution</li>
             </ul>
             <Button
               className="mt-4 w-full"
@@ -940,7 +940,7 @@ function ApprovalView({
         <Card>
           <CardContent className="p-5">
             <p className="text-sm font-black">
-              Current step: {titleCase(pending.role)} · active role: {titleCase(state.activeRole)}
+              Current step: {titleCase(pending.role)} Â· active role: {titleCase(state.activeRole)}
             </p>
             {state.activeUserId ===
               state.requests.find((request) => request.id === state.featuredRequestId)?.requesterId && (
@@ -980,7 +980,7 @@ function PurchaseOrderView({ state, execute }: { state: DemoState; execute: Exec
     <>
       <SectionHeader eyebrow="Purchase order lifecycle" title="Purchase Orders" description="Create, issue, and acknowledge the featured PO only after all required human approvals." />
       <Card data-tour-id="purchase-order-lifecycle">
-        <CardHeader><h2 className="font-black">Purchase-order lifecycle queue · 50 records</h2></CardHeader>
+        <CardHeader><h2 className="font-black">Purchase-order lifecycle queue Â· 50 records</h2></CardHeader>
         <CardContent>
           <DataTable columns={["PO", "Request", "Vendor", "Total", "Status", "Expected", "Receipt", "Invoice", "Contract"]} rows={state.purchaseOrders.map((candidate) => [
             candidate.poNumber,
@@ -1075,7 +1075,7 @@ function PurchaseOrderView({ state, execute }: { state: DemoState; execute: Exec
                   )}
                   {revision && (
                     <Badge>
-                      Revision {revision.revisionNumber} ·{" "}
+                      Revision {revision.revisionNumber} Â·{" "}
                       {statusLabel(revision.status)}
                     </Badge>
                   )}
@@ -1159,7 +1159,7 @@ function InvoiceView({ state, execute }: { state: DemoState; execute: ExecuteCom
     <>
       <SectionHeader eyebrow="Human-controlled matching" title="Invoices" description="Compare PO, receipt, and invoice facts. CATE explains exceptions but never approves payment." />
       <Card>
-        <CardHeader><h2 className="font-black">Invoice work queue · 35 records</h2></CardHeader>
+        <CardHeader><h2 className="font-black">Invoice work queue Â· 35 records</h2></CardHeader>
         <CardContent>
           <DataTable columns={["Invoice", "PO", "Vendor", "Total", "Match", "Exception", "Duplicate risk", "Approval", "Payment"]} rows={state.invoices.map((candidate) => [
             candidate.invoiceNumber,
@@ -1180,7 +1180,7 @@ function InvoiceView({ state, execute }: { state: DemoState; execute: ExecuteCom
       ) : (
         <>
           <MetricCards metrics={[["PO total", money(po?.totalCents ?? 0), "Approved"], ["Receipt value", money(acceptedReceiptValue), "Cumulative accepted receipts"], ["Invoice total", money(invoice.totalCents), "Includes freight"], ["Variance", money(invoice.varianceCents), "Unexpected freight"]]} />
-          <Card data-tour-id="invoice-exception" className="border-rose-200 bg-gradient-to-br from-white to-rose-50"><CardContent className="p-5"><div className="flex gap-3"><AlertTriangle className="size-5 text-rose-600" /><div><h2 className="font-black">Exception — Freight variance requires review</h2><p className="mt-1 text-sm text-[var(--muted-foreground)]">{invoice.varianceReason}</p><p className="mt-3 text-xs font-bold text-rose-700">Human approval remains required. Payment is on hold.</p></div></div></CardContent></Card>
+          <Card data-tour-id="invoice-exception" className="border-rose-200 bg-gradient-to-br from-white to-rose-50"><CardContent className="p-5"><div className="flex gap-3"><AlertTriangle className="size-5 text-rose-600" /><div><h2 className="font-black">Exception â€” Freight variance requires review</h2><p className="mt-1 text-sm text-[var(--muted-foreground)]">{invoice.varianceReason}</p><p className="mt-3 text-xs font-bold text-rose-700">Human approval remains required. Payment is on hold.</p></div></div></CardContent></Card>
           <div className="flex flex-wrap gap-2">
             <Button disabled={state.stage !== "invoice_exception"} onClick={() => void execute({ type: "resolve_invoice_exception", decision: "route", justification: "" }, "Exception routed to Finance")}>Route for exception approval</Button>
             <Button variant="secondary" disabled={!["invoice_exception", "exception_routed"].includes(state.stage)} onClick={() => void execute({ type: "switch_role", role: "finance_reviewer" }, "Switched to Finance Reviewer")}>Switch to Finance</Button>
@@ -1229,7 +1229,7 @@ function AuditView({
     version: number,
     artifact: "pdf" | "csv" | "json",
   ) {
-    setArtifactMessage(`Preparing the private ${artifact.toUpperCase()} link…`);
+    setArtifactMessage(`Preparing the private ${artifact.toUpperCase()} linkâ€¦`);
     const params = new URLSearchParams({
       tenantId: activeTenantId,
       subjectId,
@@ -1263,7 +1263,7 @@ function AuditView({
         <input value={query} onChange={(event) => setQuery(event.target.value)} aria-label="Filter audit events" placeholder="Filter by event, entity, request, PO, or invoice" className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] pl-9 pr-3 text-xs" />
       </div>
       <div data-tour-id="audit-evidence">
-        <DataTable columns={["Time", "Role", "Action", "Entity", "Previous", "New", "Description"]} rows={events.slice().reverse().map((event) => [event.timestamp, titleCase(event.role), titleCase(event.action), `${titleCase(event.entityType)} · ${event.entityId}`, event.previousValue ?? "—", event.newValue ?? "—", event.description])} />
+        <DataTable columns={["Time", "Role", "Action", "Entity", "Previous", "New", "Description"]} rows={events.slice().reverse().map((event) => [event.timestamp, titleCase(event.role), titleCase(event.action), `${titleCase(event.entityType)} Â· ${event.entityId}`, event.previousValue ?? "â€”", event.newValue ?? "â€”", event.description])} />
       </div>
       <Card>
         <CardHeader>
@@ -1376,8 +1376,8 @@ function GovernanceView({
           <div>
             <h2 className="font-black">Configuration governance</h2>
             <p className="text-xs text-[var(--muted-foreground)]">
-              Draft → validation and synthetic simulation → independent review
-              → approval → activation. Protected controls cannot be disabled.
+              Draft â†’ validation and synthetic simulation â†’ independent review
+              â†’ approval â†’ activation. Protected controls cannot be disabled.
             </p>
           </div>
         </CardHeader>
@@ -1555,7 +1555,7 @@ function GovernanceView({
               columns={["Document", "Parent", "Version", "State", "Scan", "Citation", "SHA-256"]}
               rows={state.documents.map((candidate) => [
                 candidate.filename,
-                `${candidate.parentEntityType} · ${candidate.parentEntityId}`,
+                `${candidate.parentEntityType} Â· ${candidate.parentEntityId}`,
                 candidate.version,
                 candidate.lifecycleState,
                 `${titleCase(candidate.scanMode)} scanning`,
@@ -1646,7 +1646,7 @@ function GovernanceView({
             columns={["Queue", "Entity", "Role", "Priority", "Status", "Due", "Escalation", "Blocker"]}
             rows={state.workQueueItems.map((candidate) => [
               candidate.queueType,
-              `${candidate.entityType} · ${candidate.entityId}`,
+              `${candidate.entityType} Â· ${candidate.entityId}`,
               candidate.assigneeRole,
               candidate.priority,
               candidate.status,
@@ -1671,6 +1671,9 @@ function PrivateDocumentUpload({
   const [file, setFile] = useState<File | null>(null);
   const [acknowledged, setAcknowledged] = useState(false);
   const [status, setStatus] = useState("");
+  const [uploadedVersionId, setUploadedVersionId] = useState<string | null>(
+    null,
+  );
   const [working, setWorking] = useState(false);
 
   async function upload() {
@@ -1690,6 +1693,7 @@ function PrivateDocumentUpload({
       const result = (await response.json()) as {
         message?: string;
         filename?: string;
+        versionId?: string;
         sha256?: string;
         scanLabel?: string;
       };
@@ -1697,8 +1701,9 @@ function PrivateDocumentUpload({
         throw new Error(result.message ?? "Private upload failed.");
       }
       setStatus(
-        `${result.filename} stored privately · SHA-256 ${result.sha256} · ${result.scanLabel}`,
+        `${result.filename} stored privately Â· SHA-256 ${result.sha256} Â· ${result.scanLabel}`,
       );
+      setUploadedVersionId(result.versionId ?? null);
       setFile(null);
     } catch (error) {
       setStatus(
@@ -1709,11 +1714,51 @@ function PrivateDocumentUpload({
     }
   }
 
+  async function accessUploadedDocument(download: boolean) {
+    if (!uploadedVersionId) return;
+    setWorking(true);
+    setStatus(
+      `Preparing a 60-second private ${download ? "download" : "view"} link...`,
+    );
+    try {
+      const params = new URLSearchParams({
+        tenantId,
+        versionId: uploadedVersionId,
+        download: download ? "1" : "0",
+      });
+      const response = await fetch(
+        `/api/phase-two/documents?${params.toString()}`,
+        { cache: "no-store" },
+      );
+      const result = (await response.json()) as {
+        url?: string;
+        filename?: string;
+        expiresInSeconds?: number;
+        message?: string;
+      };
+      if (!response.ok || !result.url) {
+        throw new Error(result.message ?? "Private document access failed.");
+      }
+      window.open(result.url, "_blank", "noopener,noreferrer");
+      setStatus(
+        `Opened ${result.filename} with a ${result.expiresInSeconds}-second private ${download ? "download" : "view"} link.`,
+      );
+    } catch (error) {
+      setStatus(
+        error instanceof Error
+          ? error.message
+          : "Private document access failed.",
+      );
+    } finally {
+      setWorking(false);
+    }
+  }
+
   return (
     <div className="rounded-xl border border-[var(--border)] p-3">
       <p className="text-xs font-black">Private evidence upload</p>
       <p className="mt-1 text-[11px] text-[var(--muted-foreground)]">
-        PDF, DOCX, XLSX, CSV, PNG, or JPG · 25 MB maximum · executables,
+        PDF, DOCX, XLSX, CSV, PNG, or JPG Â· 25 MB maximum Â· executables,
         archives, macros, and password-protected files are rejected.
       </p>
       <input
@@ -1737,8 +1782,28 @@ function PrivateDocumentUpload({
         disabled={!file || !acknowledged || working}
         onClick={() => void upload()}
       >
-        {working ? "Scanning and storing…" : "Upload private evidence"}
+        {working ? "Scanning and storingâ€¦" : "Upload private evidence"}
       </Button>
+      {uploadedVersionId && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={working}
+            onClick={() => void accessUploadedDocument(false)}
+          >
+            View uploaded evidence
+          </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={working}
+            onClick={() => void accessUploadedDocument(true)}
+          >
+            Download uploaded evidence
+          </Button>
+        </div>
+      )}
       {status && (
         <p className="mt-3 break-words text-[11px] leading-5" role="status">
           {status}
@@ -1781,7 +1846,7 @@ function ControlledImportUpload({ tenantId }: { tenantId: string }) {
       };
       if (!response.ok) throw new Error(result.message ?? "Import staging failed.");
       setStatus(
-        `Batch ${result.batchId} · ${result.lifecycleState} · ${result.validRowCount}/${result.rowCount} valid rows · ${result.errorRowCount} errors · SHA-256 ${result.sha256}`,
+        `Batch ${result.batchId} Â· ${result.lifecycleState} Â· ${result.validRowCount}/${result.rowCount} valid rows Â· ${result.errorRowCount} errors Â· SHA-256 ${result.sha256}`,
       );
       setFile(null);
     } catch (error) {
@@ -1795,8 +1860,8 @@ function ControlledImportUpload({ tenantId }: { tenantId: string }) {
     <div className="mt-4 rounded-xl border border-[var(--border)] p-3">
       <p className="text-xs font-black">Stage a controlled import</p>
       <p className="mt-1 text-[11px] text-[var(--muted-foreground)]">
-        CSV or macro-free XLSX · formulas rejected · duplicates flagged without
-        automatic merge · no member or consumer financial fields.
+        CSV or macro-free XLSX Â· formulas rejected Â· duplicates flagged without
+        automatic merge Â· no member or consumer financial fields.
       </p>
       <div className="mt-3 grid gap-2 sm:grid-cols-2">
         <select
@@ -1830,7 +1895,7 @@ function ControlledImportUpload({ tenantId }: { tenantId: string }) {
         disabled={!file || working}
         onClick={() => void stage()}
       >
-        {working ? "Quarantining and validating…" : "Stage and validate"}
+        {working ? "Quarantining and validatingâ€¦" : "Stage and validate"}
       </Button>
       {status && (
         <p className="mt-3 break-words text-[11px] leading-5" role="status">
@@ -1859,7 +1924,7 @@ function AiView({ state }: { state: DemoState }) {
   return (
     <>
       <SectionHeader eyebrow="Policy-grounded assistant" title="AI Procurement" description="CATE answers from fictional workspace evidence and keeps human review mandatory." />
-      <Card data-tour-id="demo-ai-workspace" className="overflow-hidden border-[#404287]/25 bg-gradient-to-br from-white via-white to-[#404287]/[0.06]"><CardContent className="p-5"><div className="flex gap-3"><Bot className="size-5 text-[var(--brand-secondary)]" /><p className="text-sm leading-6">{answer}</p></div><div className="mt-4 flex gap-2"><input value={prompt} onChange={(event) => setPrompt(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") ask(prompt); }} placeholder="Ask the fictional procurement workspace…" className="h-11 flex-1 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm" /><Button onClick={() => ask(prompt)}>Ask CATE</Button></div></CardContent></Card>
+      <Card data-tour-id="demo-ai-workspace" className="overflow-hidden border-[#404287]/25 bg-gradient-to-br from-white via-white to-[#404287]/[0.06]"><CardContent className="p-5"><div className="flex gap-3"><Bot className="size-5 text-[var(--brand-secondary)]" /><p className="text-sm leading-6">{answer}</p></div><div className="mt-4 flex gap-2"><input value={prompt} onChange={(event) => setPrompt(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") ask(prompt); }} placeholder="Ask the fictional procurement workspaceâ€¦" className="h-11 flex-1 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm" /><Button onClick={() => ask(prompt)}>Ask CATE</Button></div></CardContent></Card>
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{["Create a request for three new loan officers.", "What requests are waiting on me?", "Where is purchase order Y12-PO-2026-00482?", "Which invoices have exceptions?"].map((suggestion) => <button key={suggestion} onClick={() => { setPrompt(suggestion); ask(suggestion); }} className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3 text-left text-xs font-bold hover:border-[var(--brand-secondary)]">{suggestion}</button>)}</div>
     </>
   );
@@ -1933,14 +1998,14 @@ export function PhaseTwoPage({ section }: { section: string }) {
       >
         <span className="font-bold">
           {durability === "authoritative"
-            ? `Supabase authoritative state · revision ${revision}`
+            ? `Supabase authoritative state Â· revision ${revision}`
             : durability === "temporary"
-              ? `Temporary server fallback · revision ${revision} · resets when the server restarts`
-              : "Read-only deterministic fallback · authoritative state unavailable"}
+              ? `Temporary server fallback Â· revision ${revision} Â· resets when the server restarts`
+              : "Read-only deterministic fallback Â· authoritative state unavailable"}
         </span>
         <span>
           {pending
-            ? "Saving controlled command…"
+            ? "Saving controlled commandâ€¦"
             : persistenceError ?? `Persistence: ${persistence}`}
         </span>
       </div>
@@ -1950,7 +2015,7 @@ export function PhaseTwoPage({ section }: { section: string }) {
           <span className="flex size-9 items-center justify-center rounded-xl bg-[var(--brand-soft)] font-black text-[var(--brand-primary)]">{currentUser.avatar}</span>
           <div>
             <p className="text-xs font-black">{currentUser.name}</p>
-            <p className="text-[10px] text-[var(--muted-foreground)]">Presenter controls · {titleCase(state.activeRole)} · {titleCase(state.stage)}</p>
+            <p className="text-[10px] text-[var(--muted-foreground)]">Presenter controls Â· {titleCase(state.activeRole)} Â· {titleCase(state.stage)}</p>
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -1981,7 +2046,7 @@ export function PhaseTwoPage({ section }: { section: string }) {
             {roles.map((role) => <option key={role} value={role}>{titleCase(role)}</option>)}
           </select>
           <select aria-label="Jump to workflow stage" defaultValue="" disabled={pending || durability === "read_only"} onChange={(event) => { if (event.target.value) { void execute({ type: "jump_to_stage", stage: event.target.value as WorkflowStage }, `Loaded ${titleCase(event.target.value)}`); } }} className="h-9 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-xs font-bold">
-            <option value="">Jump to stage…</option>
+            <option value="">Jump to stageâ€¦</option>
             {["draft", "submitted", "approved", "po_draft", "acknowledged", "fully_received", "invoice_exception", "exception_routed"].map((stage) => <option key={stage} value={stage}>{titleCase(stage)}</option>)}
           </select>
           <Button variant="secondary" size="sm" disabled={pending || durability === "read_only"} onClick={() => void execute({ type: "reset_demo" }, "Demo baseline restored")}><RefreshCw className="size-3.5" />Reset</Button>
@@ -1995,7 +2060,7 @@ export function PhaseTwoPage({ section }: { section: string }) {
         <div role="status" className="fixed bottom-5 right-5 z-50 flex max-w-sm items-start gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface-elevated)] p-4 shadow-[var(--shadow-elevated)]">
           <Check className="mt-0.5 size-4 text-emerald-600" />
           <p className="flex-1 text-xs font-bold">{message}</p>
-          <button onClick={() => setMessage(null)} aria-label="Dismiss message">×</button>
+          <button onClick={() => setMessage(null)} aria-label="Dismiss message">Ã—</button>
         </div>
       )}
       <footer className="rounded-xl border border-[var(--border)] bg-[var(--surface-subtle)] px-4 py-3 text-[11px] leading-5 text-[var(--muted-foreground)]">
@@ -2007,3 +2072,4 @@ export function PhaseTwoPage({ section }: { section: string }) {
     </div>
   );
 }
+
