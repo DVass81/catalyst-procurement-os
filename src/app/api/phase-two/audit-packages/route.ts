@@ -2,7 +2,10 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { assertDemoIntegrity } from "@/demo/integrity";
-import { completeFeaturedAuditPackage } from "@/demo/workflow";
+import {
+  completeFeaturedAuditPackage,
+  generateFeaturedAuditPackage,
+} from "@/demo/workflow";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import {
   phaseTwoCommandRequestSchema,
@@ -12,9 +15,9 @@ import { requireAppSession } from "@/server/auth/session";
 import {
   createPrivateAuditPackageAccess,
   materializeAuditPackage,
+  nextAuditPackageVersion,
   removeMaterializedAuditPackage,
 } from "@/server/phase-two/audit-packages";
-import { executePhaseTwoCommand } from "@/server/phase-two/command-engine";
 import {
   commitPhaseTwoState,
   loadPhaseTwoState,
@@ -113,9 +116,13 @@ export async function POST(request: Request) {
       }
       throw new Error("REVISION_CONFLICT");
     }
-    const generatingState = executePhaseTwoCommand(
+    const packageVersion = await nextAuditPackageVersion(
+      parsed.data.tenantId,
+      current.state.featuredRequestId,
+    );
+    const generatingState = generateFeaturedAuditPackage(
       current.state,
-      parsed.data.command,
+      packageVersion,
     );
     const auditPackage = [...generatingState.auditPackages]
       .reverse()
@@ -215,3 +222,4 @@ export async function GET(request: Request) {
     );
   }
 }
+
