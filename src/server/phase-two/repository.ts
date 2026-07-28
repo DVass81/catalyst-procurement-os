@@ -10,10 +10,7 @@ import type {
 import { createDemoState } from "@/demo/seed";
 import { tenantThemes, type TenantId } from "@/config/organizations";
 import type { DemoState } from "@/demo/model";
-import {
-  createSupabasePrivateClient,
-  createSupabaseServiceClient,
-} from "@/server/supabase/admin";
+import { createSupabaseServiceClient } from "@/server/supabase/admin";
 
 interface StoredSnapshot {
   tenant_id: string;
@@ -148,7 +145,7 @@ export async function commitPhaseTwoState(input: {
     };
   }
 
-  const client = createSupabasePrivateClient();
+  const client = createSupabaseServiceClient();
   const checksum = stateChecksum(input.nextState);
   const { data, error } = await client.rpc("commit_demo_command", {
     p_tenant_id: input.tenantId,
@@ -176,3 +173,4 @@ export async function commitPhaseTwoState(input: {
     durability: "authoritative",
   };
 }
+
