@@ -12,6 +12,26 @@ const bodySchema = z.object({
   email: z.string().trim().email().max(320),
 });
 
+function authCallbackUrl(request: Request) {
+  const configuredBaseUrl = process.env.APP_BASE_URL?.trim();
+  let baseUrl = new URL(request.url).origin;
+
+  if (configuredBaseUrl) {
+    try {
+      const candidate = new URL(configuredBaseUrl);
+      if (candidate.protocol === "https:" || candidate.protocol === "http:") {
+        baseUrl = candidate.origin;
+      }
+    } catch {
+      // Fall back to the current request origin when configuration is invalid.
+    }
+  }
+
+  const callbackUrl = new URL("/auth/callback", baseUrl);
+  callbackUrl.searchParams.set("next", "/dashboard");
+  return callbackUrl.toString();
+}
+
 export async function POST(request: Request) {
   const rate = consumeRateLimit(
     `otp:${requestFingerprint(request)}`,
@@ -48,6 +68,7 @@ export async function POST(request: Request) {
     email: parsed.data.email,
     options: {
       shouldCreateUser: false,
+      emailRedirectTo: authCallbackUrl(request),
     },
   });
   if (error) {
