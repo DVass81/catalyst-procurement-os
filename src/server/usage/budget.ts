@@ -1,7 +1,7 @@
 import "server-only";
 
 import type { AiCapability, ProviderUsageEvent } from "@/ai/types";
-import { createSupabasePrivateClient } from "@/server/supabase/admin";
+import { createSupabaseServiceClient } from "@/server/supabase/admin";
 
 export const MONTHLY_AI_CEILING_USD = 250;
 export const OPENAI_TARGET_USD = 175;
@@ -76,20 +76,21 @@ export async function recordUsage(event: ProviderUsageEvent) {
     process.env.NEXT_PUBLIC_SUPABASE_URL &&
     process.env.SUPABASE_SECRET_KEY
   ) {
-    const client = createSupabasePrivateClient();
-    await client.from("ai_usage_ledger").insert({
-      id: event.id,
-      tenant_id: event.tenantId,
-      provider: event.provider,
-      model: event.model,
-      capability: event.capability,
-      input_tokens: event.inputTokens,
-      output_tokens: event.outputTokens,
-      duration_seconds: event.durationSeconds,
-      estimated_cost_usd: event.estimatedCostUsd,
-      session_id: event.sessionId,
-      occurred_at: event.occurredAt,
+    const client = createSupabaseServiceClient();
+    const { error } = await client.rpc("record_ai_usage", {
+      p_id: event.id,
+      p_tenant_id: event.tenantId,
+      p_provider: event.provider,
+      p_model: event.model,
+      p_capability: event.capability,
+      p_input_tokens: event.inputTokens,
+      p_output_tokens: event.outputTokens,
+      p_duration_seconds: event.durationSeconds,
+      p_estimated_cost_usd: event.estimatedCostUsd,
+      p_session_id: event.sessionId,
+      p_occurred_at: event.occurredAt,
     });
+    if (error) throw new Error(`AI_USAGE_RECORD_FAILED:${error.code}`);
   }
   return getUsageStatus();
 }
@@ -132,3 +133,4 @@ export function createUsageEvent(input: {
     ...input,
   };
 }
+
