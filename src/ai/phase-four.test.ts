@@ -8,11 +8,13 @@ import { tenantDemoConfigs, tenantThemes } from "@/config/organizations";
 import { createDemoState, FREIGHT_VARIANCE_CENTS } from "@/demo/seed";
 import { resetDemo } from "@/demo/workflow";
 import { deterministicAiOutput } from "@/server/ai/deterministic";
+import { describeAiHttpFailure } from "@/server/ai/http-errors";
 import { classifyCapability, routeModel } from "@/server/ai/router";
 import {
   calculateUsageStatus,
   MONTHLY_AI_CEILING_USD,
   type UsageStatus,
+  usageRpcParams,
 } from "@/server/usage/budget";
 import type { ProviderUsageEvent } from "@/ai/types";
 
@@ -175,5 +177,53 @@ describe("tenant isolation and cost protection", () => {
     expect(status85.warningLevel).toBe(85);
     expect(status95.warningLevel).toBe(95);
     expect(status95.paidSessionsAllowed).toBe(false);
+  });
+
+  it("sends every RPC argument and represents optional usage values as null", () => {
+    const event: ProviderUsageEvent = {
+      id: "fefc49ee-0ea5-491c-87d4-6da88d804b62",
+      tenantId: "org-y12-demo",
+      provider: "deterministic",
+      model: "catalyst-demo-engine-v4",
+      capability: "invoice_match",
+      estimatedCostUsd: 0,
+      occurredAt: "2026-07-28T20:00:00.000Z",
+    };
+
+    expect(usageRpcParams(event)).toEqual({
+      p_id: event.id,
+      p_tenant_id: event.tenantId,
+      p_provider: event.provider,
+      p_model: event.model,
+      p_capability: event.capability,
+      p_input_tokens: null,
+      p_output_tokens: null,
+      p_duration_seconds: null,
+      p_estimated_cost_usd: 0,
+      p_session_id: null,
+      p_occurred_at: event.occurredAt,
+    });
+  });
+
+  it("does not misreport internal CATE failures as authentication failures", () => {
+    expect(
+      describeAiHttpFailure(
+        new Error("AI_USAGE_RECORD_FAILED:PGRST202"),
+      ),
+    ).toEqual({
+      status: 503,
+      code: "usage_ledger_unavailable",
+      message:
+        "CATE's audit ledger is temporarily unavailable. No action was taken. Please try again.",
+      retryAfterSeconds: 5,
+    });
+    expect(describeAiHttpFailure(new Error("AUTHENTICATION_REQUIRED"))).toMatchObject({
+      status: 401,
+      code: "authentication_required",
+    });
+    expect(describeAiHttpFailure(new Error("unexpected"))).toMatchObject({
+      status: 500,
+      code: "cate_unavailable",
+    });
   });
 });

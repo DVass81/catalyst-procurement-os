@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { aiRunRequestSchema } from "@/ai/types";
+import { describeAiHttpFailure } from "@/server/ai/http-errors";
 import { runProcurementAi } from "@/server/ai/orchestrator";
 import { requireAppSession } from "@/server/auth/session";
 import { isCapabilityInFallback } from "@/server/presenter/fallback";
@@ -51,15 +52,22 @@ export async function POST(request: Request) {
       },
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "";
+    const failure = describeAiHttpFailure(error);
     return NextResponse.json(
       {
-        message:
-          message === "TENANT_ACCESS_DENIED"
-            ? "This tenant is not assigned to your account."
-            : "Authentication is required.",
+        code: failure.code,
+        message: failure.message,
       },
-      { status: message === "TENANT_ACCESS_DENIED" ? 403 : 401 },
+      {
+        status: failure.status,
+        headers: {
+          "Cache-Control": "private, no-store",
+          Vary: "Cookie",
+          ...(failure.retryAfterSeconds
+            ? { "Retry-After": String(failure.retryAfterSeconds) }
+            : {}),
+        },
+      },
     );
   }
 }

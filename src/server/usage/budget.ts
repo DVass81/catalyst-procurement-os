@@ -70,6 +70,22 @@ export function getUsageStatus() {
   return calculateUsageStatus(usageLedger, administratorKillSwitch);
 }
 
+export function usageRpcParams(event: ProviderUsageEvent) {
+  return {
+    p_id: event.id,
+    p_tenant_id: event.tenantId,
+    p_provider: event.provider,
+    p_model: event.model ?? null,
+    p_capability: event.capability,
+    p_input_tokens: event.inputTokens ?? null,
+    p_output_tokens: event.outputTokens ?? null,
+    p_duration_seconds: event.durationSeconds ?? null,
+    p_estimated_cost_usd: event.estimatedCostUsd,
+    p_session_id: event.sessionId ?? null,
+    p_occurred_at: event.occurredAt,
+  };
+}
+
 export async function recordUsage(event: ProviderUsageEvent) {
   usageLedger.push(event);
   if (
@@ -77,19 +93,10 @@ export async function recordUsage(event: ProviderUsageEvent) {
     process.env.SUPABASE_SECRET_KEY
   ) {
     const client = createSupabaseServiceClient();
-    const { error } = await client.rpc("record_ai_usage", {
-      p_id: event.id,
-      p_tenant_id: event.tenantId,
-      p_provider: event.provider,
-      p_model: event.model,
-      p_capability: event.capability,
-      p_input_tokens: event.inputTokens,
-      p_output_tokens: event.outputTokens,
-      p_duration_seconds: event.durationSeconds,
-      p_estimated_cost_usd: event.estimatedCostUsd,
-      p_session_id: event.sessionId,
-      p_occurred_at: event.occurredAt,
-    });
+    const { error } = await client.rpc(
+      "record_ai_usage",
+      usageRpcParams(event),
+    );
     if (error) throw new Error(`AI_USAGE_RECORD_FAILED:${error.code}`);
   }
   return getUsageStatus();
@@ -133,4 +140,3 @@ export function createUsageEvent(input: {
     ...input,
   };
 }
-
