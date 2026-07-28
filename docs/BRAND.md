@@ -6,18 +6,22 @@ endorsement, sponsorship, or a commercial relationship.
 
 ## Central tokens
 
-- Primary navy: `#003C79`
-- Secondary blue: `#0077D4`
-- Accent orange: `#F37120`
-- Supporting yellow: `#FFC726`
-- Supporting aqua: `#98CCC9`
+- Primary navy: `#041A6C`
+- Action coral: `#CF4427`
+- Catalyst gold: `#EBBF5D`
+- Supporting peach: `#F0CB7C`
+- Supporting violet: `#404287`
+- Warm canvas: `#F7F6F1`
+- Ink: `#101B3B`
 
-Orange is an accent, not body text on white. Primary buttons and focus states use
-the accessible blue palette.
+Coral and gold are accents, not body text on white. Navy remains the primary
+structure color, coral is reserved for important actions, and gold provides
+guided-demo emphasis. Every status also uses an icon or label so color is never
+the only signal.
 
-The Next manifest lives in
-`src/config/organizations/y12-demo.ts`. Streamlit theme settings live in
-`.streamlit/config.toml` and the app-level CSS.
+The tenant manifest lives in `src/config/organizations/y12-demo.ts`; semantic
+application tokens live in `src/app/globals.css`. Streamlit remains a separate
+fallback surface and should visually track the same palette.
 
 ## Public source assets
 

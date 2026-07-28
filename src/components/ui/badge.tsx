@@ -14,12 +14,14 @@ const toneClasses = {
   info: "border-sky-500/20 bg-sky-500/10 text-sky-700 dark:text-sky-300",
 } as const;
 
+export type BadgeTone = keyof typeof toneClasses;
+
 export function Badge({
   className,
   tone = "neutral",
   ...props
 }: HTMLAttributes<HTMLSpanElement> & {
-  tone?: keyof typeof toneClasses;
+  tone?: BadgeTone;
 }) {
   return (
     <span

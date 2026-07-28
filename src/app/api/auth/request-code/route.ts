@@ -1,0 +1,69 @@
+import { NextResponse } from "next/server";
+import { z } from "zod";
+
+import { isSupabaseConfigured } from "@/lib/supabase/env";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  consumeRateLimit,
+  requestFingerprint,
+} from "@/server/security/rate-limit";
+
+const bodySchema = z.object({
+  email: z.string().trim().email().max(320),
+});
+
+export async function POST(request: Request) {
+  const rate = consumeRateLimit(
+    `otp:${requestFingerprint(request)}`,
+    5,
+    15 * 60_000,
+  );
+  if (!rate.allowed) {
+    return NextResponse.json(
+      { message: "Too many code requests. Try again later." },
+      {
+        status: 429,
+        headers: { "Retry-After": String(rate.retryAfterSeconds) },
+      },
+    );
+  }
+  const parsed = bodySchema.safeParse(await request.json().catch(() => null));
+  if (!parsed.success) {
+    return NextResponse.json(
+      { message: "Enter a valid invited email address." },
+      { status: 400 },
+    );
+  }
+  if (!isSupabaseConfigured()) {
+    return NextResponse.json(
+      {
+        message:
+          "Secure email access has not been configured in this environment.",
+      },
+      { status: 503 },
+    );
+  }
+  const supabase = await createSupabaseServerClient();
+  const { error } = await supabase.auth.signInWithOtp({
+    email: parsed.data.email,
+    options: {
+      shouldCreateUser: false,
+    },
+  });
+  if (error) {
+    return NextResponse.json(
+      {
+        message:
+          "If this email is invited, a one-time code will arrive shortly.",
+      },
+      { status: 202 },
+    );
+  }
+  return NextResponse.json(
+    {
+      message:
+        "Check your email and click the secure Catalyst sign-in link. If your email includes a six-digit code, you can enter it below.",
+    },
+    { headers: { "Cache-Control": "no-store" } },
+  );
+}

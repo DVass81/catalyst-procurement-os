@@ -6,76 +6,235 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
+import {
+  isTenantId,
+  tenantThemes,
+  type TenantId,
+} from "@/config/organizations";
 import type { DemoState } from "@/demo/model";
 import { createDemoState } from "@/demo/seed";
+import type {
+  PhaseTwoCommand,
+  PhaseTwoStateEnvelope,
+} from "@/phase-two/commands";
 
-const STORAGE_KEY = "catalyst-procurement-os-y12-demo-v2";
+const ACTIVE_TENANT_KEY = "catalyst-procurement-os-active-tenant-v1";
 
 interface DemoContextValue {
   state: DemoState;
-  apply: (command: (current: DemoState) => DemoState) => void;
-  replace: (next: DemoState) => void;
+  dispatch: (command: PhaseTwoCommand) => Promise<DemoState>;
+  switchTenant: (tenantId: TenantId) => Promise<void>;
+  activeTenantId: TenantId;
   hydrated: boolean;
+  pending: boolean;
+  persistence: "supabase" | "preview" | "unavailable";
+  durability: "authoritative" | "temporary" | "read_only";
+  revision: number;
+  error: string | null;
 }
 
 const DemoContext = createContext<DemoContextValue | null>(null);
 
-function isDemoState(value: unknown): value is DemoState {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "schemaVersion" in value &&
-    value.schemaVersion === 2 &&
-    "featuredRequestId" in value
+function presenterMode() {
+  return new URLSearchParams(window.location.search).get("presenter") === "1";
+}
+
+async function requestState(tenantId: TenantId) {
+  const response = await fetch(
+    `/api/phase-two/state?tenantId=${encodeURIComponent(tenantId)}`,
+    {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    },
   );
+  const result = (await response.json()) as PhaseTwoStateEnvelope & {
+    message?: string;
+  };
+  if (!response.ok) {
+    throw new Error(result.message ?? "The authoritative demo state is unavailable.");
+  }
+  return result;
 }
 
 export function DemoProvider({ children }: { children: React.ReactNode }) {
-  const [state, setState] = useState<DemoState>(() => createDemoState());
+  const [activeTenantId, setActiveTenantId] =
+    useState<TenantId>("org-y12-demo");
+  const [state, setState] = useState<DemoState>(() =>
+    createDemoState(tenantThemes["org-y12-demo"]),
+  );
+  const [revision, setRevision] = useState(0);
   const [hydrated, setHydrated] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [persistence, setPersistence] =
+    useState<DemoContextValue["persistence"]>("unavailable");
+  const [durability, setDurability] =
+    useState<DemoContextValue["durability"]>("read_only");
+  const [error, setError] = useState<string | null>(null);
+  const tenantRef = useRef<TenantId>("org-y12-demo");
+  const revisionRef = useRef(0);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    queueMicrotask(() => {
-      if (cancelled) return;
-
-      try {
-        const stored = window.localStorage.getItem(STORAGE_KEY);
-        if (stored) {
-          const parsed: unknown = JSON.parse(stored);
-          if (isDemoState(parsed)) setState(parsed);
-        }
-      } catch {
-        window.localStorage.removeItem(STORAGE_KEY);
-      } finally {
-        setHydrated(true);
+  const acceptEnvelope = useCallback(
+    (tenantId: TenantId, envelope: PhaseTwoStateEnvelope) => {
+      const next = {
+        ...envelope.state,
+        presenterMode: presenterMode(),
+      };
+      if (next.organization.organizationId !== tenantId) {
+        throw new Error("The server returned state for a different tenant.");
       }
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!hydrated) return;
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  }, [hydrated, state]);
-
-  const apply = useCallback(
-    (command: (current: DemoState) => DemoState) => {
-      setState((current) => command(current));
+      tenantRef.current = tenantId;
+      revisionRef.current = envelope.revision;
+      setActiveTenantId(tenantId);
+      setState(next);
+      setRevision(envelope.revision);
+      setPersistence(envelope.persistence);
+      setDurability(envelope.durability);
+      setError(null);
     },
     [],
   );
 
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      const storedTenant = window.localStorage.getItem(ACTIVE_TENANT_KEY);
+      const tenantId =
+        presenterMode() && storedTenant && isTenantId(storedTenant)
+          ? storedTenant
+          : "org-y12-demo";
+      try {
+        const envelope = await requestState(tenantId);
+        if (!cancelled) acceptEnvelope(tenantId, envelope);
+      } catch (loadError) {
+        if (cancelled) return;
+        setState({
+          ...createDemoState(tenantThemes[tenantId]),
+          presenterMode: presenterMode(),
+        });
+        setPersistence("unavailable");
+        setDurability("read_only");
+        setError(
+          loadError instanceof Error
+            ? loadError.message
+            : "The authoritative demo state is unavailable.",
+        );
+      } finally {
+        if (!cancelled) setHydrated(true);
+      }
+    };
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [acceptEnvelope]);
+
+  const dispatch = useCallback(
+    async (command: PhaseTwoCommand) => {
+      if (durability === "read_only") {
+        throw new Error(
+          "The workspace is in read-only fallback because authoritative state is unavailable.",
+        );
+      }
+      const tenantId = tenantRef.current;
+      setPending(true);
+      setError(null);
+      try {
+        const endpoint =
+          command.type === "generate_audit_package"
+            ? "/api/phase-two/audit-packages"
+            : "/api/phase-two/state";
+        const response = await fetch(endpoint, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify({
+            tenantId,
+            expectedRevision: revisionRef.current,
+            idempotencyKey: crypto.randomUUID(),
+            command,
+          }),
+        });
+        const result = (await response.json()) as PhaseTwoStateEnvelope & {
+          message?: string;
+        };
+        if (!response.ok) {
+          if (response.status === 409) {
+            const latest = await requestState(tenantId);
+            acceptEnvelope(tenantId, latest);
+          }
+          throw new Error(result.message ?? "The workflow command failed.");
+        }
+        acceptEnvelope(tenantId, result);
+        return result.state;
+      } catch (commandError) {
+        const message =
+          commandError instanceof Error
+            ? commandError.message
+            : "The workflow command failed.";
+        setError(message);
+        throw commandError;
+      } finally {
+        setPending(false);
+      }
+    },
+    [acceptEnvelope, durability],
+  );
+
+  const switchTenant = useCallback(
+    async (tenantId: TenantId) => {
+      if (!state.presenterMode || tenantId === tenantRef.current) return;
+      setPending(true);
+      setError(null);
+      try {
+        const envelope = await requestState(tenantId);
+        acceptEnvelope(tenantId, envelope);
+        window.localStorage.setItem(ACTIVE_TENANT_KEY, tenantId);
+      } catch (tenantError) {
+        const message =
+          tenantError instanceof Error
+            ? tenantError.message
+            : "The requested tenant is unavailable.";
+        setError(message);
+        throw tenantError;
+      } finally {
+        setPending(false);
+      }
+    },
+    [acceptEnvelope, state.presenterMode],
+  );
+
   const value = useMemo(
-    () => ({ state, apply, replace: setState, hydrated }),
-    [apply, hydrated, state],
+    () => ({
+      state,
+      dispatch,
+      switchTenant,
+      activeTenantId,
+      hydrated,
+      pending,
+      persistence,
+      durability,
+      revision,
+      error,
+    }),
+    [
+      activeTenantId,
+      dispatch,
+      durability,
+      error,
+      hydrated,
+      pending,
+      persistence,
+      revision,
+      state,
+      switchTenant,
+    ],
   );
 
   return <DemoContext.Provider value={value}>{children}</DemoContext.Provider>;

@@ -24,7 +24,7 @@ import {
 } from "@/demo/workflow";
 
 function prepared(): DemoState {
-  let state = analyzeFeaturedRequest(createDemoState());
+  let state = analyzeFeaturedRequest(createDemoState(undefined, "2026-07-24"));
   state = acceptInventoryRecommendation(state);
   state = acceptStandardsSubstitution(state);
   state = selectVendor(state);
@@ -57,7 +57,7 @@ function received(): DemoState {
 
 describe("Catalyst Phase 2 connected workflow", () => {
   it("loads the featured scenario and all required deterministic seed volumes", () => {
-    const state = createDemoState();
+    const state = createDemoState(undefined, "2026-07-24");
     const request = state.requests[0]!;
     expect(request.title).toBe("New Loan Officer Equipment Package");
     expect(request.requiredDate).toBe("2026-08-17");
@@ -78,7 +78,7 @@ describe("Catalyst Phase 2 connected workflow", () => {
   });
 
   it("reconciles the exact baseline, inventory savings, substitution, and selected PO", () => {
-    let state = analyzeFeaturedRequest(createDemoState());
+    let state = analyzeFeaturedRequest(createDemoState(undefined, "2026-07-24"));
     expect(state.requests[0]!.estimatedTotalCents).toBe(924_900);
     state = acceptInventoryRecommendation(state);
     expect(state.requests[0]!.identifiedSavingsCents).toBe(104_700);
@@ -96,28 +96,29 @@ describe("Catalyst Phase 2 connected workflow", () => {
   });
 
   it("keeps the vendor award human-controlled and selects the risk-adjusted recommendation", () => {
-    let state = prepared();
-    expect(state.requests[0]!.selectedVendorId).toBe("vendor-001");
-    expect(state.requests[0]!.recommendedTotalCents).toBe(811_200);
-    state = selectVendor(
-      {
-        ...state,
-        stage: "standards_reviewed",
-      },
-      "vendor-002",
+    const state = prepared();
+    expect(state.requests[0]!.selectedVendorId).toBe("vendor-003");
+    expect(state.requests[0]!.recommendedTotalCents).toBe(820_700);
+    expect(() =>
+      selectVendor(
+        {
+          ...state,
+          stage: "standards_reviewed",
+        },
+        "vendor-002",
+      ),
+    ).toThrow(
+      "ineligible",
     );
-    expect(state.requests[0]!.selectedVendorId).toBe("vendor-002");
-    expect(state.requests[0]!.recommendedTotalCents).toBe(799_000);
   });
 
   it("reconciles the Lending budget and 80 percent review threshold", () => {
     const financials = featuredFinancials(prepared());
-    expect(financials.externalCommitmentCents).toBe(811_200);
-    expect(financials.transferCents).toBe(104_700);
-    expect(financials.totalBudgetImpactCents).toBe(915_900);
-    expect(financials.postApprovalUsedCents).toBe(94_979_900);
-    expect(financials.availableAfterCents).toBe(25_020_100);
-    expect(financials.utilizationAfter).toBeCloseTo(0.791499, 6);
+    expect(financials.externalCommitmentCents).toBe(820_700);
+    expect(financials.transferCents).toBe(0);
+    expect(financials.inventoryValueCents).toBe(104_700);
+    expect(financials.totalBudgetImpactCents).toBe(820_700);
+    expect(financials.utilizationAfter).toBeCloseTo(0.7915, 3);
   });
 
   it("submits the request and creates four sequential approvals", () => {
@@ -167,13 +168,16 @@ describe("Catalyst Phase 2 connected workflow", () => {
     expect(rejected.auditEvents.at(-1)?.action).toBe("approval.rejected");
   });
 
-  it("creates an inherited $8,112 PO only after final approval", () => {
+  it("creates a reconciled Blue Ridge PO only after final approval", () => {
     let state = approved();
     state = switchRole(state, "purchasing_specialist");
     state = createFeaturedPurchaseOrder(state);
     const po = state.purchaseOrders[0]!;
     expect(po.poNumber).toBe("Y12-PO-2026-00482");
-    expect(po.totalCents).toBe(811_200);
+    expect(po.vendorId).toBe("vendor-003");
+    expect(po.subtotalCents).toBe(811_200);
+    expect(po.shippingCents).toBe(9_500);
+    expect(po.totalCents).toBe(820_700);
     expect(po.sourceRequestId).toBe(state.featuredRequestId);
     expect(po.lines.reduce((total, line) => total + line.purchaseQuantity * line.unitPriceCents, 0)).toBe(
       811_200,
@@ -219,7 +223,8 @@ describe("Catalyst Phase 2 connected workflow", () => {
     state = runThreeWayMatch(state);
     const invoice = state.invoices[0]!;
     expect(invoice.subtotalCents).toBe(811_200);
-    expect(invoice.totalCents).toBe(843_200);
+    expect(invoice.shippingCents).toBe(41_500);
+    expect(invoice.totalCents).toBe(852_700);
     expect(invoice.varianceCents).toBe(FREIGHT_VARIANCE_CENTS);
     expect(invoice.exceptionStatus).toBe("freight_variance");
     expect(invoice.paymentStatus).toBe("on_hold");

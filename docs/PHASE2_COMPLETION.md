@@ -1,118 +1,68 @@
-# Phase 2 completion report
+# Audit Phase 2 release status
 
-## 1. Summary
+## Current result
 
-Phase 2 upgrades the Phase 1 shell into a connected, deterministic procurement
-workflow and adds a deployable Streamlit companion. The implementation is
-designed for a private Y-12-themed sales demonstration, not production use.
+Audit Phase 2 is implemented, deployed as a release candidate, and verified in
+the connected demonstration environment at commit
+`a9147c0d1b70bb0d002677d9b1a6133db9909fda`.
 
-## 2. Application routes
+Verified release evidence includes:
 
-Both surfaces cover dashboard, AI procurement, purchase requests, approvals,
-purchase orders, receiving, inventory, vendors, vendor risk, contracts,
-invoices, analytics, audit center, administration, and settings. Next.js also
-includes the mock login route.
+- 56 of 56 Vitest tests across 7 files
+- 23 of 23 legacy Streamlit Python tests
+- strict TypeScript, ESLint, and Next.js 16.2.12 production build
+- GitHub Actions `Audit Phase 2 quality` run 44
+- four applied Supabase release migrations
+- direct same-tenant and cross-tenant RLS checks
+- private Storage isolation and signed-link checks
+- primary and adverse receiving end-to-end stories
+- CSV and XLSX staging, duty separation, posting, and reversal
+- private versioned PDF, CSV, and JSON audit packages
+- live CATE response, usage-ledger record, and immutable evaluation record
+- desktop semantic accessibility and keyboard checks
+- normal 25-concurrent-user performance target
+- DigitalOcean deployment and controlled application rollback
 
-## 3. Domain models
+The dated evidence record is
+`docs/PHASE2_RELEASE_EVIDENCE_2026-07-28.md`.
 
-The typed models cover users, roles, departments, locations, vendors, catalog
-items, budgets, request lines, purchase requests, quotes, approvals, purchase
-orders, receipts, invoices, inventory movements, contracts, risks, savings,
-audit events, and workflow state.
+## Implemented
 
-## 4. Seeded datasets
+- Server-authoritative, tenant-scoped, revisioned demo commands
+- Idempotency and concurrent-change conflicts
+- Database-authoritative tenant assignments
+- RLS and explicit Data API grants
+- Hash-chained immutable workflow events
+- Versioned configuration controls
+- CSV/XLSX import staging and reconciliation
+- Private versioned document storage and access logging
+- Request, approval, sourcing, PO, and revision flows
+- Partial/damaged receiving, return, replacement, and reversal
+- Invoice exception and payment-readiness-only boundary
+- Queues, deduplicated outbox, retry/dead-letter, and simulated email labels
+- CATE identity, evidence contract, fallback, usage, and evaluation ledger
+- 32 certified KPI definitions and role scorecards
+- Versioned private PDF/CSV/JSON audit packages with hashes and signed downloads
+- CI dependency audit and CycloneDX SBOM
 
-The Streamlit seed includes 30 fictional users, 10 departments, 10 locations, 40
-vendors, 120 catalog items, 75 requests, 15 approval workflows, 50 purchase
-orders, 35 invoices, 100 baseline audit events, contracts, risks, savings
-records, budgets, and inventory groupings. The Next surface carries an
-equivalent presentation-scale deterministic dataset.
+## Phase 2 demo release decision
 
-## 5. Featured workflow
+Daniel Vass approved a named, dated, scoped, and expiring demo-only risk
+acceptance for the four strict gates below:
 
-`Y12-PR-2026-00175` begins at `$9,249`. Three monitors are reused from
-inventory, saving `$1,047`; the approved headset substitution saves `$90`.
-Vector Technology Partners is selected by a human for PO
-`Y12-PO-2026-00482` at `$8,112`. The `$1,047` internal transfer produces a
-total budget impact of `$9,159`. Receipt `Y12-RCV-2026-00291` accepts all
-purchased items and notes minor monitor packaging damage. Invoice
-`VTP-INV-84217` totals `$8,432`; the only mismatch is `$320` unexpected
-freight, routed for human resolution.
+1. Supabase database backup restoration is unavailable on the current Free
+   plan.
+2. The complete high-cardinality capacity envelope has not been materialized.
+3. Physical mobile/tablet and assistive-technology screen-reader runs remain
+   outstanding.
+4. The complete story has passed functionally, but a human-paced 12–15 minute
+   presenter rehearsal has not been witnessed and timed.
 
-## 6. State management
+The controlling acceptance is
+`docs/PHASE2_DEMO_ONLY_RISK_ACCEPTANCE_2026-07-28.md`. It expires on
+2026-09-30 or earlier if the product moves beyond the fictional, invite-only
+demonstration boundary.
 
-Next uses a `DemoProvider` plus local storage for fictional browser state.
-Streamlit uses session state through a service object. Both support deterministic
-reset and presenter stage jumps.
-
-## 7. Branding
-
-Brand identity is centralized, uses current public Y-12 assets, and preserves
-accessible contrast. The application carries a persistent fictional-data,
-private-demo, and non-endorsement boundary.
-
-## 8. Roles and human controls
-
-The demo includes requester, department manager, IT reviewer, purchasing
-manager, finance reviewer, executive approver, purchasing specialist, receiving
-clerk, accounts payable, executive, auditor, and administrator roles. The featured
-request requires four sequential approvals; the executive threshold is not met.
-AI explanations never execute controlled decisions.
-
-## 9. Tests and results
-
-- ESLint: pass
-- Strict TypeScript: pass
-- TypeScript workflow tests: 15 pass
-- Python workflow tests: 21 pass
-- Streamlit interaction regression tests: 2 pass
-- Next.js production static export: pass
-
-## 10. Issues resolved
-
-- Corrected total-budget math to include the internal inventory transfer.
-- Reconciled the featured request, savings, PO, receipt, invoice, and variance.
-- Removed direct mutation of an instantiated Streamlit navigation widget.
-- Added generated-output lint exclusions.
-- Replaced the deprecated Vitest path plugin with native Vite path resolution.
-
-## 11. Known production gaps
-
-There is no real authentication, server-side authorization, database, document
-store, payment rail, or production AI connection. Local/session persistence is
-not an audit-grade system. The demo must never receive real sensitive data.
-
-`npm audit --omit=dev` reports zero production vulnerabilities. The full audit
-currently reports a development-only `brace-expansion` advisory through the
-ESLint/serve toolchain. npm's automated remedy requires a breaking ESLint major;
-an attempted transitive override was rejected because it broke ESLint at
-runtime. Upgrade the lint toolchain once Next's supported dependency set carries
-the patched parser.
-
-## 12. Phase 3 recommendations
-
-Add tenant-aware identity and authorization, PostgreSQL transactions and RLS,
-idempotent workflow commands, immutable audit retention, governed document
-storage, integration adapters, observability, accessibility and end-to-end
-testing, and cited permission-aware AI assistance.
-
-## 13. Run and reset
-
-Run Streamlit with Python 3.12:
-
-```powershell
-& "C:\Users\Me\AppData\Local\Programs\Python\Python312\python.exe" -m streamlit run streamlit_app.py
-```
-
-Run Next locally with `npm.cmd run dev`. In Streamlit, use sidebar `Reset`. In
-Next, use the presenter reset control or clear the
-`catalyst-procurement-os-y12-demo-v2` local-storage key.
-
-## 14. Branding files
-
-- `src/config/organizations/y12-demo.ts`
-- `src/app/globals.css`
-- `.streamlit/config.toml`
-- `public/brand/y12/Y-12-Logo-White.png`
-- `public/brand/y12/favicon.png`
-- `docs/BRAND.md`
+Phase 2 is approved for that demonstration boundary. Continue to describe the
+product as a “Phase 2 demonstration release,” not “pilot ready” or “production
+ready.”

@@ -3,15 +3,12 @@
 import { motion } from "framer-motion";
 import {
   ArrowRight,
-  BarChart3,
-  Building2,
   CheckCircle2,
-  Eye,
-  EyeOff,
+  KeyRound,
   LockKeyhole,
+  Mail,
   ShieldCheck,
   Sparkles,
-  TrendingUp,
 } from "lucide-react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
@@ -24,36 +21,96 @@ import { organization } from "@/data/mock-data";
 
 export function LoginScreen() {
   const router = useRouter();
-  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [email, setEmail] = useState("");
+  const [code, setCode] = useState("");
+  const [step, setStep] = useState<"email" | "code">("email");
+  const [message, setMessage] = useState(
+    "Access is limited to pre-invited demonstration users.",
+  );
 
-  function enterDemo(event: React.FormEvent<HTMLFormElement>) {
+  async function enterDemo(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setLoading(true);
-    window.setTimeout(() => router.push("/dashboard"), 450);
+    try {
+      const endpoint =
+        step === "email" ? "/api/auth/request-code" : "/api/auth/verify-code";
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(step === "email" ? { email } : { email, token: code }),
+      });
+      const result = (await response.json()) as {
+        message?: string;
+        redirectTo?: string;
+      };
+      if (!response.ok) {
+        setMessage(result.message ?? "Secure access is unavailable.");
+      } else if (step === "email") {
+        setStep("code");
+        setMessage(
+          result.message ?? "Check your email for the six-digit access code.",
+        );
+      } else {
+        router.push(result.redirectTo ?? "/dashboard");
+      }
+    } catch {
+      setMessage(
+        "Secure sign-in could not be reached. Check the connection and try again.",
+      );
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
-    <main className="grid min-h-screen bg-[var(--surface)] lg:grid-cols-[1.05fr_0.95fr]">
-      <section className="relative hidden overflow-hidden border-r border-[var(--border)] bg-[#0f1d36] px-12 py-10 text-white lg:flex lg:flex-col xl:px-16">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_12%_10%,rgba(79,70,229,0.42),transparent_38%),radial-gradient(circle_at_82%_78%,rgba(15,118,110,0.32),transparent_36%)]" />
-        <div className="absolute inset-0 opacity-[0.08] [background-image:linear-gradient(rgba(255,255,255,.35)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.35)_1px,transparent_1px)] [background-size:40px_40px]" />
+    <main className="grid min-h-screen bg-[var(--surface)] lg:grid-cols-[1.08fr_0.92fr]">
+      <section className="relative hidden overflow-hidden border-r border-white/10 bg-[#041a6c] px-12 py-10 text-white lg:flex lg:flex-col xl:px-16">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_12%_10%,rgba(64,66,135,0.72),transparent_38%),radial-gradient(circle_at_82%_78%,rgba(207,68,39,0.34),transparent_36%),radial-gradient(circle_at_52%_42%,rgba(235,191,93,0.12),transparent_30%)]" />
+        <div className="absolute inset-0 opacity-[0.09] [background-image:linear-gradient(rgba(255,255,255,.35)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.35)_1px,transparent_1px)] [background-size:40px_40px]" />
+        <div className="absolute -left-20 bottom-20 size-72 rounded-full border-[52px] border-[#ebbf5d]/10" />
 
-        <div className="relative z-10">
+        <div className="relative z-10 flex items-center justify-between">
           <BrandMark className="[&_p]:text-white [&_p:last-child]:text-white/55" />
+          <Badge className="border-[#ebbf5d]/25 bg-[#ebbf5d]/10 text-[#f0cb7c]">
+            Private sales demonstration
+          </Badge>
         </div>
 
         <div className="relative z-10 my-auto max-w-2xl py-16">
+          <div className="mb-8 flex items-center gap-5">
+            <div className="rounded-2xl border border-white/15 bg-white/[0.08] p-4 shadow-2xl backdrop-blur">
+              <Image
+                src={organization.logoPath}
+                alt="Y-12 Credit Union"
+                width={176}
+                height={88}
+                priority
+                className="h-auto w-44"
+              />
+            </div>
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-[#f0cb7c]">
+                Personalized for
+              </p>
+              <p className="mt-1 text-sm font-bold text-white">
+                Y-12 Credit Union
+              </p>
+              <p className="mt-0.5 text-[10px] text-white/45">
+                Fictional demonstration data
+              </p>
+            </div>
+          </div>
           <Badge className="mb-6 border-white/15 bg-white/10 text-white">
             <Sparkles className="mr-1.5 size-3.5" />
-            The intelligence layer for modern procurement
+            Catalyst Guide Live is ready
           </Badge>
           <h1 className="max-w-xl text-4xl font-bold leading-[1.08] tracking-[-0.045em] text-white xl:text-5xl">
-            Make every purchasing decision count.
+            Procurement that feels ten years ahead.
           </h1>
           <p className="mt-5 max-w-xl text-base leading-7 text-slate-300">
-            Catalyst brings spend, suppliers, contracts, risk, and approvals
-            into one beautifully intelligent operating system.
+            One connected operating system for purchasing, approvals, vendor
+            risk, receiving, invoices, savings, and examiner-ready evidence.
           </p>
 
           <motion.div
@@ -62,41 +119,29 @@ export function LoginScreen() {
             transition={{ duration: 0.55, delay: 0.15 }}
             className="mt-10 max-w-xl rounded-3xl border border-white/10 bg-white/[0.08] p-5 shadow-2xl backdrop-blur-xl"
           >
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs font-semibold text-slate-300">
-                  FY 2026 YTD spend
-                </p>
-                <p className="mt-1 text-3xl font-bold tracking-[-0.04em] text-white">
-                  $18.42M
-                </p>
-              </div>
-              <span className="flex items-center gap-1.5 rounded-full bg-emerald-400/10 px-3 py-1.5 text-xs font-bold text-emerald-300">
-                <TrendingUp className="size-3.5" />
-                4.1% under plan
-              </span>
-            </div>
-            <div className="mt-7 flex h-32 items-end gap-2">
-              {[42, 55, 48, 66, 59, 76, 71, 82, 68, 88, 79, 92].map(
-                (height, index) => (
-                  <motion.span
-                    key={`${height}-${index}`}
-                    initial={{ height: 0 }}
-                    animate={{ height: `${height}%` }}
-                    transition={{
-                      duration: 0.45,
-                      delay: 0.25 + index * 0.025,
-                    }}
-                    className="flex-1 rounded-t-md bg-gradient-to-t from-indigo-500/45 to-indigo-300"
-                  />
-                ),
-              )}
-            </div>
-            <div className="mt-5 grid grid-cols-3 gap-3">
+            <p className="text-xs font-black uppercase tracking-[0.14em] text-[#f0cb7c]">
+              Built for trusted decisions
+            </p>
+            <p className="mt-2 text-lg font-bold text-white">
+              Policy, evidence, and human authority stay connected.
+            </p>
+            <div className="mt-5 grid gap-3 sm:grid-cols-3">
               {[
-                { label: "Savings", value: "$742K", icon: BarChart3 },
-                { label: "Vendors", value: "186", icon: Building2 },
-                { label: "Controls", value: "98.6%", icon: ShieldCheck },
+                {
+                  label: "Eligibility first",
+                  detail: "Award gates remain separate from scoring.",
+                  icon: ShieldCheck,
+                },
+                {
+                  label: "Evidence visible",
+                  detail: "Recommendations show their sources and assumptions.",
+                  icon: Sparkles,
+                },
+                {
+                  label: "Humans decide",
+                  detail: "Authorized employees retain approval authority.",
+                  icon: CheckCircle2,
+                },
               ].map((item) => {
                 const Icon = item.icon;
                 return (
@@ -104,9 +149,11 @@ export function LoginScreen() {
                     key={item.label}
                     className="rounded-2xl border border-white/10 bg-white/[0.06] p-3"
                   >
-                    <Icon className="size-4 text-indigo-300" />
-                    <p className="mt-3 text-lg font-bold text-white">{item.value}</p>
-                    <p className="text-[10px] text-slate-400">{item.label}</p>
+                    <Icon className="size-4 text-[#f0cb7c]" />
+                    <p className="mt-3 text-xs font-bold text-white">{item.label}</p>
+                    <p className="mt-1 text-[10px] leading-4 text-slate-400">
+                      {item.detail}
+                    </p>
                   </div>
                 );
               })}
@@ -134,16 +181,16 @@ export function LoginScreen() {
 
           <div className="mb-8">
             <div className="mb-5 inline-flex items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 shadow-sm">
-              <span className="flex h-8 w-16 items-center justify-center rounded-lg bg-[#003C79] px-1.5">
+              <span className="flex h-12 w-24 items-center justify-center rounded-xl bg-[#041A6C] px-2.5 shadow-lg">
                 <Image
                   src={organization.logoPath}
                   alt="Y-12 Credit Union"
-                  width={60}
-                  height={30}
+                  width={96}
+                  height={48}
                   className="h-auto w-full"
                 />
               </span>
-              <span className="text-xs font-bold text-[var(--foreground)]">
+              <span className="text-sm font-bold text-[var(--foreground)]">
                 {organization.name}
               </span>
               <Badge className="ml-1" tone="info">
@@ -154,8 +201,8 @@ export function LoginScreen() {
               Welcome to Catalyst
             </h2>
             <p className="mt-2 text-sm leading-6 text-[var(--muted-foreground)]">
-              Sign in to the fictional Y-12 workspace or enter the guided
-              product demonstration.
+              Sign in with an invited email. We&apos;ll send a secure,
+              one-time sign-in link.
             </p>
           </div>
 
@@ -170,58 +217,91 @@ export function LoginScreen() {
               <input
                 id="email"
                 type="email"
-                defaultValue="maya.chen@y12cu.example"
-                autoComplete="username"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                autoComplete="email"
+                placeholder="you@creditunion.org"
+                required
+                disabled={step === "code"}
                 className="h-12 w-full rounded-xl border border-[var(--border-strong)] bg-[var(--surface)] px-4 text-sm text-[var(--foreground)] outline-none transition-shadow focus:ring-2 focus:ring-[var(--brand-primary)]"
               />
             </div>
-            <div>
-              <div className="mb-2 flex items-center justify-between">
+            {step === "code" && (
+              <div>
                 <label
-                  htmlFor="password"
-                  className="text-xs font-bold text-[var(--foreground)]"
+                  htmlFor="code"
+                  className="mb-2 block text-xs font-bold text-[var(--foreground)]"
                 >
-                  Password
+                  One-time access code (if included)
                 </label>
-                <button
-                  type="button"
-                  className="text-xs font-bold text-[var(--brand-primary)] hover:underline"
-                >
-                  Forgot password?
-                </button>
-              </div>
-              <div className="relative">
                 <input
-                  id="password"
-                  type={showPassword ? "text" : "password"}
-                  defaultValue="catalyst-demo"
-                  autoComplete="current-password"
-                  className="h-12 w-full rounded-xl border border-[var(--border-strong)] bg-[var(--surface)] px-4 pr-12 text-sm text-[var(--foreground)] outline-none transition-shadow focus:ring-2 focus:ring-[var(--brand-primary)]"
+                  id="code"
+                  type="text"
+                  inputMode="text"
+                  pattern="[A-Za-z0-9]{6,8}"
+                  maxLength={8}
+                  value={code}
+                  onChange={(event) =>
+                    setCode(
+                      event.target.value
+                        .replace(/[^A-Za-z0-9]/g, "")
+                        .toUpperCase()
+                        .slice(0, 8),
+                    )
+                  }
+                  autoComplete="one-time-code"
+                  placeholder="000000"
+                  required
+                  className="h-12 w-full rounded-xl border border-[var(--border-strong)] bg-[var(--surface)] px-4 font-mono text-lg tracking-[0.35em] text-[var(--foreground)] outline-none transition-shadow focus:ring-2 focus:ring-[var(--brand-primary)]"
                 />
                 <button
                   type="button"
-                  onClick={() => setShowPassword((value) => !value)}
-                  className="absolute right-2 top-1/2 flex size-9 -translate-y-1/2 items-center justify-center rounded-lg text-[var(--muted-foreground)] hover:bg-[var(--surface-muted)]"
-                  aria-label={showPassword ? "Hide password" : "Show password"}
+                  onClick={() => {
+                    setStep("email");
+                    setCode("");
+                    setMessage(
+                      "Access is limited to pre-invited demonstration users.",
+                    );
+                  }}
+                  className="mt-2 text-xs font-bold text-[var(--brand-primary)] hover:underline"
                 >
-                  {showPassword ? (
-                    <EyeOff className="size-4" />
-                  ) : (
-                    <Eye className="size-4" />
-                  )}
+                  Use a different email
                 </button>
               </div>
+            )}
+
+            <div
+              role="status"
+              className="flex items-start gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface-subtle)] px-3 py-2.5 text-xs leading-5 text-[var(--muted-foreground)]"
+            >
+              {step === "email" ? (
+                <Mail className="mt-0.5 size-4 shrink-0" />
+              ) : (
+                <KeyRound className="mt-0.5 size-4 shrink-0" />
+              )}
+              {message}
             </div>
 
-            <Button type="submit" size="lg" className="w-full" disabled={loading}>
+            <Button
+              type="submit"
+              size="lg"
+              className="w-full"
+              disabled={
+                loading ||
+                !email.trim() ||
+                (step === "code" && (code.length < 6 || code.length > 8))
+              }
+            >
               {loading ? (
                 <>
                   <span className="size-4 animate-spin rounded-full border-2 border-white/35 border-t-white" />
-                  Opening workspace...
+                  {step === "email" ? "Sending code..." : "Verifying..."}
                 </>
               ) : (
                 <>
-                  Enter demonstration
+                  {step === "email"
+                    ? "Email my secure sign-in link"
+                    : "Enter demonstration"}
                   <ArrowRight className="size-4" />
                 </>
               )}
@@ -233,7 +313,7 @@ export function LoginScreen() {
               </div>
               <div className="relative flex justify-center text-[10px] uppercase tracking-wider">
                 <span className="bg-[var(--background)] px-3 text-[var(--muted-foreground)]">
-                  Enterprise access
+                  Future enterprise access
                 </span>
               </div>
             </div>
@@ -243,11 +323,11 @@ export function LoginScreen() {
               variant="secondary"
               size="lg"
               className="w-full"
-              onClick={() => setLoading(false)}
+              disabled
             >
               <LockKeyhole className="size-4" />
               Continue with SSO
-              <Badge className="ml-auto">Preview</Badge>
+              <Badge className="ml-auto">Phase 5</Badge>
             </Button>
           </form>
 
@@ -262,8 +342,8 @@ export function LoginScreen() {
                   Safe fictional environment
                 </p>
                 <p className="mt-1 text-[11px] leading-5 text-[var(--muted-foreground)]">
-                  This Phase 1 interface does not authenticate, transmit
-                  credentials, or persist procurement activity.
+                  This private demo uses fictional records and is not connected
+                  to Y-12 systems. Financial actions remain human-controlled.
                 </p>
               </div>
             </div>

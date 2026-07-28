@@ -1,0 +1,14 @@
+.git
+.github
+.next
+node_modules
+node_modules.partial-phase3
+.deps
+.env*
+!.env.example
+coverage
+out
+phase3-source
+*.log
+__pycache__
+.pytest_cache

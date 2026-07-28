@@ -1,101 +1,112 @@
-# Catalyst Procurement OS - Phase 2 Architecture
+# Catalyst Procurement OS — Audit Phase 2 Architecture
 
-## Decision
+## Product boundary
 
-Phase 2 preserves the Next.js 16 static application and adds a first-class
-Streamlit companion in the same private repository. The two surfaces share the
-same workflow story and financial invariants but intentionally use native state
-models appropriate to each runtime.
+The Next.js 16 application is the primary Phase 2 demonstration. It operates
+only on synthetic procurement records. It does not execute payments, send real
+transactional email, synchronize an ERP, or imply a customer endorsement.
+Streamlit remains a separately labeled deterministic presentation fallback; it
+does not duplicate the Phase 2 backend.
 
-This remains a fictional demonstration. There is no production authentication,
-database, payment integration, member data, or autonomous approval path.
-
-## Runtime map
+## Runtime and authority map
 
 ```text
-Next.js surface
-  app routes -> PhaseTwoPage -> DemoProvider -> TypeScript workflow services
-                                     |
-                                     `-> deterministic TypeScript seed
-
-Streamlit surface
-  streamlit_app.py -> WorkflowService -> Python domain models
-                                             |
-                                             `-> deterministic Python seed
+Browser
+  PhaseTwoPage / CATE workspace
+          |
+          | validated command + tenant + expected revision + idempotency key
+          v
+Next.js Route Handlers
+  authenticated session -> database tenant assignment -> command authorization
+          |
+          v
+Server command engine
+  state preconditions -> role/SoD rules -> integrity validation
+          |
+          v
+private.commit_demo_command()
+  atomic revision check -> snapshot update -> hash-chained workflow event
+          |
+          v
+Supabase Postgres + private Storage
 ```
 
-All mutation rules live in the workflow/service layer. Presentation components
-request actions; they do not directly alter procurement records.
+The browser stores only theme and active-demo-tenant preferences. Procurement
+records are loaded from and changed through the server. When Supabase is not
+configured, development uses a visibly labeled temporary server store. If the
+server API itself is unavailable, the UI becomes a visibly labeled read-only
+deterministic fallback.
 
-## Next.js surface
+## Trust boundaries
 
-The App Router emits the mock login and 15 statically generated workspace
-routes. Server Components remain the default. `DemoProvider` is the browser
-state boundary and stores only fictional demo state in local storage.
+- Supabase Auth establishes the named account.
+- `public.tenant_assignments` is authoritative for tenant membership and the
+  presenter/administrator boundary. Editable user metadata is not used.
+- Synthetic persona switching is a server command available only to a
+  presenter or administrator and cannot grant access to another tenant.
+- The service key is imported only by `server-only` modules.
+- Authenticated clients receive read-only table grants. Mutations occur through
+  validated server commands and a private service-role transaction.
+- RLS is enabled for every exposed Phase 2 table and private Storage object.
+- Completed workflow events, document versions, access events, CATE
+  evaluations, and action confirmations are immutable.
 
-Key folders:
+## Domain slices
 
-```text
-src/
-|-- app/                         # routes and global presentation
-|-- components/demo/             # connected Phase 2 product views
-|-- config/organizations/        # centralized tenant brand manifest
-|-- demo/model.ts                # domain types
-|-- demo/seed.ts                 # deterministic records
-`-- demo/workflow.ts             # guarded workflow commands
-```
+1. Foundation: tenant membership, command schema, revision conflicts,
+   idempotency, server-owned state, hash-chained audit.
+2. Configuration: versioned validation, simulation, independent review,
+   approval, activation, supersession, and protected zero-tolerance defaults.
+3. Imports/documents: CSV and macro-free XLSX quarantine, row/value controls,
+   duplicate flags, original hashes, private files, version metadata, content
+   checks, simulated scanning label, and signed access logging.
+4. Request-to-PO: request analysis, inventory reuse, standards substitution,
+   sourcing gates, human selection, sequential approval, issuance,
+   acknowledgment, and controlled PO revision.
+5. Receiving: full or cumulative partial receipt, inspection, rejection,
+   quarantine/return, replacement, reversal, and accepted-quantity matching.
+6. Invoice: cumulative three-way match, duplicate-risk field, zero tolerance,
+   typed freight exception, payment hold, independent disposition, and
+   exportable payment readiness without payment execution.
+7. Work management: authoritative queues, in-app notices, simulated email,
+   deduplication, retries, dead letter visibility, escalation, and
+   acknowledgment.
+8. CATE: evidence citations, policy/version, assumptions, gaps, qualitative
+   confidence, risks, alternatives, next action, human boundary, deterministic
+   fallback, usage ledger, and immutable evaluation ledger.
+9. Analytics: 32 certified outcome/driver/guardrail definitions with
+   role-specific scorecards and record-level drilldown.
+10. Audit/hardening: reproducible package versions, PDF/CSV/JSON manifest
+    contract, hashes, security headers, rate limits, CI audit, SBOM, reset, and
+    operational runbooks.
 
-The project uses the documented Next.js 16.2.11 conventions bundled with the
-installed framework. `next build` produces the portable `out/` export.
+## Data and financial integrity
 
-## Streamlit surface
+- Money is integer cents in the application and `bigint`/`numeric` in
+  Postgres.
+- Quantities are nonnegative integers; accepted receipt quantities cannot
+  exceed ordered quantities.
+- Reversed records remain in history and are excluded from active totals.
+- Request, PO, receipt, invoice, and dashboard calculations run on the server
+  before persistence and pass a whole-dataset reconciliation check.
+- UTC event timestamps are stored by Postgres; business dates and the tenant
+  display timezone remain distinct.
+- Payment-ready/exported is not paid. There is no payment tool or rail.
 
-`streamlit_app.py` is the Community Cloud entry point. The application uses one
-session-scoped `ProcurementService`; presenter reset reconstructs the full seed.
+## Degraded operation
 
-```text
-streamlit_demo/
-|-- domain.py                    # typed dataclasses and enums
-|-- seed.py                      # deterministic datasets
-`-- services.py                  # authorization and workflow commands
-```
+CATE, email, scanning, import, and export failures do not block the core
+procurement workflow. The UI labels whether state is authoritative, temporary,
+or read-only. Live CATE failures return the deterministic contract; simulated
+email and scanning never masquerade as live providers.
 
-The sidebar exposes all 15 product pages, fictional role switching, stage
-jumps, global search, and reset controls. Navigation changes are queued before
-the radio widget is instantiated, avoiding illegal Streamlit session-state
-mutation.
+## Key files
 
-## Domain and controls
-
-Money is represented as integer cents. The featured workflow enforces:
-
-- inventory reuse before external purchasing;
-- standards review and an explicit substitution decision;
-- human-controlled quote selection;
-- budget and GL validation;
-- four sequential approvals with segregation of duties;
-- PO creation, issuance, and acknowledgement;
-- external receipt separate from the internal inventory transfer;
-- three-way matching with one exact `$320` freight exception;
-- human-only exception disposition; and
-- append-only audit events for every material action.
-
-Demo AI produces deterministic explanations and suggested next steps. It
-cannot choose a vendor, approve a request, issue a PO, accept a receipt, or
-authorize invoice payment.
-
-## State and production boundary
-
-Browser local storage and Streamlit session state are presentation persistence,
-not production persistence. Phase 3 must introduce:
-
-- real identity, tenant resolution, and server-side authorization;
-- a transactional database with immutable audit retention;
-- runtime-validated APIs and idempotent commands;
-- governed document storage and invoice ingestion;
-- observability, recovery, accessibility, and security testing; and
-- an AI service with citations, permission filtering, and human confirmation.
-
-The repository and hosted Streamlit app must remain private. Real Y-12
-credentials, member information, financial records, or confidential documents
-are prohibited.
+- `src/phase-two/commands.ts`
+- `src/server/phase-two/command-engine.ts`
+- `src/server/phase-two/repository.ts`
+- `src/app/api/phase-two/state/route.ts`
+- `src/server/phase-two/documents.ts`
+- `src/server/phase-two/imports.ts`
+- `src/analytics/kpi-catalog.ts`
+- `supabase/migrations/202607270001_audit_phase2_foundation.sql`

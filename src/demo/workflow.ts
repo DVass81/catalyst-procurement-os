@@ -3,9 +3,13 @@ import type {
   AuditEvent,
   DemoRole,
   DemoState,
+  DemoImportBatch,
+  GovernedConfiguration,
   Invoice,
   PurchaseOrder,
+  PurchaseOrderRevision,
   Receipt,
+  VendorException,
   WorkflowStage,
 } from "@/demo/model";
 import {
@@ -18,6 +22,11 @@ import {
   INVENTORY_SAVINGS_CENTS,
   requestTotal,
 } from "@/demo/seed";
+import { addBusinessDays } from "@/demo/clock";
+import {
+  evaluateVendorQuotes,
+  recommendedVendorEvaluation,
+} from "@/demo/vendor-policy";
 
 export class WorkflowError extends Error {
   constructor(message: string) {
@@ -42,6 +51,10 @@ function activeUser(state: DemoState) {
   return user;
 }
 
+function tenantRecordPrefix(state: DemoState) {
+  return state.organization.organizationId === "org-y12-demo" ? "Y12" : "CCCU";
+}
+
 function appendAudit(
   state: DemoState,
   action: string,
@@ -55,7 +68,7 @@ function appendAudit(
   const sequence = state.auditEvents.length + 1;
   state.auditEvents.push({
     id: `audit-featured-${String(sequence).padStart(4, "0")}`,
-    timestamp: `2026-07-24T${String(9 + Math.floor(sequence / 12)).padStart(2, "0")}:${String(
+    timestamp: `${state.sessionDate}T${String(9 + Math.floor(sequence / 12)).padStart(2, "0")}:${String(
       (sequence * 7) % 60,
     ).padStart(2, "0")}:00-04:00`,
     userId: state.activeUserId,
@@ -68,8 +81,31 @@ function appendAudit(
     description,
     source,
     ipPlaceholder: "192.0.2.44",
-    correlationId: "CORR-Y12-LOE-2026-001",
+    correlationId: `CORR-${tenantRecordPrefix(state)}-LOE-${state.sessionDate.slice(0, 4)}-001`,
   });
+}
+
+function upsertQueueItem(
+  state: DemoState,
+  input: DemoState["workQueueItems"][number],
+) {
+  const existing = state.workQueueItems.find(
+    (candidate) => candidate.id === input.id,
+  );
+  if (existing) Object.assign(existing, input);
+  else state.workQueueItems.push(input);
+}
+
+function enqueueNotification(
+  state: DemoState,
+  input: DemoState["notifications"][number],
+) {
+  const duplicate = state.notifications.find(
+    (candidate) =>
+      candidate.channel === input.channel &&
+      candidate.dedupeKey === input.dedupeKey,
+  );
+  if (!duplicate) state.notifications.push(input);
 }
 
 function requireStage(state: DemoState, allowed: WorkflowStage[]) {
@@ -132,7 +168,7 @@ export function analyzeFeaturedRequest(state: DemoState) {
     "request.created",
     "purchase_request",
     request.id,
-    "New Loan Officer Equipment Package created from the deterministic natural-language scenario.",
+    "New Loan Officer Equipment Package created from the controlled natural-language scenario.",
     undefined,
     request.requestNumber,
     "user",
@@ -142,7 +178,7 @@ export function analyzeFeaturedRequest(state: DemoState) {
     "ai.recommendations_generated",
     "purchase_request",
     request.id,
-    "Demo AI generated inventory, standards, sourcing, coding, budget, and approval recommendations.",
+    "CATE generated inventory, standards, sourcing, coding, budget, and approval recommendations for human review.",
     undefined,
     "recommendations_ready",
     "demo_ai",
@@ -159,6 +195,13 @@ export function acceptInventoryRecommendation(state: DemoState) {
   monitor.purchaseQuantity = 3;
   monitor.inventoryQuantity = 3;
   monitor.source = "mixed";
+  const catalogMonitor = next.catalogItems.find(
+    (item) => item.id === monitor.catalogItemId,
+  );
+  if (!catalogMonitor || catalogMonitor.availableInventory < 3) {
+    throw new WorkflowError("Three compatible monitors are no longer available.");
+  }
+  catalogMonitor.availableInventory -= 3;
   request.identifiedSavingsCents += INVENTORY_SAVINGS_CENTS;
   request.recommendedTotalCents = requestTotal(request.lines);
   next.inventoryTransactions.push({
@@ -168,7 +211,7 @@ export function acceptInventoryRecommendation(state: DemoState) {
     type: "reservation",
     quantity: 3,
     sourceTransactionId: request.id,
-    date: "2026-07-24",
+    date: next.sessionDate,
     userId: next.activeUserId,
     notes: "Reserved for transfer to the fictional Riverstone Branch.",
   });
@@ -222,8 +265,12 @@ export function acceptStandardsSubstitution(state: DemoState) {
   return next;
 }
 
-export function selectVendor(state: DemoState, vendorId = "vendor-001") {
+export function selectVendor(
+  state: DemoState,
+  vendorId = recommendedVendorEvaluation(state)?.vendor.id,
+) {
   requireStage(state, ["standards_reviewed", "vendor_selected"]);
+  if (!vendorId) throw new WorkflowError("No eligible vendor is available for award.");
   const next = clone(state);
   const request = featuredRequest(next);
   const quote = next.quotes.find(
@@ -231,6 +278,22 @@ export function selectVendor(state: DemoState, vendorId = "vendor-001") {
       candidate.requestId === request.id && candidate.vendorId === vendorId,
   );
   if (!quote) throw new WorkflowError("The selected vendor does not have a featured quote.");
+  const evaluation = evaluateVendorQuotes(next).find(
+    (candidate) => candidate.vendor.id === vendorId,
+  );
+  const approvedException = next.vendorExceptions.find(
+    (exception) =>
+      exception.requestId === request.id &&
+      exception.vendorId === vendorId &&
+      exception.status === "approved",
+  );
+  if (!evaluation?.eligibility.eligible && !approvedException) {
+    throw new WorkflowError(
+      `This vendor is ineligible for normal award: ${
+        evaluation?.eligibility.blockers.join("; ") ?? "eligibility could not be verified"
+      }. A Purchasing and Compliance exception is required.`,
+    );
+  }
   const previous = request.selectedVendorId;
   request.selectedVendorId = vendorId;
   request.recommendedTotalCents = quote.totalCents;
@@ -244,6 +307,104 @@ export function selectVendor(state: DemoState, vendorId = "vendor-001") {
     previous,
     vendorId,
     "user",
+  );
+  return next;
+}
+
+export function requestVendorException(
+  state: DemoState,
+  vendorId: string,
+  businessJustification: string,
+  evidence: string[],
+) {
+  requireStage(state, ["standards_reviewed", "vendor_selected"]);
+  requireRole(state, ["purchasing_specialist"]);
+  if (businessJustification.trim().length < 20) {
+    throw new WorkflowError("A substantive written business justification is required.");
+  }
+  if (evidence.length === 0) {
+    throw new WorkflowError("At least one supporting evidence item is required.");
+  }
+  const evaluation = evaluateVendorQuotes(state).find(
+    (candidate) => candidate.vendor.id === vendorId,
+  );
+  if (!evaluation || evaluation.eligibility.eligible) {
+    throw new WorkflowError("An exception is only available for an ineligible quoted vendor.");
+  }
+  const next = clone(state);
+  const request = featuredRequest(next);
+  const existing = next.vendorExceptions.find(
+    (exception) =>
+      exception.requestId === request.id && exception.vendorId === vendorId,
+  );
+  if (existing) throw new WorkflowError("An exception request already exists.");
+  const exception: VendorException = {
+    id: `vendor-exception-${next.vendorExceptions.length + 1}`,
+    requestId: request.id,
+    vendorId,
+    status: "requested",
+    businessJustification: businessJustification.trim(),
+    evidence: [...evidence],
+    requestedBy: next.activeUserId,
+    requestedDate: next.sessionDate,
+  };
+  next.vendorExceptions.push(exception);
+  appendAudit(
+    next,
+    "vendor.exception_requested",
+    "vendor_exception",
+    exception.id,
+    `Purchasing requested an exception for ${evaluation.vendor.displayName}; dual approval and supporting evidence are required.`,
+    undefined,
+    JSON.stringify({
+      status: exception.status,
+      justification: exception.businessJustification,
+      evidence: exception.evidence,
+    }),
+  );
+  return next;
+}
+
+export function decideVendorException(
+  state: DemoState,
+  exceptionId: string,
+  decision: "approve" | "reject",
+) {
+  requireRole(state, ["purchasing_manager", "compliance_reviewer"]);
+  const next = clone(state);
+  const exception = next.vendorExceptions.find(
+    (candidate) => candidate.id === exceptionId,
+  );
+  if (!exception) throw new WorkflowError("Vendor exception request not found.");
+  const previous = exception.status;
+  if (decision === "reject") {
+    exception.status = "rejected";
+    exception.decisionDate = next.sessionDate;
+  } else if (next.activeRole === "purchasing_manager") {
+    if (exception.status !== "requested") {
+      throw new WorkflowError("Purchasing approval is not available in this state.");
+    }
+    if (exception.requestedBy === next.activeUserId) {
+      throw new WorkflowError("The exception requester cannot provide Purchasing approval.");
+    }
+    exception.purchasingApproverId = next.activeUserId;
+    exception.status = "purchasing_approved";
+  } else {
+    if (exception.status !== "purchasing_approved") {
+      throw new WorkflowError("Purchasing Manager approval is required first.");
+    }
+    exception.complianceApproverId = next.activeUserId;
+    exception.status = "approved";
+    exception.decisionDate = next.sessionDate;
+  }
+  appendAudit(
+    next,
+    `vendor.exception_${decision === "approve" ? exception.status : "rejected"}`,
+    "vendor_exception",
+    exception.id,
+    `${next.activeRole.replaceAll("_", " ")} recorded the ${decision} decision.`,
+    previous,
+    exception.status,
   );
   return next;
 }
@@ -289,6 +450,41 @@ export function submitRequest(state: DemoState) {
       );
     });
   next.stage = "submitted";
+  upsertQueueItem(next, {
+    id: "queue-featured-request",
+    queueType: "approval",
+    entityType: "purchase_request",
+    entityId: request.id,
+    assigneeRole: "department_manager",
+    status: "assigned",
+    priority: "high",
+    dueDate: addBusinessDays(next.sessionDate, 1),
+    escalationLevel: 0,
+  });
+  enqueueNotification(next, {
+    id: "notification-featured-approval",
+    eventType: "approval.assignment",
+    recipientRole: "department_manager",
+    channel: "in_app",
+    deliveryState: "delivered",
+    dedupeKey: `${tenantRecordPrefix(next)}:featured:manager-approval`,
+    subject: "Featured request requires review",
+    mandatory: true,
+    attempts: 1,
+    acknowledged: false,
+  });
+  enqueueNotification(next, {
+    id: "notification-featured-email",
+    eventType: "approval.assignment",
+    recipientRole: "department_manager",
+    channel: "email_simulated",
+    deliveryState: "delivered",
+    dedupeKey: `${tenantRecordPrefix(next)}:featured:manager-approval-email`,
+    subject: "Simulated email Â· procurement review assigned",
+    mandatory: false,
+    attempts: 1,
+    acknowledged: false,
+  });
   appendAudit(
     next,
     "request.submitted",
@@ -343,7 +539,7 @@ export function decideApproval(
     );
   }
   approval.comments = comments;
-  approval.completedDate = "2026-07-24";
+  approval.completedDate = next.sessionDate;
   approval.decision = decision;
 
   if (decision === "return") {
@@ -383,6 +579,11 @@ export function decideApproval(
   }
 
   approval.status = "approved";
+  const currentQueue = next.workQueueItems.find(
+    (candidate) =>
+      candidate.entityId === request.id && candidate.status !== "completed",
+  );
+  if (currentQueue) currentQueue.status = "completed";
   appendAudit(
     next,
     "approval.completed",
@@ -399,6 +600,31 @@ export function decideApproval(
       candidate.sequence === approval.sequence + 1,
   );
   if (following) following.status = "pending";
+  if (following) {
+    upsertQueueItem(next, {
+      id: `queue-${following.id}`,
+      queueType: "approval",
+      entityType: "purchase_request",
+      entityId: request.id,
+      assigneeRole: following.role,
+      status: "assigned",
+      priority: request.priority === "urgent" ? "critical" : "high",
+      dueDate: following.dueDate,
+      escalationLevel: 0,
+    });
+    enqueueNotification(next, {
+      id: `notification-${following.id}`,
+      eventType: "approval.assignment",
+      recipientRole: following.role,
+      channel: "in_app",
+      deliveryState: "delivered",
+      dedupeKey: `${tenantRecordPrefix(next)}:${following.id}:in-app`,
+      subject: `${request.requestNumber} requires ${following.role.replaceAll("_", " ")} review`,
+      mandatory: true,
+      attempts: 1,
+      acknowledged: false,
+    });
+  }
   next.stage = approvalStage[approval.sequence]!;
   if (approval.sequence === 4) {
     request.status = "approved";
@@ -427,11 +653,14 @@ export function createFeaturedPurchaseOrder(state: DemoState) {
   if (!quote) throw new WorkflowError("Approved quote is missing.");
   const po: PurchaseOrder = {
     id: "po-featured",
-    poNumber: FEATURED_PO_NUMBER,
+    poNumber:
+      next.organization.organizationId === "org-y12-demo"
+        ? FEATURED_PO_NUMBER
+        : FEATURED_PO_NUMBER.replace(/^Y12-/, "CCCU-"),
     sourceRequestId: request.id,
     vendorId: request.selectedVendorId,
     buyerId: next.activeUserId,
-    orderDate: "2026-07-24",
+    orderDate: next.sessionDate,
     expectedDate: quote.deliveryDate,
     deliveryLocationId: request.locationId,
     lines: request.lines.filter((line) => line.purchaseQuantity > 0),
@@ -440,7 +669,10 @@ export function createFeaturedPurchaseOrder(state: DemoState) {
     taxCents: quote.taxCents,
     totalCents: quote.totalCents,
     status: "awaiting_issuance",
-    contractReference: "Y12-IT-2026-07",
+    contractReference:
+      next.contracts.find(
+        (contract) => contract.vendorId === request.selectedVendorId,
+      )?.id ?? "",
     approvalReference: next.approvals
       .filter((approval) => approval.requestId === request.id)
       .map((approval) => approval.id)
@@ -493,7 +725,7 @@ export function recordVendorAcknowledgment(state: DemoState) {
   const po = next.purchaseOrders.find((candidate) => candidate.id === "po-featured");
   if (!po) throw new WorkflowError("Featured purchase order is missing.");
   po.status = "acknowledged";
-  po.vendorAcknowledgment = "Fictional acknowledgment recorded 2026-07-25.";
+  po.vendorAcknowledgment = `Fictional acknowledgment recorded ${next.sessionDate}.`;
   next.stage = "acknowledged";
   appendAudit(
     next,
@@ -518,26 +750,31 @@ export function receiveFeaturedOrder(state: DemoState) {
   if (!po) throw new WorkflowError("Featured purchase order is missing.");
   const receipt: Receipt = {
     id: "receipt-featured",
-    receiptNumber: "Y12-RCV-2026-00291",
+    receiptNumber: `${tenantRecordPrefix(next)}-RCV-${next.sessionDate.slice(0, 4)}-00291`,
     purchaseOrderId: po.id,
     receivedBy: next.activeUserId,
-    receivedDate: "2026-08-10",
+    receivedDate: addBusinessDays(next.sessionDate, 10),
     locationId: po.deliveryLocationId,
     lines: po.lines.map((line) => ({
       lineId: line.id,
       quantity: line.purchaseQuantity,
+      acceptedQuantity: line.purchaseQuantity,
+      pendingInspectionQuantity: 0,
       damagedQuantity: 0,
       rejectedQuantity: 0,
+      returnedQuantity: 0,
       conditionNote:
         line.id === "line-monitor"
           ? "One monitor had minor packaging damage and was accepted after inspection."
           : undefined,
     })),
-    packingSlip: "Fictional packing slip VTP-PS-2026-482.pdf",
+    packingSlip: `Fictional packing slip ${tenantRecordPrefix(next)}-PS-${next.sessionDate.slice(0, 4)}-482.pdf`,
     photos: ["Monitor packaging inspection placeholder.jpg"],
     notes: "All purchased items accepted. One monitor packaging condition documented.",
     exceptionStatus: "accepted_damage",
-    totalValueCents: po.totalCents,
+    totalValueCents: po.subtotalCents,
+    lifecycleStatus: "posted",
+    carrierReference: `SIM-${tenantRecordPrefix(next)}-482`,
   };
   next.receipts.push(receipt);
   po.status = "fully_received";
@@ -549,7 +786,7 @@ export function receiveFeaturedOrder(state: DemoState) {
     type: "internal_transfer",
     quantity: 3,
     sourceTransactionId: FEATURED_REQUEST_ID,
-    date: "2026-08-10",
+    date: addBusinessDays(next.sessionDate, 10),
     userId: next.activeUserId,
     notes: "Three monitors transferred from Central Supply Room; not part of vendor receipt.",
   });
@@ -586,6 +823,314 @@ export function receiveFeaturedOrder(state: DemoState) {
   return next;
 }
 
+export function recordPartialFeaturedReceipt(state: DemoState) {
+  requireStage(state, ["acknowledged"]);
+  requireRole(state, ["receiving_clerk"]);
+  const next = clone(state);
+  const po = next.purchaseOrders.find((candidate) => candidate.id === "po-featured");
+  if (!po) throw new WorkflowError("Featured purchase order is missing.");
+  if (po.buyerId === next.activeUserId) {
+    throw new WorkflowError(
+      "Segregation of duties prevents the purchase-order buyer from receiving their own order.",
+    );
+  }
+  if (
+    next.receipts.some(
+      (receipt) =>
+        receipt.purchaseOrderId === po.id &&
+        receipt.lifecycleStatus !== "reversed",
+    )
+  ) {
+    throw new WorkflowError("A featured receipt has already been recorded.");
+  }
+  const monitorPrice =
+    po.lines.find((line) => line.id === "line-monitor")?.unitPriceCents ?? 0;
+  const receipt: Receipt = {
+    id: "receipt-featured-partial",
+    receiptNumber: `${tenantRecordPrefix(next)}-RCV-${next.sessionDate.slice(0, 4)}-00291-A`,
+    purchaseOrderId: po.id,
+    receivedBy: next.activeUserId,
+    receivedDate: addBusinessDays(next.sessionDate, 10),
+    locationId: po.deliveryLocationId,
+    lines: po.lines.map((line) => ({
+      lineId: line.id,
+      quantity: line.purchaseQuantity,
+      acceptedQuantity:
+        line.id === "line-monitor"
+          ? Math.max(0, line.purchaseQuantity - 1)
+          : line.purchaseQuantity,
+      pendingInspectionQuantity: 0,
+      damagedQuantity: line.id === "line-monitor" ? 1 : 0,
+      rejectedQuantity: line.id === "line-monitor" ? 1 : 0,
+      returnedQuantity: line.id === "line-monitor" ? 1 : 0,
+      conditionNote:
+        line.id === "line-monitor"
+          ? "One monitor failed inspection, was quarantined, and is being returned for replacement."
+          : undefined,
+    })),
+    packingSlip: `Fictional packing slip ${tenantRecordPrefix(next)}-PS-${next.sessionDate.slice(0, 4)}-482-A.pdf`,
+    photos: ["Rejected monitor inspection placeholder.jpg"],
+    notes:
+      "Fourteen units accepted. One monitor rejected after inspection and routed for supplier replacement.",
+    exceptionStatus: "rejected_damage",
+    totalValueCents: po.subtotalCents - monitorPrice,
+    lifecycleStatus: "posted",
+    carrierReference: `SIM-${tenantRecordPrefix(next)}-482-A`,
+  };
+  next.receipts.push(receipt);
+  po.status = "partially_received";
+  po.receiptStatus = "partial";
+  next.inventoryTransactions.push({
+    id: "rtv-featured-monitor",
+    itemId: "item-monitor",
+    locationId: po.deliveryLocationId,
+    type: "return_to_vendor",
+    quantity: 1,
+    sourceTransactionId: receipt.id,
+    date: receipt.receivedDate,
+    userId: next.activeUserId,
+    notes:
+      "Rejected monitor remains unavailable and is tracked as a return-to-vendor replacement.",
+  });
+  appendAudit(
+    next,
+    "receipt.partial_posted",
+    "receipt",
+    receipt.id,
+    "Fourteen units accepted; one damaged monitor rejected, quarantined, and returned for replacement.",
+    undefined,
+    receipt.receiptNumber,
+    "user",
+  );
+  return next;
+}
+
+export function completePartialFeaturedReceipt(state: DemoState) {
+  requireStage(state, ["acknowledged"]);
+  requireRole(state, ["receiving_clerk"]);
+  const next = clone(state);
+  const po = next.purchaseOrders.find((candidate) => candidate.id === "po-featured");
+  const partial = next.receipts.find(
+    (receipt) => receipt.id === "receipt-featured-partial",
+  );
+  if (!po || !partial || po.receiptStatus !== "partial") {
+    throw new WorkflowError("A posted partial receipt is required first.");
+  }
+  const monitorLine = po.lines.find((line) => line.id === "line-monitor");
+  if (!monitorLine) throw new WorkflowError("Featured monitor line is missing.");
+  const replacement: Receipt = {
+    id: "receipt-featured-replacement",
+    receiptNumber: `${tenantRecordPrefix(next)}-RCV-${next.sessionDate.slice(0, 4)}-00291-B`,
+    purchaseOrderId: po.id,
+    receivedBy: next.activeUserId,
+    receivedDate: addBusinessDays(next.sessionDate, 13),
+    locationId: po.deliveryLocationId,
+    lines: [
+      {
+        lineId: monitorLine.id,
+        quantity: 1,
+        acceptedQuantity: 1,
+        pendingInspectionQuantity: 0,
+        damagedQuantity: 0,
+        rejectedQuantity: 0,
+        returnedQuantity: 0,
+        conditionNote: "Supplier replacement passed inspection.",
+      },
+    ],
+    packingSlip: `Fictional replacement slip ${tenantRecordPrefix(next)}-PS-${next.sessionDate.slice(0, 4)}-482-B.pdf`,
+    photos: [],
+    notes: "Replacement monitor accepted and posted.",
+    exceptionStatus: "none",
+    totalValueCents: monitorLine.unitPriceCents,
+    lifecycleStatus: "posted",
+    carrierReference: `SIM-${tenantRecordPrefix(next)}-482-B`,
+    replacementForReceiptId: partial.id,
+  };
+  next.receipts.push(replacement);
+  po.status = "fully_received";
+  po.receiptStatus = "complete";
+  next.inventoryTransactions.push({
+    id: "inventory-transfer-featured",
+    itemId: "item-monitor",
+    locationId: "loc-riverstone",
+    type: "internal_transfer",
+    quantity: 3,
+    sourceTransactionId: FEATURED_REQUEST_ID,
+    date: replacement.receivedDate,
+    userId: next.activeUserId,
+    notes:
+      "Three monitors transferred from Central Supply Room; not part of supplier receipts.",
+  });
+  next.stage = "fully_received";
+  appendAudit(
+    next,
+    "receipt.replacement_posted",
+    "receipt",
+    replacement.id,
+    "Supplier replacement passed inspection; cumulative accepted quantities now reconcile to the purchase order.",
+    "remaining:1",
+    "remaining:0",
+    "user",
+  );
+  return next;
+}
+
+export function reverseFeaturedReceipt(
+  state: DemoState,
+  receiptId: string,
+  reason: string,
+) {
+  requireRole(state, ["receiving_clerk", "purchasing_manager"]);
+  if (reason.trim().length < 20) {
+    throw new WorkflowError("A substantive receipt-reversal reason is required.");
+  }
+  const next = clone(state);
+  const receipt = next.receipts.find((candidate) => candidate.id === receiptId);
+  const po = next.purchaseOrders.find(
+    (candidate) => candidate.id === receipt?.purchaseOrderId,
+  );
+  if (!receipt || !po || receipt.lifecycleStatus !== "posted") {
+    throw new WorkflowError("Only a posted receipt may be reversed.");
+  }
+  receipt.lifecycleStatus = "reversed";
+  receipt.reversedAt = next.sessionDate;
+  receipt.reversalReason = reason.trim();
+  po.status = "partially_received";
+  po.receiptStatus = "partial";
+  next.stage = "acknowledged";
+  next.inventoryTransactions.push({
+    id: `receipt-reversal-${receipt.id}`,
+    itemId: "multi-line-receipt",
+    locationId: receipt.locationId,
+    type: "reversal",
+    quantity: receipt.lines.reduce(
+      (total, line) => total + line.acceptedQuantity,
+      0,
+    ),
+    sourceTransactionId: receipt.id,
+    date: next.sessionDate,
+    userId: next.activeUserId,
+    notes: reason.trim(),
+  });
+  appendAudit(
+    next,
+    "receipt.reversed",
+    "receipt",
+    receipt.id,
+    `Posted receipt reversed without destructive editing: ${reason.trim()}`,
+    "posted",
+    "reversed",
+    "user",
+  );
+  return next;
+}
+
+export function proposePurchaseOrderRevision(
+  state: DemoState,
+  reason: string,
+  proposedTotalCents: number,
+) {
+  requireRole(state, ["purchasing_specialist"]);
+  if (reason.trim().length < 20) {
+    throw new WorkflowError("A substantive revision reason is required.");
+  }
+  const next = clone(state);
+  const po = next.purchaseOrders.find((candidate) => candidate.id === "po-featured");
+  if (!po || !["issued", "acknowledged"].includes(po.status)) {
+    throw new WorkflowError("Only an issued or acknowledged PO may be revised.");
+  }
+  const revision: PurchaseOrderRevision = {
+    id: `po-revision-${next.purchaseOrderRevisions.length + 1}`,
+    purchaseOrderId: po.id,
+    revisionNumber: next.purchaseOrderRevisions.length + 1,
+    status: "approval_pending",
+    reason: reason.trim(),
+    previousTotalCents: po.totalCents,
+    proposedTotalCents,
+    requestedBy: next.activeUserId,
+    requestedDate: next.sessionDate,
+  };
+  next.purchaseOrderRevisions.push(revision);
+  appendAudit(
+    next,
+    "po.revision_proposed",
+    "purchase_order_revision",
+    revision.id,
+    "A controlled PO revision was proposed; the issued PO remains unchanged pending approval.",
+    String(revision.previousTotalCents),
+    String(revision.proposedTotalCents),
+    "user",
+  );
+  return next;
+}
+
+export function decidePurchaseOrderRevision(
+  state: DemoState,
+  revisionId: string,
+  decision: "approve" | "reject",
+) {
+  requireRole(state, ["purchasing_manager"]);
+  const next = clone(state);
+  const revision = next.purchaseOrderRevisions.find(
+    (candidate) => candidate.id === revisionId,
+  );
+  if (!revision || revision.status !== "approval_pending") {
+    throw new WorkflowError("A pending PO revision is required.");
+  }
+  if (revision.requestedBy === next.activeUserId) {
+    throw new WorkflowError("The revision requester cannot approve their own change.");
+  }
+  revision.status = decision === "approve" ? "approved" : "rejected";
+  revision.approvedBy = next.activeUserId;
+  revision.decisionDate = next.sessionDate;
+  appendAudit(
+    next,
+    `po.revision_${revision.status}`,
+    "purchase_order_revision",
+    revision.id,
+    `Purchasing Manager ${revision.status} the proposed revision.`,
+    "approval_pending",
+    revision.status,
+    "user",
+  );
+  return next;
+}
+
+export function issuePurchaseOrderRevision(
+  state: DemoState,
+  revisionId: string,
+) {
+  requireRole(state, ["purchasing_specialist"]);
+  const next = clone(state);
+  const revision = next.purchaseOrderRevisions.find(
+    (candidate) => candidate.id === revisionId,
+  );
+  const po = next.purchaseOrders.find(
+    (candidate) => candidate.id === revision?.purchaseOrderId,
+  );
+  if (!revision || !po || revision.status !== "approved") {
+    throw new WorkflowError("An approved PO revision is required.");
+  }
+  const delta = revision.proposedTotalCents - po.totalCents;
+  po.shippingCents += delta;
+  po.totalCents = revision.proposedTotalCents;
+  po.changeOrderHistory.push(
+    `Revision ${revision.revisionNumber}: ${revision.reason}`,
+  );
+  revision.status = "issued";
+  appendAudit(
+    next,
+    "po.revision_issued",
+    "purchase_order_revision",
+    revision.id,
+    "Approved revision issued; prior PO amount remains in revision history.",
+    String(revision.previousTotalCents),
+    String(revision.proposedTotalCents),
+    "user",
+  );
+  return next;
+}
+
 export function runThreeWayMatch(state: DemoState) {
   requireStage(state, ["fully_received"]);
   if (state.activeRole !== "accounts_payable") {
@@ -597,16 +1142,47 @@ export function runThreeWayMatch(state: DemoState) {
     (candidate) => candidate.purchaseOrderId === po?.id,
   );
   if (!po || !receipt) throw new WorkflowError("PO and receipt are required.");
+  if (
+    next.receipts.some(
+      (candidate) =>
+        candidate.purchaseOrderId === po.id &&
+        candidate.receivedBy === next.activeUserId,
+    )
+  ) {
+    throw new WorkflowError(
+      "Segregation of duties prevents a receiver from matching the same order's invoice.",
+    );
+  }
+  for (const line of po.lines) {
+    const cumulativeAccepted = next.receipts
+      .filter(
+        (candidate) =>
+          candidate.purchaseOrderId === po.id &&
+          candidate.lifecycleStatus !== "reversed",
+      )
+      .reduce(
+        (total, candidate) =>
+          total +
+          (candidate.lines.find((receiptLine) => receiptLine.lineId === line.id)
+            ?.acceptedQuantity ?? 0),
+        0,
+      );
+    if (cumulativeAccepted < line.purchaseQuantity) {
+      throw new WorkflowError(
+        `Invoice matching is blocked until accepted receipt quantity reconciles for ${line.description}.`,
+      );
+    }
+  }
   const invoice: Invoice = {
     id: "invoice-featured",
     invoiceNumber: FEATURED_INVOICE_NUMBER,
     vendorId: po.vendorId,
     purchaseOrderId: po.id,
-    invoiceDate: "2026-08-11",
-    dueDate: "2026-09-10",
+    invoiceDate: addBusinessDays(next.sessionDate, 11),
+    dueDate: addBusinessDays(next.sessionDate, 33),
     lines: po.lines,
     subtotalCents: po.subtotalCents,
-    shippingCents: FREIGHT_VARIANCE_CENTS,
+    shippingCents: po.shippingCents + FREIGHT_VARIANCE_CENTS,
     taxCents: 0,
     totalCents: po.totalCents + FREIGHT_VARIANCE_CENTS,
     matchStatus: "exception",
@@ -614,14 +1190,39 @@ export function runThreeWayMatch(state: DemoState) {
     exceptionStatus: "freight_variance",
     approvalStatus: "pending",
     paymentStatus: "on_hold",
-    uploadedDocument: "Fictional VTP invoice.pdf",
+    uploadedDocument: "Fictional Blue Ridge invoice.pdf",
     varianceCents: FREIGHT_VARIANCE_CENTS,
-    varianceReason: "Unexpected freight was not present on the approved quote or PO.",
+    varianceReason:
+      "Invoice freight exceeds the approved quote and purchase order by $320.",
   };
   next.invoices.unshift(invoice);
   po.status = "invoiced";
   po.invoiceStatus = "exception";
   next.stage = "invoice_exception";
+  upsertQueueItem(next, {
+    id: "queue-featured-invoice-exception",
+    queueType: "invoice_exception",
+    entityType: "invoice",
+    entityId: invoice.id,
+    assigneeRole: "finance_reviewer",
+    status: "assigned",
+    priority: "critical",
+    dueDate: addBusinessDays(next.sessionDate, 1),
+    blocker: "Payment hold remains until the freight variance is resolved.",
+    escalationLevel: 0,
+  });
+  enqueueNotification(next, {
+    id: "notification-featured-invoice-exception",
+    eventType: "invoice.mismatch",
+    recipientRole: "finance_reviewer",
+    channel: "in_app",
+    deliveryState: "delivered",
+    dedupeKey: `${tenantRecordPrefix(next)}:${invoice.id}:variance`,
+    subject: "Critical invoice freight variance requires review",
+    mandatory: true,
+    attempts: 1,
+    acknowledged: false,
+  });
   appendAudit(
     next,
     "invoice.uploaded",
@@ -695,6 +1296,10 @@ export function resolveInvoiceException(
     invoice.paymentStatus = "ready";
     next.stage = "variance_accepted";
   }
+  const queue = next.workQueueItems.find(
+    (candidate) => candidate.id === "queue-featured-invoice-exception",
+  );
+  if (queue) queue.status = "completed";
   appendAudit(
     next,
     "invoice.final_disposition_recorded",
@@ -710,8 +1315,406 @@ export function resolveInvoiceException(
   return next;
 }
 
-export function resetDemo() {
-  return createDemoState();
+export function exportPaymentReadiness(state: DemoState) {
+  requireRole(state, ["accounts_payable"]);
+  const next = clone(state);
+  const invoice = next.invoices.find(
+    (candidate) => candidate.id === "invoice-featured",
+  );
+  if (
+    !invoice ||
+    invoice.paymentStatus !== "ready" ||
+    invoice.approvalStatus !== "approved"
+  ) {
+    throw new WorkflowError(
+      "An independently approved payment-readiness result is required.",
+    );
+  }
+  invoice.paymentStatus = "exported";
+  appendAudit(
+    next,
+    "invoice.payment_readiness_exported",
+    "invoice",
+    invoice.id,
+    "Accounts Payable exported the simulated payment-readiness handoff. No payment was initiated or executed.",
+    "ready",
+    "exported",
+    "user",
+  );
+  return next;
+}
+
+export function retryNotificationDelivery(
+  state: DemoState,
+  notificationId: string,
+) {
+  requireRole(state, ["system_administrator"]);
+  const next = clone(state);
+  const notification = next.notifications.find(
+    (candidate) => candidate.id === notificationId,
+  );
+  if (
+    !notification ||
+    !["failed", "dead_letter"].includes(notification.deliveryState)
+  ) {
+    throw new WorkflowError("A failed or dead-letter notification is required.");
+  }
+  notification.attempts += 1;
+  notification.deliveryState =
+    notification.attempts >= 4 ? "dead_letter" : "delivered";
+  appendAudit(
+    next,
+    "notification.retry_completed",
+    "notification",
+    notification.id,
+    notification.deliveryState === "delivered"
+      ? "Simulated delivery retry completed successfully."
+      : "Retry limit reached; notification remains visible in the dead-letter queue.",
+    "failed",
+    notification.deliveryState,
+    "user",
+  );
+  return next;
+}
+
+export function acknowledgeMandatoryNotification(
+  state: DemoState,
+  notificationId: string,
+) {
+  const next = clone(state);
+  const notification = next.notifications.find(
+    (candidate) => candidate.id === notificationId,
+  );
+  if (!notification || !notification.mandatory) {
+    throw new WorkflowError("A mandatory notification is required.");
+  }
+  if (notification.recipientRole !== next.activeRole) {
+    throw new WorkflowError("Only the assigned recipient role may acknowledge this notice.");
+  }
+  notification.acknowledged = true;
+  appendAudit(
+    next,
+    "notification.acknowledged",
+    "notification",
+    notification.id,
+    "Assigned user acknowledged the mandatory control notification.",
+    "unacknowledged",
+    "acknowledged",
+    "user",
+  );
+  return next;
+}
+
+function governedConfiguration(
+  state: DemoState,
+  configurationId: string,
+): GovernedConfiguration {
+  const configuration = state.configurationVersions.find(
+    (candidate) => candidate.id === configurationId,
+  );
+  if (!configuration) {
+    throw new WorkflowError("Configuration version was not found.");
+  }
+  return configuration;
+}
+
+export function validateConfigurationVersion(
+  state: DemoState,
+  configurationId: string,
+) {
+  requireRole(state, ["system_administrator"]);
+  const next = clone(state);
+  const configuration = governedConfiguration(next, configurationId);
+  if (configuration.lifecycleState !== "draft") {
+    throw new WorkflowError("Only a draft configuration may be validated.");
+  }
+  const issues: string[] = [];
+  const absoluteTolerance =
+    Number(configuration.values.absoluteToleranceCents ?? 0);
+  const percentageTolerance =
+    Number(configuration.values.percentageToleranceBasisPoints ?? 0);
+  if (absoluteTolerance < 0 || percentageTolerance < 0) {
+    issues.push("Invoice tolerances cannot be negative.");
+  }
+  if (configuration.values.autoMatchEnabled === true) {
+    issues.push(
+      "Protected demo control: tolerance-based automatic matching is disabled.",
+    );
+  }
+  configuration.validationIssues = issues;
+  configuration.simulationSummary =
+    issues.length > 0
+      ? `Validation blocked by ${issues.length} protected-control issue(s).`
+      : `Synthetic simulation: the featured $320 variance remains outside the proposed tolerance and routes to Finance. ${state.invoices.length} historical invoices evaluated without rewriting history.`;
+  configuration.lifecycleState =
+    issues.length > 0 ? "draft" : "validated";
+  appendAudit(
+    next,
+    "configuration.validated",
+    "configuration_version",
+    configuration.id,
+    configuration.simulationSummary,
+    "draft",
+    configuration.lifecycleState,
+    "user",
+  );
+  return next;
+}
+
+export function submitConfigurationForReview(
+  state: DemoState,
+  configurationId: string,
+) {
+  requireRole(state, ["system_administrator"]);
+  const next = clone(state);
+  const configuration = governedConfiguration(next, configurationId);
+  if (
+    configuration.lifecycleState !== "validated" ||
+    configuration.validationIssues.length > 0
+  ) {
+    throw new WorkflowError(
+      "A clean validation and simulation are required before review.",
+    );
+  }
+  configuration.lifecycleState = "review_pending";
+  appendAudit(
+    next,
+    "configuration.review_requested",
+    "configuration_version",
+    configuration.id,
+    "Validated configuration submitted for independent review.",
+    "validated",
+    "review_pending",
+    "user",
+  );
+  return next;
+}
+
+export function approveConfigurationVersion(
+  state: DemoState,
+  configurationId: string,
+) {
+  requireRole(state, ["finance_reviewer"]);
+  const next = clone(state);
+  const configuration = governedConfiguration(next, configurationId);
+  if (configuration.lifecycleState !== "review_pending") {
+    throw new WorkflowError("A review-pending configuration is required.");
+  }
+  configuration.lifecycleState = "approved";
+  configuration.approvedBy = next.activeUserId;
+  appendAudit(
+    next,
+    "configuration.approved",
+    "configuration_version",
+    configuration.id,
+    "Finance independently approved the configuration for scheduled activation.",
+    "review_pending",
+    "approved",
+    "user",
+  );
+  return next;
+}
+
+export function activateConfigurationVersion(
+  state: DemoState,
+  configurationId: string,
+) {
+  requireRole(state, ["system_administrator"]);
+  const next = clone(state);
+  const configuration = governedConfiguration(next, configurationId);
+  if (configuration.lifecycleState !== "approved") {
+    throw new WorkflowError("An approved configuration is required.");
+  }
+  next.configurationVersions
+    .filter(
+      (candidate) =>
+        candidate.domain === configuration.domain &&
+        candidate.lifecycleState === "active",
+    )
+    .forEach((candidate) => {
+      candidate.lifecycleState = "superseded";
+    });
+  configuration.lifecycleState = "active";
+  configuration.effectiveDate = next.sessionDate;
+  appendAudit(
+    next,
+    "configuration.activated",
+    "configuration_version",
+    configuration.id,
+    "Approved configuration activated; the prior version was superseded and remains auditable.",
+    "approved",
+    "active",
+    "user",
+  );
+  return next;
+}
+
+function importBatch(state: DemoState, batchId: string): DemoImportBatch {
+  const batch = state.importBatches.find((candidate) => candidate.id === batchId);
+  if (!batch) throw new WorkflowError("Import batch was not found.");
+  return batch;
+}
+
+export function approveImportBatch(state: DemoState, batchId: string) {
+  requireRole(state, ["purchasing_manager"]);
+  const next = clone(state);
+  const batch = importBatch(next, batchId);
+  if (batch.lifecycleState !== "ready_for_approval") {
+    throw new WorkflowError("The import must pass validation before approval.");
+  }
+  if (
+    batch.errorRowCount !== 0 ||
+    batch.validRowCount !== batch.rowCount ||
+    batch.sourceTotalCents !== batch.postedTotalCents
+  ) {
+    throw new WorkflowError("Import control totals or validated rows do not reconcile.");
+  }
+  if (batch.importedBy === next.activeUserId) {
+    throw new WorkflowError("The importer cannot approve their own batch.");
+  }
+  batch.lifecycleState = "approved";
+  batch.approvedBy = next.activeUserId;
+  appendAudit(
+    next,
+    "import.approved",
+    "import_batch",
+    batch.id,
+    "Validated import approved by an independent purchasing manager.",
+    "ready_for_approval",
+    "approved",
+    "user",
+  );
+  return next;
+}
+
+export function postImportBatch(state: DemoState, batchId: string) {
+  requireRole(state, ["system_administrator"]);
+  const next = clone(state);
+  const batch = importBatch(next, batchId);
+  if (batch.lifecycleState !== "approved") {
+    throw new WorkflowError("An approved import is required before posting.");
+  }
+  batch.lifecycleState = "posted";
+  appendAudit(
+    next,
+    "import.posted",
+    "import_batch",
+    batch.id,
+    `All ${batch.rowCount} validated rows posted idempotently with preserved source lineage.`,
+    "approved",
+    "posted",
+    "user",
+  );
+  return next;
+}
+
+export function reverseImportBatch(
+  state: DemoState,
+  batchId: string,
+  reason: string,
+) {
+  requireRole(state, ["system_administrator"]);
+  if (reason.trim().length < 20) {
+    throw new WorkflowError("A substantive import-reversal reason is required.");
+  }
+  const next = clone(state);
+  const batch = importBatch(next, batchId);
+  if (batch.lifecycleState !== "posted") {
+    throw new WorkflowError("Only a posted import may be reversed.");
+  }
+  batch.lifecycleState = "reversed";
+  batch.reversalReason = reason.trim();
+  appendAudit(
+    next,
+    "import.reversed",
+    "import_batch",
+    batch.id,
+    `Posted import reversed without destructive deletion: ${reason.trim()}`,
+    "posted",
+    "reversed",
+    "user",
+  );
+  return next;
+}
+
+export function generateFeaturedAuditPackage(
+  state: DemoState,
+  requestedVersion?: number,
+) {
+  requireRole(state, ["auditor", "system_administrator"]);
+  const next = clone(state);
+  const existing = next.auditPackages.filter(
+    (candidate) => candidate.subjectId === next.featuredRequestId,
+  );
+  const version = requestedVersion ?? existing.length + 1;
+  if (!Number.isInteger(version) || version < 1) {
+    throw new WorkflowError("A valid audit-package version is required.");
+  }
+  const parent =
+    existing.find((candidate) => candidate.version === version - 1) ??
+    existing.sort((a, b) => b.version - a.version)[0];
+  next.auditPackages.push({
+    id: `audit-package-featured-v${version}`,
+    subjectId: next.featuredRequestId,
+    lifecycleState: "generating",
+    version,
+    asOf: `${next.sessionDate}T23:59:59Z`,
+    artifacts: ["pdf", "csv", "json"],
+    parentPackageId:
+      parent?.id ??
+      (version > 1 ? `audit-package-featured-v${version - 1}` : undefined),
+  });
+  appendAudit(
+    next,
+    "audit_package.generation_requested",
+    "audit_package",
+    `audit-package-featured-v${version}`,
+    "Human-authorized generation requested for a fictional PDF summary, CSV extract, and JSON manifest.",
+    parent?.id,
+    `version:${version}`,
+    "user",
+  );
+  return next;
+}
+
+export function completeFeaturedAuditPackage(
+  state: DemoState,
+  manifestSha256: string,
+) {
+  if (!/^[0-9a-f]{64}$/.test(manifestSha256)) {
+    throw new WorkflowError("A valid SHA-256 manifest hash is required.");
+  }
+  const next = clone(state);
+  const auditPackage = [...next.auditPackages]
+    .reverse()
+    .find(
+      (candidate) =>
+        candidate.subjectId === next.featuredRequestId &&
+        candidate.lifecycleState === "generating",
+    );
+  if (!auditPackage) {
+    throw new WorkflowError("No generating audit package is available.");
+  }
+  auditPackage.lifecycleState = "completed";
+  auditPackage.manifestSha256 = manifestSha256;
+  appendAudit(
+    next,
+    "audit_package.completed",
+    "audit_package",
+    auditPackage.id,
+    "Reproducible fictional audit package materialized with a readable PDF summary, CSV extract, JSON manifest, pinned evidence versions, and SHA-256 hashes.",
+    "generating",
+    "completed",
+    "workflow",
+  );
+  return next;
+}
+
+export function resetDemo(currentState?: DemoState) {
+  return createDemoState(
+    currentState?.organization,
+    currentState?.sessionDate,
+  );
 }
 
 const stageOrder: WorkflowStage[] = [
@@ -735,8 +1738,11 @@ const stageOrder: WorkflowStage[] = [
   "correction_requested",
 ];
 
-export function jumpToStage(target: WorkflowStage) {
-  let state = createDemoState();
+export function jumpToStage(target: WorkflowStage, currentState?: DemoState) {
+  let state = createDemoState(
+    currentState?.organization,
+    currentState?.sessionDate,
+  );
   if (target === "draft") return state;
   state = analyzeFeaturedRequest(state);
   if (target === "analyzed") return state;
@@ -788,9 +1794,10 @@ export function canSelfApprove(state: DemoState) {
 export function featuredFinancials(state: DemoState) {
   const request = featuredRequest(state);
   const budget = state.budgets.find((candidate) => candidate.departmentId === request.departmentId)!;
-  const transferCents =
+  const inventoryValueCents =
     request.lines.find((line) => line.id === "line-monitor")!.inventoryQuantity * 34_900;
-  const totalBudgetImpactCents = request.recommendedTotalCents + transferCents;
+  const transferCents = 0;
+  const totalBudgetImpactCents = request.recommendedTotalCents;
   const postApprovalUsedCents =
     budget.actualSpendCents + budget.committedCents + totalBudgetImpactCents;
   const availableAfterCents = budget.revisedBudgetCents - postApprovalUsedCents;
@@ -799,11 +1806,12 @@ export function featuredFinancials(state: DemoState) {
     baselineCents: request.estimatedTotalCents,
     externalCommitmentCents: request.recommendedTotalCents,
     transferCents,
+    inventoryValueCents,
     totalBudgetImpactCents,
     postApprovalUsedCents,
     availableAfterCents,
     utilizationAfter,
-    forecastBalanceCents: budget.revisedBudgetCents - 114_979_900,
+    forecastBalanceCents: availableAfterCents,
   };
 }
 
@@ -811,12 +1819,18 @@ export function dashboardProjection(state: DemoState) {
   const featured = featuredRequest(state);
   const featuredPo = state.purchaseOrders.find((po) => po.id === "po-featured");
   const featuredInvoice = state.invoices.find((invoice) => invoice.id === "invoice-featured");
-  const yearToDateSpendCents = state.invoices.reduce(
+  const postedInvoices = state.invoices.filter(
+    (invoice) =>
+      invoice.matchStatus === "matched" &&
+      invoice.paymentStatus !== "on_hold" &&
+      invoice.invoiceDate.slice(0, 4) === state.sessionDate.slice(0, 4),
+  );
+  const yearToDateSpendCents = postedInvoices.reduce(
     (total, invoice) => total + invoice.totalCents,
     0,
   );
   const purchaseOrderById = new Map(state.purchaseOrders.map((po) => [po.id, po]));
-  const spendUnderContractCents = state.invoices.reduce((total, invoice) => {
+  const spendUnderContractCents = postedInvoices.reduce((total, invoice) => {
     const po = purchaseOrderById.get(invoice.purchaseOrderId);
     return total + (po?.contractReference ? invoice.totalCents : 0);
   }, 0);
@@ -844,6 +1858,32 @@ export function dashboardProjection(state: DemoState) {
       (total, request) => total + request.identifiedSavingsCents,
       0,
     ),
+    acceptedSavingsCents: state.requests.reduce(
+      (total, request) =>
+        total +
+        Math.max(
+          0,
+          Math.min(
+            request.identifiedSavingsCents,
+            request.estimatedTotalCents - request.recommendedTotalCents,
+          ),
+        ),
+      0,
+    ),
+    realizedSavingsCents: state.requests
+      .filter((request) => request.status === "converted_to_po")
+      .reduce(
+        (total, request) =>
+          total +
+          Math.max(
+            0,
+            Math.min(
+              request.identifiedSavingsCents,
+              request.estimatedTotalCents - request.recommendedTotalCents,
+            ),
+          ),
+        0,
+      ),
     openRequests: state.requests.filter((request) =>
       ["draft", "submitted", "returned"].includes(request.status),
     ).length,
@@ -877,3 +1917,4 @@ export function featuredApprovalsFor(state: DemoState): Approval[] {
     .filter((approval) => approval.requestId === FEATURED_REQUEST_ID)
     .sort((a, b) => a.sequence - b.sequence);
 }
+

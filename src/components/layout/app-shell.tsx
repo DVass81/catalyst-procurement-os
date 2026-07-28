@@ -12,6 +12,7 @@ import {
   ChevronRight,
   Command,
   HelpCircle,
+  Headphones,
   Laptop,
   LogOut,
   Menu,
@@ -35,10 +36,14 @@ import {
 } from "react";
 
 import { navigationItems, navigationSections } from "@/config/navigation";
+import { CatalystGuide } from "@/components/guide/catalyst-guide";
+import { useCatalystGuide } from "@/components/guide/catalyst-guide-provider";
+import { useDemo } from "@/components/demo/demo-provider";
+import { tenantThemes, type TenantId } from "@/config/organizations";
+import { PresenterDock } from "@/components/presenter/presenter-dock";
 import {
   currentUser,
   notifications,
-  organization,
   searchRecords,
 } from "@/data/mock-data";
 import { cn, titleCase } from "@/lib/utils";
@@ -98,10 +103,10 @@ function Navigation({
                   onClick={onNavigate}
                   aria-current={active ? "page" : undefined}
                   className={cn(
-                    "group flex min-h-10 items-center gap-3 rounded-xl px-3 py-2 text-[13px] font-semibold transition-colors",
+                    "group flex min-h-10 items-center gap-3 rounded-xl px-3 py-2 text-[13px] font-semibold transition-all",
                     active
-                      ? "bg-[var(--brand-soft)] text-[var(--brand-primary)]"
-                      : "text-[var(--muted-foreground)] hover:bg-[var(--surface-muted)] hover:text-[var(--foreground)]",
+                      ? "bg-white text-[#041a6c] shadow-[0_8px_24px_rgba(0,0,0,.16)]"
+                      : "text-white/68 hover:bg-white/10 hover:text-white",
                   )}
                 >
                   <Icon className="size-[18px]" aria-hidden="true" />
@@ -111,8 +116,8 @@ function Navigation({
                       className={cn(
                         "rounded-full px-1.5 py-0.5 text-[9px] font-extrabold",
                         active
-                          ? "bg-[var(--brand-primary)] text-white"
-                          : "bg-[var(--surface-muted)] text-[var(--muted-foreground)]",
+                          ? "bg-[#cf4427] text-white"
+                          : "bg-white/10 text-[#f0cb7c]",
                       )}
                     >
                       {item.badge}
@@ -129,35 +134,60 @@ function Navigation({
 }
 
 function Sidebar({ pathname }: { pathname: string }) {
+  const { state } = useDemo();
+  const organization = state.organization;
   return (
-    <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r border-[var(--border)] bg-[var(--surface)] lg:flex">
-      <div className="flex h-[var(--topbar-height)] items-center border-b border-[var(--border)] px-5">
-        <BrandMark />
+    <aside
+      className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col overflow-hidden border-r border-white/10 text-white shadow-[18px_0_50px_rgba(4,26,108,.08)] lg:flex"
+      style={{ backgroundColor: organization.sidebarColor }}
+    >
+      <div className="pointer-events-none absolute -left-16 top-28 size-52 rounded-full bg-[#404287]/55 blur-3xl" />
+      <div className="pointer-events-none absolute -right-24 bottom-32 size-56 rounded-full bg-[#cf4427]/22 blur-3xl" />
+      <div className="relative flex min-h-[7.25rem] flex-col justify-center border-b border-white/10 px-5">
+        <div className="flex items-center justify-between gap-3">
+          <Image
+            src={organization.logoPath}
+            alt={organization.organizationName}
+            width={112}
+            height={56}
+            priority
+            className="h-auto w-28"
+          />
+          <span className="rounded-full border border-[#ebbf5d]/25 bg-[#ebbf5d]/10 px-2 py-1 text-[8px] font-black uppercase tracking-[0.15em] text-[#f0cb7c]">
+            Demo
+          </span>
+        </div>
+        <div className="mt-3 flex items-center gap-2 border-t border-white/10 pt-3">
+          <BrandMark className="[&_p:first-of-type]:text-white [&_p:last-of-type]:text-white/45" />
+        </div>
       </div>
-      <div className="scrollbar-none flex flex-1 flex-col overflow-y-auto px-3 py-5">
+      <div className="scrollbar-none relative flex flex-1 flex-col overflow-y-auto px-3 py-5 [&_nav>div>p]:text-white/35">
         <Navigation pathname={pathname} />
-        <div className="mt-5 rounded-2xl border border-[var(--border)] bg-[var(--surface-subtle)] p-3">
+        <div className="mt-5 rounded-2xl border border-[#ebbf5d]/20 bg-white/[0.07] p-3 backdrop-blur">
           <div className="flex items-center gap-2">
-            <span className="flex size-7 items-center justify-center rounded-lg bg-violet-500/10 text-violet-600 dark:text-violet-300">
+            <span className="flex size-7 items-center justify-center rounded-lg bg-gradient-to-br from-[#ebbf5d] to-[#cf4427] text-[#041a6c]">
               <Sparkles className="size-3.5" aria-hidden="true" />
             </span>
-            <span className="text-xs font-bold text-[var(--foreground)]">
-              Catalyst AI
+            <span className="text-xs font-bold text-white">
+              Catalyst Guide Live
             </span>
-            <Badge className="ml-auto px-1.5 py-0.5 text-[9px]" tone="info">
-              Preview
+            <Badge className="ml-auto border-white/10 bg-white/10 px-1.5 py-0.5 text-[9px] text-[#f0cb7c]">
+              Phase 4
             </Badge>
           </div>
-          <p className="mt-2 text-[11px] leading-4.5 text-[var(--muted-foreground)]">
-            Surface insights across spend, contracts, vendors, and risk.
+          <p className="mt-2 text-[11px] leading-4.5 text-white/55">
+            CATE Live, grounded procurement answers, captions, and a
+            presenter-controlled fallback.
           </p>
-          <Link
-            href="/ai-procurement"
-            className="mt-3 flex items-center justify-between text-[11px] font-bold text-[var(--brand-primary)]"
+          <button
+            onClick={() =>
+              window.dispatchEvent(new CustomEvent("catalyst-guide-open"))
+            }
+            className="mt-3 flex w-full items-center justify-between text-[11px] font-bold text-[#f0cb7c]"
           >
-            Open assistant
+            Start guided demo
             <ChevronRight className="size-3.5" aria-hidden="true" />
-          </Link>
+          </button>
         </div>
       </div>
     </aside>
@@ -359,21 +389,26 @@ function ThemeMenu({
 }
 
 function OrganizationMenu() {
+  const { state, switchTenant, activeTenantId } = useDemo();
+  const organization = state.organization;
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
         <button className="hidden h-10 items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-left shadow-sm transition-colors hover:bg-[var(--surface-muted)] sm:flex">
-          <span className="flex h-7 w-14 items-center justify-center rounded-lg bg-[#003C79] px-1">
+          <span
+            className="flex h-7 w-14 items-center justify-center rounded-lg px-1"
+            style={{ backgroundColor: organization.sidebarColor }}
+          >
             <Image
               src={organization.logoPath}
-              alt="Y-12 Credit Union"
+              alt={organization.organizationName}
               width={56}
               height={28}
               className="h-auto w-full"
             />
           </span>
           <span className="max-w-36 truncate text-xs font-bold text-[var(--foreground)]">
-            {organization.name}
+            {organization.organizationName}
           </span>
           <ChevronDown className="size-3.5 text-[var(--muted-foreground)]" />
         </button>
@@ -387,26 +422,48 @@ function OrganizationMenu() {
           <p className="px-2 py-2 text-[10px] font-bold uppercase tracking-wider text-[var(--muted-foreground)]">
             Organizations
           </p>
-          <DropdownMenu.Item className="flex cursor-pointer items-center gap-3 rounded-xl bg-[var(--brand-soft)] p-3 outline-none">
-            <span className="flex h-9 w-16 items-center justify-center rounded-lg bg-[#003C79] px-1.5">
-              <Image
-                src={organization.logoPath}
-                alt="Y-12 Credit Union"
-                width={60}
-                height={30}
-                className="h-auto w-full"
-              />
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-xs font-bold text-[var(--foreground)]">
-                {organization.name}
-              </span>
-              <span className="block text-[10px] text-[var(--muted-foreground)]">
-                Demo workspace
-              </span>
-            </span>
-            <Check className="size-4 text-[var(--brand-primary)]" />
-          </DropdownMenu.Item>
+          {Object.entries(tenantThemes).map(([tenantId, tenant]) => {
+            const active = tenantId === activeTenantId;
+            return (
+              <DropdownMenu.Item
+                key={tenantId}
+                onSelect={() => switchTenant(tenantId as TenantId)}
+                disabled={!state.presenterMode}
+                className={cn(
+                  "flex cursor-pointer items-center gap-3 rounded-xl p-3 outline-none",
+                  active
+                    ? "bg-[var(--brand-soft)]"
+                    : "hover:bg-[var(--surface-muted)] focus:bg-[var(--surface-muted)]",
+                )}
+              >
+                <span
+                  className="flex h-9 w-16 items-center justify-center rounded-lg px-1.5"
+                  style={{ backgroundColor: tenant.sidebarColor }}
+                >
+                  <Image
+                    src={tenant.logoPath}
+                    alt={tenant.organizationName}
+                    width={60}
+                    height={30}
+                    className="h-auto w-full"
+                  />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-xs font-bold text-[var(--foreground)]">
+                    {tenant.organizationName}
+                  </span>
+                  <span className="block text-[10px] text-[var(--muted-foreground)]">
+                    {tenantId === "org-y12-demo"
+                      ? "Personalized demonstration"
+                      : "Clearly fictional tenant"}
+                  </span>
+                </span>
+                {active && (
+                  <Check className="size-4 text-[var(--brand-primary)]" />
+                )}
+              </DropdownMenu.Item>
+            );
+          })}
           <DropdownMenu.Separator className="my-1 h-px bg-[var(--border)]" />
           <DropdownMenu.Item className="flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-[var(--muted-foreground)] outline-none hover:bg-[var(--surface-muted)] focus:bg-[var(--surface-muted)]">
             <Building2 className="size-4" />
@@ -563,6 +620,9 @@ function ProfileMenu() {
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const guide = useCatalystGuide();
+  const { state } = useDemo();
+  const organization = state.organization;
   const [mobileOpen, setMobileOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [theme, setThemeState] = useState<Theme>("system");
@@ -579,6 +639,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }, 0);
     return () => window.clearTimeout(syncTheme);
   }, []);
+
+  useEffect(() => {
+    const openGuide = () => guide.setOpen(true);
+    window.addEventListener("catalyst-guide-open", openGuide);
+    return () => window.removeEventListener("catalyst-guide-open", openGuide);
+  }, [guide]);
 
   useEffect(() => {
     if (theme !== "system") return;
@@ -682,6 +748,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
           <div className="flex items-center gap-1 sm:gap-1.5">
             <button
+              data-tour-id="start-guided-demo"
+              onClick={() => guide.setOpen(true)}
+              className="hidden h-10 items-center gap-2 rounded-xl bg-[#cf4427] px-3 text-xs font-black text-white shadow-[0_8px_24px_rgba(207,68,39,.22)] transition hover:-translate-y-0.5 hover:bg-[#b83a22] xl:flex"
+            >
+              <Headphones className="size-4" />
+              Guided demo
+            </button>
+            <button
               onClick={() => setSearchOpen(true)}
               className="hidden h-10 w-56 items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface-subtle)] px-3 text-left text-xs text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-muted)] md:flex"
             >
@@ -725,15 +799,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </main>
       </div>
 
-      <Link
-        href="/ai-procurement"
-        aria-label="Open Catalyst AI"
-        className="fixed bottom-5 right-5 z-20 flex size-12 items-center justify-center rounded-2xl bg-[var(--brand-primary)] text-[var(--brand-primary-foreground)] shadow-xl shadow-indigo-600/25 transition-transform hover:-translate-y-0.5 lg:bottom-7 lg:right-7"
+      <button
+        onClick={() => guide.setOpen(true)}
+        aria-label="Open Catalyst Guide Live"
+        className="fixed bottom-5 right-5 z-20 flex size-14 items-center justify-center rounded-2xl bg-gradient-to-br from-[#ebbf5d] to-[#cf4427] text-[#041a6c] shadow-[0_18px_42px_rgba(4,26,108,.28)] transition-transform hover:-translate-y-1 lg:bottom-7 lg:right-7"
       >
         <Sparkles className="size-5" />
-      </Link>
+      </button>
 
       <SearchPalette open={searchOpen} onOpenChange={setSearchOpen} />
+      <CatalystGuide />
+      <PresenterDock />
     </div>
   );
 }

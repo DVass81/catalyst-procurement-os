@@ -21,6 +21,14 @@ import type {
   VendorRiskAssessment,
 } from "@/demo/model";
 import { y12DemoTheme } from "@/config/organizations/y12-demo";
+import type { OrganizationTheme } from "@/demo/model";
+import {
+  addBusinessDays,
+  addCalendarDays,
+  approvalEscalationStatus,
+  sessionDate,
+  shiftFromAnchor,
+} from "@/demo/clock";
 
 export const FEATURED_REQUEST_ID = "req-loan-officer-package";
 export const FEATURED_REQUEST_NUMBER = "Y12-PR-2026-00175";
@@ -130,10 +138,51 @@ const namedVendors = [
   "Oak Valley Furniture",
   "Sentinel Cyber Advisory",
   "Pinnacle Business Equipment",
+  "Smoky Mountain Office Products",
+  "Riverbend Technology Group",
+  "Foothills Building Services",
+  "Tennessee Valley Records Management",
+  "Cedar Ridge Communications",
+  "Knox Heritage Workspaces",
+  "East Ridge Network Services",
+  "Volunteer State Safety Systems",
+  "Dogwood Professional Services",
+  "Sequoyah Business Solutions",
+  "Clinch River Equipment",
+  "Great Smoky Managed Services",
+  "Oak Ridge Courier Solutions",
+  "Holston Document Imaging",
+  "Bluegrass Facilities Support",
+  "Copper Basin Office Interiors",
+  "Highland Payment Technologies",
+  "Lakeside Member Services Supply",
+  "Norris Lake Security Group",
+  "Cumberland Valley Telecom",
+  "Appalachian Records Solutions",
+  "Three Rivers Technology",
+  "South Fork Maintenance Group",
+  "Mountain Laurel Office Supply",
+  "Rocky Top Data Services",
+  "Tuckaleechee Print and Mail",
+  "Cherokee Business Equipment",
+  "Walnut Grove Facilities",
+  "Emory River Cyber Advisory",
+  "Lookout Mountain Logistics",
+];
+
+const contactNames = [
+  "Avery Collins",
+  "Jordan Ellis",
+  "Morgan Patel",
+  "Taylor Brooks",
+  "Riley Morgan",
+  "Casey Bennett",
+  "Cameron Foster",
+  "Parker Hayes",
 ];
 
 export const seedVendors: Vendor[] = Array.from({ length: 40 }, (_, index) => {
-  const name = namedVendors[index] ?? `Appalachian Demo Supplier ${index - 9}`;
+  const name = namedVendors[index]!;
   const isElevated = index === 1 || index % 13 === 0;
   return {
     id: `vendor-${String(index + 1).padStart(3, "0")}`,
@@ -142,8 +191,8 @@ export const seedVendors: Vendor[] = Array.from({ length: 40 }, (_, index) => {
     category: ["Technology", "Office Supplies", "Facilities", "Professional Services"][
       index % 4
     ]!,
-    primaryContact: `Fictional Contact ${index + 1}`,
-    address: `${100 + index} Demo Commerce Way, Knoxville, TN 37900`,
+    primaryContact: contactNames[index % contactNames.length]!,
+    address: `${100 + index} Commerce Park Drive, Knoxville, TN 379${String(index % 10).padStart(2, "0")}`,
     contractStatus: index % 5 === 0 ? "expiring" : index % 3 === 0 ? "none" : "active",
     preferred: index === 0 || index % 6 === 0,
     riskTier: isElevated ? "high" : index % 4 === 0 ? "moderate" : "low",
@@ -160,6 +209,15 @@ export const seedVendors: Vendor[] = Array.from({ length: 40 }, (_, index) => {
     cybersecurityReviewStatus:
       index % 3 === 0 ? "not_required" : isElevated ? "review_due" : "current",
     w9Status: isElevated ? "missing" : "current",
+    onboardingStatus: isElevated ? "incomplete" : "complete",
+    sanctionsStatus: "clear",
+    conflictOfInterestStatus: "clear",
+    complianceHold: false,
+    criticalCorrectiveAction: false,
+    insuranceRequired: true,
+    cybersecurityReviewRequired: index % 4 === 0,
+    serviceHistoryScore: isElevated ? 70 : 84 + (index % 14),
+    strategicCriteriaScore: 75 + (index % 20),
     lastReviewDate: "2026-04-15",
     nextReviewDate: "2026-10-15",
     fictional: true,
@@ -277,12 +335,38 @@ const featuredCatalog: CatalogItem[] = [
   },
 ];
 
+const operatingCatalogNames = [
+  "Standard Copy Paper — 10 Ream Case",
+  "Branch Security Camera",
+  "Network Switch — 48 Port",
+  "Teller Receipt Paper",
+  "Standard Ergonomic Office Chair",
+  "Member Service Counter Chair",
+  "Encrypted Laptop Dock",
+  "Dual-Monitor Arm",
+  "Deposit Bag — Tamper Evident",
+  "Currency Counter Cleaning Kit",
+  "Lobby Queue Stanchion",
+  "Document Shred Bin",
+  "Branch Wireless Access Point",
+  "Conference Room Display",
+  "Thermal Label Roll",
+  "Check Scanner Cleaning Card",
+  "USB Security Key",
+  "Backup Power Supply",
+  "Network Patch Cable — 10 Foot",
+];
+
 export const seedCatalogItems: CatalogItem[] = [
   ...featuredCatalog,
   ...Array.from({ length: 114 }, (_, index): CatalogItem => ({
     id: `item-seed-${String(index + 1).padStart(3, "0")}`,
-    sku: `DEMO-${String(index + 1).padStart(4, "0")}`,
-    description: `Deterministic demonstration catalog item ${index + 1}`,
+    sku: `OPS-${String(index + 1).padStart(4, "0")}`,
+    description: `${operatingCatalogNames[index % operatingCatalogNames.length]!}${
+      index >= operatingCatalogNames.length
+        ? ` — ${["Branch Standard", "Operations Standard", "Corporate Standard"][Math.floor(index / operatingCatalogNames.length) % 3]}`
+        : ""
+    }`,
     category: ["Office Supplies", "Technology", "Facilities", "Marketing"][index % 4]!,
     unitOfMeasure: "each",
     standardStatus: index % 9 === 0 ? "exception_required" : "approved",
@@ -293,9 +377,9 @@ export const seedCatalogItems: CatalogItem[] = [
     availableInventory: (index * 3) % 42,
     reorderPoint: 5 + (index % 10),
     leadTimeDays: 2 + (index % 20),
-    glAccount: `${68000 + (index % 15) * 10} · Demo Operating Expense`,
+    glAccount: `${68000 + (index % 15) * 10} · Operating Expense`,
     departmentRestrictions: [],
-    specifications: "Fictional deterministic catalog specification",
+    specifications: "Fictional approved specification for credit-union operations",
   })),
 ];
 
@@ -382,7 +466,7 @@ function createFeaturedRequest(): PurchaseRequest {
       "Headset substitution recommended before submission.",
     ],
     aiSummary:
-      "Demo AI structured five equipment categories for three new loan officers and identified inventory, standards, vendor, budget, and approval checks.",
+      "CATE structured five equipment categories for three new loan officers and identified inventory, standards, vendor, budget, and approval checks for human review.",
     attachments: ["Fictional staffing plan.pdf", "Equipment standards.pdf"],
     fieldsLocked: false,
     revision: 1,
@@ -408,7 +492,7 @@ export const featuredApprovals: Approval[] = approvalBlueprint.map(
     dueDate: `2026-07-${25 + sequence}`,
     escalationStatus: sequence === 1 ? "approaching_due" : "none",
     aiRecommendation:
-      "Demo AI recommends approval after human review: within budget, approved standards, preferred vendor, and documented inventory savings.",
+      "CATE recommends approval after human review: within budget, approved standards, an eligible supplier, and documented inventory savings.",
   }),
 );
 
@@ -429,8 +513,8 @@ export const featuredQuotes: VendorQuote[] = [
     warranty: "3-year equipment warranty",
     paymentTerms: "Net 30",
     exceptions: [],
-    aiEvaluationScore: 96,
-    recommendation: "recommended",
+    aiEvaluationScore: 0,
+    recommendation: "alternative",
   },
   {
     id: "quote-ridgeline",
@@ -448,7 +532,7 @@ export const featuredQuotes: VendorQuote[] = [
     warranty: "1-year limited warranty",
     paymentTerms: "Net 15",
     exceptions: ["Elevated documentation risk", "Delivery has limited schedule margin"],
-    aiEvaluationScore: 72,
+    aiEvaluationScore: 0,
     recommendation: "lowest_price",
   },
   {
@@ -458,17 +542,17 @@ export const featuredQuotes: VendorQuote[] = [
     quoteNumber: "BRN-2026-1908",
     quoteDate: "2026-07-23",
     expirationDate: "2026-08-09",
-    subtotalCents: 829_500,
+    subtotalCents: 811_200,
     shippingCents: 9_500,
     taxCents: 0,
-    totalCents: 839_000,
+    totalCents: 820_700,
     deliveryDate: "2026-08-12",
     contractPricing: true,
     warranty: "3-year equipment warranty",
     paymentTerms: "Net 30",
     exceptions: ["Chair delivery may follow equipment by one business day"],
-    aiEvaluationScore: 88,
-    recommendation: "alternative",
+    aiEvaluationScore: 0,
+    recommendation: "recommended",
   },
 ];
 
@@ -478,13 +562,13 @@ function createOtherRequests(): PurchaseRequest[] {
       {
         id: `seed-line-${index + 1}`,
         catalogItemId: seedCatalogItems[(index + 9) % seedCatalogItems.length]!.id,
-        description: `Fictional procurement need ${index + 1}`,
-        originalDescription: `Fictional procurement need ${index + 1}`,
+        description: seedCatalogItems[(index + 9) % seedCatalogItems.length]!.description,
+        originalDescription: seedCatalogItems[(index + 9) % seedCatalogItems.length]!.description,
         requestedQuantity: 1 + (index % 8),
         purchaseQuantity: 1 + (index % 8),
         inventoryQuantity: 0,
-        unitPriceCents: 12_500 + index * 875,
-        originalUnitPriceCents: 12_500 + index * 875,
+        unitPriceCents: 125_000 + index * 8_750,
+        originalUnitPriceCents: 125_000 + index * 8_750,
         glAccount: "68000 · Operating Expense",
         standardStatus: "approved" as const,
         source: "external_purchase" as const,
@@ -494,13 +578,13 @@ function createOtherRequests(): PurchaseRequest[] {
     return {
       id: `request-seed-${String(index + 1).padStart(3, "0")}`,
       requestNumber: `Y12-PR-2026-${String(index + 1).padStart(5, "0")}`,
-      title: `Deterministic seeded request ${index + 1}`,
+      title: `${seedDepartments[index % seedDepartments.length]!.name} — ${lines[0]!.description}`,
       requesterId: seedUsers[(index + 11) % seedUsers.length]!.id,
       departmentId: seedDepartments[index % seedDepartments.length]!.id,
       locationId: seedLocations[index % seedLocations.length]!.id,
       requestDate: `2026-${String((index % 7) + 1).padStart(2, "0")}-${String((index % 25) + 1).padStart(2, "0")}`,
       requiredDate: `2026-${String((index % 5) + 8).padStart(2, "0")}-${String((index % 25) + 1).padStart(2, "0")}`,
-      businessJustification: "Fictional seeded operating requirement for demonstration purposes.",
+      businessJustification: `Support a fictional ${seedDepartments[index % seedDepartments.length]!.name.toLowerCase()} operating requirement.`,
       requestType: "Operational purchase",
       status: statuses[index % statuses.length]!,
       priority: index % 11 === 0 ? "high" : "normal",
@@ -512,7 +596,7 @@ function createOtherRequests(): PurchaseRequest[] {
       budgetStatus: index % 9 === 0 ? "review_threshold" : "within_budget",
       inventoryFindings: [],
       policyFindings: ["Approved standard"],
-      aiSummary: "Deterministic seeded request summary.",
+      aiSummary: "CATE organized the request and identified the applicable human review path.",
       attachments: [],
       fieldsLocked: statuses[index % statuses.length] !== "draft",
       revision: 1,
@@ -542,8 +626,10 @@ function createPurchaseOrders(requests: PurchaseRequest[]): PurchaseOrder[] {
         index % 5
       ] as PurchaseOrder["status"],
       contractReference:
-        index % 5 === 0 ? "" : `DEMO-CONTRACT-${(index % 18) + 1}`,
-      approvalReference: `DEMO-APPROVAL-${index + 1}`,
+        index % 5 === 0
+          ? ""
+          : `contract-${String((index % 18) + 1).padStart(3, "0")}`,
+      approvalReference: `APR-${String(index + 1).padStart(5, "0")}`,
       receiptStatus: index % 5 >= 3 ? "complete" : index % 5 === 2 ? "partial" : "not_received",
       invoiceStatus: index % 5 === 4 ? "matched" : "pending_match",
       changeOrderHistory: [],
@@ -554,7 +640,7 @@ function createPurchaseOrders(requests: PurchaseRequest[]): PurchaseOrder[] {
 function createInvoices(purchaseOrders: PurchaseOrder[]): Invoice[] {
   return purchaseOrders.slice(0, 35).map((po, index) => ({
     id: `invoice-seed-${String(index + 1).padStart(3, "0")}`,
-    invoiceNumber: `DEMO-INV-2026-${String(index + 1).padStart(4, "0")}`,
+    invoiceNumber: `Y12-INV-2026-${String(index + 1).padStart(4, "0")}`,
     vendorId: po.vendorId,
     purchaseOrderId: po.id,
     invoiceDate: "2026-07-20",
@@ -569,7 +655,7 @@ function createInvoices(purchaseOrders: PurchaseOrder[]): Invoice[] {
     exceptionStatus: index % 10 === 0 ? "freight_variance" : "none",
     approvalStatus: index % 10 === 0 ? "pending" : "not_required",
     paymentStatus: index % 10 === 0 ? "on_hold" : "ready",
-    uploadedDocument: `Fictional invoice ${index + 1}.pdf`,
+    uploadedDocument: `Y12-INV-2026-${String(index + 1).padStart(4, "0")}.pdf`,
     varianceCents: index % 10 === 0 ? 12_500 : 0,
     varianceReason: index % 10 === 0 ? "Freight not present on purchase order" : undefined,
   }));
@@ -585,11 +671,16 @@ function baseAuditEvents(): AuditEvent[] {
       index % 4
     ]!,
     entityType: ["purchase_request", "purchase_order", "invoice", "vendor"][index % 4]!,
-    entityId: `demo-entity-${index + 1}`,
-    description: `Deterministic fictional audit event ${index + 1}`,
+    entityId: `record-${String(index + 1).padStart(4, "0")}`,
+    description: [
+      "Purchase request created with business justification.",
+      "Assigned reviewer completed the control check.",
+      "Record status changed through the authorized workflow.",
+      "Supporting evidence attached to the transaction record.",
+    ][index % 4]!,
     source: "workflow",
     ipPlaceholder: "192.0.2.0",
-    correlationId: `corr-seed-${Math.floor(index / 4) + 1}`,
+    correlationId: `CORR-Y12-${String(Math.floor(index / 4) + 1).padStart(4, "0")}`,
   }));
 }
 
@@ -622,70 +713,364 @@ const tutorialSteps: TutorialStep[] = tutorialBlueprints.map(
   }),
 );
 
-export function createDemoState(): DemoState {
+const contractNames = [
+  "Technology Equipment Master Agreement",
+  "Office Supply Master Agreement",
+  "Network Infrastructure Support Agreement",
+  "Facilities Preventive Maintenance Agreement",
+  "Print and Mail Services Agreement",
+  "Physical Security Systems Agreement",
+  "Records Management Services Agreement",
+  "Office Furniture Purchasing Agreement",
+  "Managed Cybersecurity Services Agreement",
+  "Business Equipment Maintenance Agreement",
+  "Branch Consumables Supply Agreement",
+  "Managed Network Services Agreement",
+  "Building Systems Inspection Agreement",
+  "Document Imaging Services Agreement",
+  "Unified Communications Services Agreement",
+  "Workplace Ergonomics Agreement",
+  "Payment Technology Support Agreement",
+  "Secure Courier Services Agreement",
+];
+
+export function createDemoState(
+  organization: OrganizationTheme = y12DemoTheme,
+  asOfDate: string | Date = new Date(),
+): DemoState {
+  const frozenDate = sessionDate(asOfDate);
+  const recordPrefix =
+    organization.organizationId === "org-y12-demo" ? "Y12" : "CCCU";
+  const emailDomain =
+    organization.organizationId === "org-y12-demo"
+      ? "y12-demo.example"
+      : "catalyst-community.example";
+  const users = seedUsers.map((user) => ({
+    ...user,
+    email: `${user.email.split("@")[0]}@${emailDomain}`,
+  }));
   const featuredRequest = createFeaturedRequest();
-  const requests = [featuredRequest, ...createOtherRequests()];
-  const purchaseOrders = createPurchaseOrders(requests);
-  return {
-    schemaVersion: 2,
-    organization: y12DemoTheme,
-    activeUserId: "user-emma",
-    activeRole: "requester",
-    stage: "draft",
-    noticeVisible: true,
-    demoHighlights: true,
-    tutorialMode: false,
-    featuredRequestId: FEATURED_REQUEST_ID,
-    users: seedUsers,
-    departments: seedDepartments,
-    locations: seedLocations,
-    vendors: seedVendors,
-    catalogItems: seedCatalogItems,
-    budgets: seedBudgets,
-    requests,
-    approvals: [
-      ...featuredApprovals,
-      ...Array.from({ length: 15 }, (_, index): Approval => ({
+  const requests = [featuredRequest, ...createOtherRequests()].map(
+    (request) => ({
+      ...request,
+      requestNumber: request.requestNumber.replace(/^Y12-/, `${recordPrefix}-`),
+      requestDate: shiftFromAnchor(request.requestDate, frozenDate),
+      requiredDate: shiftFromAnchor(request.requiredDate, frozenDate),
+    }),
+  );
+  const purchaseOrders = createPurchaseOrders(requests).map((purchaseOrder) => ({
+    ...purchaseOrder,
+    poNumber: purchaseOrder.poNumber.replace(/^Y12-/, `${recordPrefix}-`),
+    orderDate: purchaseOrder.orderDate,
+    expectedDate: purchaseOrder.expectedDate,
+  }));
+  const invoices = createInvoices(purchaseOrders).map((invoice, index) => {
+    const invoiceDate = addCalendarDays(frozenDate, -(index % 11) * 23);
+    return {
+      ...invoice,
+      invoiceNumber: invoice.invoiceNumber.replace(/^Y12-/, `${recordPrefix}-`),
+      uploadedDocument: invoice.uploadedDocument.replace(/^Y12-/, `${recordPrefix}-`),
+      invoiceDate,
+      dueDate: addBusinessDays(invoiceDate, 22),
+    };
+  });
+  const purchaseOrderById = new Map(
+    purchaseOrders.map((purchaseOrder) => [purchaseOrder.id, purchaseOrder]),
+  );
+  const requestById = new Map(requests.map((request) => [request.id, request]));
+  const allPostedInvoices = invoices.filter(
+    (invoice) =>
+      invoice.matchStatus === "matched" &&
+      invoice.paymentStatus !== "on_hold",
+  );
+  const postedInvoices = allPostedInvoices.filter((invoice) =>
+    invoice.invoiceDate.startsWith(frozenDate.slice(0, 4)),
+  );
+  const budgets = seedBudgets.map((budget) => {
+    const actualSpendCents = postedInvoices.reduce((total, invoice) => {
+      const purchaseOrder = purchaseOrderById.get(invoice.purchaseOrderId);
+      const request = purchaseOrder
+        ? requestById.get(purchaseOrder.sourceRequestId)
+        : undefined;
+      return request?.departmentId === budget.departmentId
+        ? total + invoice.totalCents
+        : total;
+    }, 0);
+    const committedCents = purchaseOrders.reduce((total, purchaseOrder) => {
+      const request = requestById.get(purchaseOrder.sourceRequestId);
+      const invoice = invoices.find(
+        (candidate) => candidate.purchaseOrderId === purchaseOrder.id,
+      );
+      const isOpen = !["closed", "cancelled"].includes(purchaseOrder.status);
+      return request?.departmentId === budget.departmentId &&
+        isOpen &&
+        !invoice
+        ? total + purchaseOrder.totalCents
+        : total;
+    }, 0);
+    const revisedBudgetCents =
+      budget.departmentId === "dept-lending"
+        ? Math.ceil(
+            (actualSpendCents + committedCents + 820_700) / 0.7915,
+          )
+        : Math.max(
+            5_000_000,
+            Math.ceil((actualSpendCents + committedCents) / 0.72),
+          );
+    return {
+      ...budget,
+      fiscalYear: `FY${frozenDate.slice(0, 4)}`,
+      originalBudgetCents: revisedBudgetCents,
+      revisedBudgetCents,
+      actualSpendCents,
+      committedCents,
+      forecastCents: actualSpendCents + committedCents + 820_700,
+    };
+  });
+  const monthlySpendCents = Array.from({ length: 12 }, (_, monthOffset) => {
+    const target = new Date(`${frozenDate}T12:00:00Z`);
+    target.setUTCMonth(target.getUTCMonth() - (11 - monthOffset));
+    const key = target.toISOString().slice(0, 7);
+    return allPostedInvoices
+      .filter((invoice) => invoice.invoiceDate.startsWith(key))
+      .reduce((total, invoice) => total + invoice.totalCents, 0);
+  });
+  const vendors = seedVendors.map((vendor) => ({
+    ...vendor,
+    insuranceExpiration: shiftFromAnchor(vendor.insuranceExpiration, frozenDate),
+    lastReviewDate: shiftFromAnchor(vendor.lastReviewDate, frozenDate),
+    nextReviewDate: shiftFromAnchor(vendor.nextReviewDate, frozenDate),
+  }));
+  const quotes = featuredQuotes.map((quote) => ({
+    ...quote,
+    quoteDate: shiftFromAnchor(quote.quoteDate, frozenDate),
+    expirationDate: shiftFromAnchor(quote.expirationDate, frozenDate),
+    deliveryDate: shiftFromAnchor(quote.deliveryDate, frozenDate),
+  }));
+  const approvals: Approval[] = [
+    ...featuredApprovals.map((approval) => {
+      const assignedDate = frozenDate;
+      const dueDate = addBusinessDays(frozenDate, approval.sequence);
+      return {
+        ...approval,
+        assignedDate,
+        dueDate,
+        escalationStatus: approvalEscalationStatus(frozenDate, dueDate),
+      };
+    }),
+    ...Array.from({ length: 15 }, (_, index): Approval => {
+      const assignedDate = addBusinessDays(frozenDate, -(index % 6) - 1);
+      const dueDate = addBusinessDays(assignedDate, 3);
+      const completedDate =
+        index % 3 === 0 ? undefined : addBusinessDays(assignedDate, 1);
+      return {
         id: `approval-seed-${index + 1}`,
         requestId: requests[index + 8]!.id,
         sequence: 1,
         approverId: seedUsers[(index + 3) % seedUsers.length]!.id,
         role: "department_manager",
-        status: index % 3 === 0 ? "pending" : "approved",
-        assignedDate: "2026-07-20",
-        dueDate: "2026-07-26",
-        completedDate: index % 3 === 0 ? undefined : "2026-07-22",
-        escalationStatus: index % 5 === 0 ? "overdue" : "none",
-        aiRecommendation: "Review required; Demo AI does not make the decision.",
-      })),
-    ],
-    quotes: featuredQuotes,
+        status: completedDate ? "approved" : "pending",
+        assignedDate,
+        dueDate,
+        completedDate,
+        escalationStatus: completedDate
+          ? "none"
+          : approvalEscalationStatus(frozenDate, dueDate),
+        aiRecommendation:
+          "CATE summarizes the evidence; the assigned employee retains decision authority.",
+      };
+    }),
+  ];
+  return {
+    schemaVersion: 5,
+    organization,
+    sessionDate: frozenDate,
+    presenterMode: false,
+    activeUserId: "user-emma",
+    activeRole: "requester",
+    stage: "draft",
+    noticeVisible: false,
+    demoHighlights: true,
+    tutorialMode: false,
+    featuredRequestId: FEATURED_REQUEST_ID,
+    users,
+    departments: seedDepartments,
+    locations: seedLocations,
+    vendors,
+    catalogItems: seedCatalogItems,
+    budgets,
+    requests,
+    approvals,
+    quotes,
     purchaseOrders,
+    purchaseOrderRevisions: [],
     receipts: [],
-    invoices: createInvoices(purchaseOrders),
+    invoices,
     inventoryTransactions: [],
-    auditEvents: baseAuditEvents(),
+    auditEvents: baseAuditEvents().map((event) => ({
+      ...event,
+      timestamp: `${shiftFromAnchor(event.timestamp.slice(0, 10), frozenDate)}${event.timestamp.slice(10)}`,
+    })),
     contracts: Array.from({ length: 18 }, (_, index): Contract => ({
       id: `contract-${String(index + 1).padStart(3, "0")}`,
       vendorId: seedVendors[index]!.id,
-      name: `Fictional supplier agreement ${index + 1}`,
+      name: contractNames[index]!,
       valueCents: 8_000_000 + index * 1_250_000,
-      startDate: "2025-01-01",
-      endDate: index < 4 ? "2026-09-30" : "2027-12-31",
-      noticeDeadline: index < 4 ? "2026-08-01" : "2027-09-30",
+      startDate: addCalendarDays(frozenDate, -540 + index * 5),
+      endDate: addCalendarDays(frozenDate, index < 4 ? 68 + index * 8 : 540 + index * 10),
+      noticeDeadline: addCalendarDays(frozenDate, index < 4 ? 8 + index * 5 : 450 + index * 8),
       status: index < 4 ? "renewal_due" : "active",
     })),
     vendorRiskAssessments: Array.from({ length: 12 }, (_, index): VendorRiskAssessment => ({
       id: `risk-${index + 1}`,
-      vendorId: seedVendors[index]!.id,
-      riskTier: seedVendors[index]!.riskTier,
-      documentationStatus: seedVendors[index]!.documentationStatus,
-      reviewDate: "2026-07-15",
+      vendorId: vendors[index]!.id,
+      riskTier: vendors[index]!.riskTier,
+      documentationStatus: vendors[index]!.documentationStatus,
+      reviewDate: addBusinessDays(frozenDate, -7),
       finding:
-        index === 1
-          ? "Fictional elevated-risk vendor documentation requires human review."
-          : "Required fictional due diligence is current.",
+        vendors[index]!.riskTier === "high" ||
+        vendors[index]!.documentationStatus === "incomplete"
+          ? "Supplier is ineligible for award until all risk and documentation blockers are remediated or a controlled exception is approved."
+          : vendors[index]!.documentationStatus === "review_due"
+            ? `Due diligence remains current; the next review is due ${vendors[index]!.nextReviewDate}.`
+            : "Required fictional due diligence is current.",
     })),
+    vendorExceptions: [],
+    configurationVersions: [
+      {
+        id: "config-invoice-tolerance-v1",
+        domain: "invoice_matching",
+        version: 1,
+        lifecycleState: "active",
+        sourceLabel: "synthetic_demo",
+        owner: "Finance Control Owner",
+        backupOwner: "Accounts Payable Manager",
+        values: {
+          absoluteToleranceCents: 0,
+          percentageToleranceBasisPoints: 0,
+          autoMatchEnabled: false,
+        },
+        validationIssues: [],
+        simulationSummary:
+          "Zero tolerance routes the featured $320 freight difference to human review.",
+        effectiveDate: frozenDate,
+        approvedBy: "user-harper",
+      },
+      {
+        id: "config-invoice-tolerance-v2",
+        domain: "invoice_matching",
+        version: 2,
+        lifecycleState: "draft",
+        sourceLabel: "synthetic_demo",
+        owner: "Finance Control Owner",
+        backupOwner: "Accounts Payable Manager",
+        values: {
+          absoluteToleranceCents: 5_000,
+          percentageToleranceBasisPoints: 50,
+          autoMatchEnabled: false,
+        },
+        validationIssues: [],
+        simulationSummary: "Not yet validated against the synthetic record set.",
+      },
+    ],
+    importBatches: [
+      {
+        id: "import-vendor-master-001",
+        importType: "vendor_master",
+        lifecycleState: "ready_for_approval",
+        originalFilename: "fictional-vendor-master.csv",
+        fileHash:
+          "71b5ab31db1a1e25a4f06f9dfd5494dce9e67f6ab4014082ae8949d99b9ca2af",
+        sourceSystem: "Synthetic controlled upload",
+        rowCount: 40,
+        validRowCount: 40,
+        errorRowCount: 0,
+        sourceTotalCents: 0,
+        postedTotalCents: 0,
+        mappingSummary:
+          "External vendor ID, legal name, status, risk tier, and document controls mapped.",
+        importedBy: "user-zoe",
+      },
+    ],
+    documents: [
+      {
+        id: "document-featured-quote-v1",
+        parentEntityType: "vendor_quote",
+        parentEntityId: "quote-vector",
+        lifecycleState: "available",
+        version: 1,
+        filename: "Fictional Blue Ridge Quote.pdf",
+        mimeType: "application/pdf",
+        sha256:
+          "c7ad6252199945bd69c3f6ca71610171074819062238ccb6fb4b50a190350123",
+        scanMode: "simulated",
+        citation: "Page 1 · pricing, delivery, warranty, and freight",
+        legalHold: false,
+      },
+    ],
+    workQueueItems: [
+      {
+        id: "queue-featured-request",
+        queueType: "approval",
+        entityType: "purchase_request",
+        entityId: FEATURED_REQUEST_ID,
+        assigneeRole: "department_manager",
+        status: "open",
+        priority: "high",
+        dueDate: addBusinessDays(frozenDate, 1),
+        escalationLevel: 0,
+      },
+      {
+        id: "queue-contract-renewal",
+        queueType: "contract_renewal",
+        entityType: "contract",
+        entityId: "contract-001",
+        assigneeRole: "purchasing_manager",
+        status: "assigned",
+        priority: "critical",
+        dueDate: addBusinessDays(frozenDate, 3),
+        escalationLevel: 1,
+      },
+    ],
+    notifications: [
+      {
+        id: "notification-featured-approval",
+        eventType: "approval.assignment",
+        recipientRole: "department_manager",
+        channel: "in_app",
+        deliveryState: "delivered",
+        dedupeKey: `${recordPrefix}:featured:manager-approval`,
+        subject: "Featured request requires review",
+        mandatory: true,
+        attempts: 1,
+        acknowledged: false,
+      },
+      {
+        id: "notification-featured-email",
+        eventType: "approval.assignment",
+        recipientRole: "department_manager",
+        channel: "email_simulated",
+        deliveryState: "delivered",
+        dedupeKey: `${recordPrefix}:featured:manager-approval-email`,
+        subject: "Simulated email · procurement review assigned",
+        mandatory: false,
+        attempts: 1,
+        acknowledged: false,
+      },
+      {
+        id: "notification-simulated-delivery-failure",
+        eventType: "document.scan_failed",
+        recipientRole: "system_administrator",
+        channel: "email_simulated",
+        deliveryState: "failed",
+        dedupeKey: `${recordPrefix}:simulated:document-failure-email`,
+        subject: "Simulated email delivery failed · document control notice",
+        mandatory: false,
+        attempts: 2,
+        acknowledged: false,
+      },
+    ],
+    auditPackages: [],
     alerts: Array.from({ length: 8 }, (_, index): ProcurementAlert => ({
       id: `alert-${index + 1}`,
       type: ["contract", "budget", "invoice", "vendor_risk"][index % 4]!,
@@ -698,10 +1083,7 @@ export function createDemoState(): DemoState {
       severity: index % 4 === 3 ? "critical" : "warning",
       href: ["/contracts", "/analytics", "/invoices", "/vendor-risk"][index % 4]!,
     })),
-    monthlySpendCents: [
-      238_000_000, 214_000_000, 229_000_000, 241_000_000, 247_000_000, 255_000_000,
-      263_000_000, 258_000_000, 271_000_000, 278_000_000, 286_000_000, 294_000_000,
-    ],
+    monthlySpendCents,
     aiRecommendations: Array.from({ length: 10 }, (_, index): AiRecommendation => ({
       id: `recommendation-${index + 1}`,
       title: [
@@ -711,12 +1093,13 @@ export function createDemoState(): DemoState {
         "Inspect lending budget threshold",
         "Analyze recurring freight variances",
       ][index % 5]!,
-      explanation: "Deterministic Demo AI recommendation requiring human review.",
+      explanation:
+        "CATE identified an evidence-backed opportunity and the required human decision.",
       impactCents: index === 0 ? INVENTORY_SAVINGS_CENTS : 25_000 + index * 4_500,
       href: ["/purchase-requests", "/analytics", "/contracts", "/analytics", "/invoices"][
         index % 5
       ]!,
-      confidence: 0.82 + (index % 5) * 0.03,
+      confidence: index % 4 === 0 ? "moderate" : "high",
     })),
     tutorialSteps,
   };
