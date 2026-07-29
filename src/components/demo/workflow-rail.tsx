@@ -56,6 +56,10 @@ export function workflowStepState(
   return "upcoming";
 }
 
+export function isWorkflowActivationKey(key: string) {
+  return key === "Enter" || key === " ";
+}
+
 const stepStyles: Record<WorkflowStepState, string> = {
   current:
     "border-[var(--brand-primary)] bg-[var(--brand-primary)] text-white shadow-sm",
@@ -113,7 +117,7 @@ export function WorkflowRail({
             <>
               <span aria-hidden="true">{index + 1}. </span>
               {label}
-              <span className="sr-only"> — {state}</span>
+              <span className="sr-only"> â€” {state}</span>
             </>
           );
 
@@ -134,6 +138,12 @@ export function WorkflowRail({
                   aria-label={`Jump to workflow step ${index + 1}: ${label}`}
                   disabled={pending || unavailable || state === "current"}
                   onClick={() => onJump(targetStage, label)}
+                  onKeyDown={(event) => {
+                    if (isWorkflowActivationKey(event.key)) {
+                      event.preventDefault();
+                      onJump(targetStage, label);
+                    }
+                  }}
                 >
                   {content}
                 </button>
@@ -152,3 +162,4 @@ export function WorkflowRail({
     </section>
   );
 }
+
