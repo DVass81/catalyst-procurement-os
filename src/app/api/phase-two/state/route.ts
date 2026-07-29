@@ -56,9 +56,12 @@ export async function GET(request: Request) {
     );
   }
   try {
-    await requireAppSession(tenantId);
+    const session = await requireAppSession(tenantId);
     const envelope = await loadPhaseTwoState(tenantId);
-    return NextResponse.json(envelope, { headers: noStoreHeaders });
+    return NextResponse.json(
+      { ...envelope, presenter: session.presenter },
+      { headers: noStoreHeaders },
+    );
   } catch (error) {
     return NextResponse.json(
       { message: safeMessage(error) },
@@ -117,7 +120,10 @@ export async function POST(request: Request) {
     const current = await loadPhaseTwoState(parsed.data.tenantId);
     if (current.revision !== parsed.data.expectedRevision) {
       if (current.lastCommandId === parsed.data.idempotencyKey) {
-        return NextResponse.json(current, { headers: noStoreHeaders });
+        return NextResponse.json(
+          { ...current, presenter: session.presenter },
+          { headers: noStoreHeaders },
+        );
       }
       throw new Error("REVISION_CONFLICT");
     }
@@ -139,6 +145,7 @@ export async function POST(request: Request) {
       revision: committed.revision,
       persistence: committed.persistence,
       durability: committed.durability,
+      presenter: session.presenter,
       lastCommandId: committed.last_command_id,
     };
     return NextResponse.json(response, {

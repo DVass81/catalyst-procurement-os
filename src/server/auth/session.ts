@@ -14,47 +14,51 @@ export interface AppSession {
   mode: "supabase" | "preview";
 }
 
-// Temporary testing access approved on 2026-07-28. Remove this override after
-// Supabase SMTP delivery is configured and verified.
-const TEMPORARY_PUBLIC_DEMO_BYPASS = true;
+type TenantAssignment = { tenant_id: string; role: string };
 
-function fromUser(
-  user: User,
-  assignments: Array<{ tenant_id: string; role: string }>,
-): AppSession {
-  const tenantIds = assignments.map((assignment) => assignment.tenant_id);
-  const role =
+export function deriveSessionAuthority(
+  appMetadata: Record<string, unknown>,
+  assignments: TenantAssignment[],
+) {
+  const assignedRole =
     assignments.find((assignment) => assignment.role === "administrator")
       ?.role ??
     assignments.find((assignment) => assignment.role === "presenter")?.role ??
     assignments[0]?.role ??
     "viewer";
+  const metadataRole =
+    typeof appMetadata.role === "string" ? appMetadata.role : undefined;
+  const metadataPresenter =
+    appMetadata.presenter === true || metadataRole === "administrator";
+  const assignedPresenter = ["presenter", "administrator"].includes(
+    assignedRole,
+  );
+
+  return {
+    role: assignedRole,
+    presenter: metadataPresenter && assignedPresenter,
+  };
+}
+
+function fromUser(
+  user: User,
+  assignments: TenantAssignment[],
+): AppSession {
+  const tenantIds = assignments.map((assignment) => assignment.tenant_id);
+  const authority = deriveSessionAuthority(user.app_metadata, assignments);
   return {
     userId: user.id,
     email: user.email ?? "",
-    role,
+    role: authority.role,
     tenantIds,
-    presenter: role === "presenter" || role === "administrator",
+    presenter: authority.presenter,
     mode: "supabase",
   };
 }
 
 export async function getAppSession(): Promise<AppSession | null> {
-  if (TEMPORARY_PUBLIC_DEMO_BYPASS) {
-    return {
-      userId: "preview-presenter",
-      email: "preview@catalystinnovations.example",
-      role: "system_administrator",
-      tenantIds: ["org-y12-demo", "org-catalyst-community-demo"],
-      presenter: true,
-      mode: "preview",
-    };
-  }
   if (!isSupabaseConfigured()) {
-    if (
-      process.env.NODE_ENV !== "production" ||
-      process.env.DEMO_AUTH_BYPASS === "1"
-    ) {
+    if (process.env.NODE_ENV !== "production") {
       return {
         userId: "preview-presenter",
         email: "preview@catalystinnovations.example",

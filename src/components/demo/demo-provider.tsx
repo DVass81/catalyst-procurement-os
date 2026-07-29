@@ -40,10 +40,6 @@ interface DemoContextValue {
 
 const DemoContext = createContext<DemoContextValue | null>(null);
 
-function presenterMode() {
-  return new URLSearchParams(window.location.search).get("presenter") === "1";
-}
-
 async function requestState(tenantId: TenantId) {
   const response = await fetch(
     `/api/phase-two/state?tenantId=${encodeURIComponent(tenantId)}`,
@@ -83,7 +79,7 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
     (tenantId: TenantId, envelope: PhaseTwoStateEnvelope) => {
       const next = {
         ...envelope.state,
-        presenterMode: presenterMode(),
+        presenterMode: envelope.presenter === true,
       };
       if (next.organization.organizationId !== tenantId) {
         throw new Error("The server returned state for a different tenant.");
@@ -104,18 +100,24 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
     let cancelled = false;
     const load = async () => {
       const storedTenant = window.localStorage.getItem(ACTIVE_TENANT_KEY);
-      const tenantId =
-        presenterMode() && storedTenant && isTenantId(storedTenant)
-          ? storedTenant
-          : "org-y12-demo";
+      let tenantId: TenantId = "org-y12-demo";
       try {
-        const envelope = await requestState(tenantId);
+        let envelope = await requestState(tenantId);
+        if (
+          envelope.presenter === true &&
+          storedTenant &&
+          isTenantId(storedTenant) &&
+          storedTenant !== tenantId
+        ) {
+          tenantId = storedTenant;
+          envelope = await requestState(tenantId);
+        }
         if (!cancelled) acceptEnvelope(tenantId, envelope);
       } catch (loadError) {
         if (cancelled) return;
         setState({
           ...createDemoState(tenantThemes[tenantId]),
-          presenterMode: presenterMode(),
+          presenterMode: false,
         });
         setPersistence("unavailable");
         setDurability("read_only");

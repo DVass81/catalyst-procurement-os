@@ -4,14 +4,12 @@ import { motion } from "framer-motion";
 import {
   ArrowRight,
   CheckCircle2,
-  KeyRound,
   LockKeyhole,
   Mail,
   ShieldCheck,
   Sparkles,
 } from "lucide-react";
 import Image from "next/image";
-import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -20,11 +18,9 @@ import { BrandMark } from "@/components/layout/brand-mark";
 import { organization } from "@/data/mock-data";
 
 export function LoginScreen() {
-  const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [email, setEmail] = useState("");
-  const [code, setCode] = useState("");
-  const [step, setStep] = useState<"email" | "code">("email");
+  const [sent, setSent] = useState(false);
   const [message, setMessage] = useState(
     "Access is limited to pre-invited demonstration users.",
   );
@@ -33,27 +29,22 @@ export function LoginScreen() {
     event.preventDefault();
     setLoading(true);
     try {
-      const endpoint =
-        step === "email" ? "/api/auth/request-code" : "/api/auth/verify-code";
-      const response = await fetch(endpoint, {
+      const response = await fetch("/api/auth/request-code", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(step === "email" ? { email } : { email, token: code }),
+        body: JSON.stringify({ email }),
       });
       const result = (await response.json()) as {
         message?: string;
-        redirectTo?: string;
       };
       if (!response.ok) {
         setMessage(result.message ?? "Secure access is unavailable.");
-      } else if (step === "email") {
-        setStep("code");
+      } else {
+        setSent(true);
         setMessage(
           result.message ??
             "Check your email and open the newest secure Catalyst sign-in link.",
         );
-      } else {
-        router.push(result.redirectTo ?? "/dashboard");
       }
     } catch {
       setMessage(
@@ -223,63 +214,15 @@ export function LoginScreen() {
                 autoComplete="email"
                 placeholder="you@creditunion.org"
                 required
-                disabled={step === "code"}
                 className="h-12 w-full rounded-xl border border-[var(--border-strong)] bg-[var(--surface)] px-4 text-sm text-[var(--foreground)] outline-none transition-shadow focus:ring-2 focus:ring-[var(--brand-primary)]"
               />
             </div>
-            {step === "code" && (
-              <div>
-                <label
-                  htmlFor="code"
-                  className="mb-2 block text-xs font-bold text-[var(--foreground)]"
-                >
-                  One-time access code (only if shown in the email)
-                </label>
-                <input
-                  id="code"
-                  type="text"
-                  inputMode="text"
-                  pattern="[A-Za-z0-9]{6,8}"
-                  maxLength={8}
-                  value={code}
-                  onChange={(event) =>
-                    setCode(
-                      event.target.value
-                        .replace(/[^A-Za-z0-9]/g, "")
-                        .toUpperCase()
-                        .slice(0, 8),
-                    )
-                  }
-                  autoComplete="one-time-code"
-                  placeholder="000000"
-                  required
-                  className="h-12 w-full rounded-xl border border-[var(--border-strong)] bg-[var(--surface)] px-4 font-mono text-lg tracking-[0.35em] text-[var(--foreground)] outline-none transition-shadow focus:ring-2 focus:ring-[var(--brand-primary)]"
-                />
-                <button
-                  type="button"
-                  onClick={() => {
-                    setStep("email");
-                    setCode("");
-                    setMessage(
-                      "Enter the invited email again to send a fresh, single-use sign-in link.",
-                    );
-                  }}
-                  className="mt-2 text-xs font-bold text-[var(--brand-primary)] hover:underline"
-                >
-                  Send another link or use a different email
-                </button>
-              </div>
-            )}
 
             <div
               role="status"
               className="flex items-start gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface-subtle)] px-3 py-2.5 text-xs leading-5 text-[var(--muted-foreground)]"
             >
-              {step === "email" ? (
-                <Mail className="mt-0.5 size-4 shrink-0" />
-              ) : (
-                <KeyRound className="mt-0.5 size-4 shrink-0" />
-              )}
+              <Mail className="mt-0.5 size-4 shrink-0" />
               {message}
             </div>
 
@@ -287,22 +230,18 @@ export function LoginScreen() {
               type="submit"
               size="lg"
               className="w-full"
-              disabled={
-                loading ||
-                !email.trim() ||
-                (step === "code" && (code.length < 6 || code.length > 8))
-              }
+              disabled={loading || !email.trim()}
             >
               {loading ? (
                 <>
                   <span className="size-4 animate-spin rounded-full border-2 border-white/35 border-t-white" />
-                  {step === "email" ? "Sending secure link..." : "Verifying..."}
+                  Sending secure link...
                 </>
               ) : (
                 <>
-                  {step === "email"
-                    ? "Email my secure sign-in link"
-                    : "Enter demonstration"}
+                  {sent
+                    ? "Send a fresh secure sign-in link"
+                    : "Email my secure sign-in link"}
                   <ArrowRight className="size-4" />
                 </>
               )}
@@ -328,7 +267,7 @@ export function LoginScreen() {
             >
               <LockKeyhole className="size-4" />
               Continue with SSO
-              <Badge className="ml-auto">Phase 5</Badge>
+              <Badge className="ml-auto">Future Activation</Badge>
             </Button>
           </form>
 

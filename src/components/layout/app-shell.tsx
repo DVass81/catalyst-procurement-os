@@ -465,9 +465,13 @@ function OrganizationMenu() {
             );
           })}
           <DropdownMenu.Separator className="my-1 h-px bg-[var(--border)]" />
-          <DropdownMenu.Item className="flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-[var(--muted-foreground)] outline-none hover:bg-[var(--surface-muted)] focus:bg-[var(--surface-muted)]">
+          <DropdownMenu.Item
+            disabled
+            className="flex cursor-not-allowed items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-[var(--muted-foreground)] opacity-70 outline-none"
+          >
             <Building2 className="size-4" />
-            Manage organizations
+            Organization administration
+            <Badge className="ml-auto">Future Activation</Badge>
           </DropdownMenu.Item>
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
@@ -537,9 +541,12 @@ function NotificationMenu() {
             ))}
           </div>
           <div className="border-t border-[var(--border)] p-2">
-            <button className="w-full rounded-xl py-2 text-xs font-bold text-[var(--brand-primary)] hover:bg-[var(--surface-muted)]">
+            <Link
+              href="/operations-center"
+              className="block w-full rounded-xl py-2 text-center text-xs font-bold text-[var(--brand-primary)] hover:bg-[var(--surface-muted)]"
+            >
               View all notifications
-            </button>
+            </Link>
           </div>
         </DropdownMenu.Content>
       </DropdownMenu.Portal>

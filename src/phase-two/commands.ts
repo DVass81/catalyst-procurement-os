@@ -163,5 +163,6 @@ export interface PhaseTwoStateEnvelope {
   revision: number;
   persistence: "supabase" | "preview";
   durability: "authoritative" | "temporary";
+  presenter?: boolean;
   lastCommandId?: string;
 }
