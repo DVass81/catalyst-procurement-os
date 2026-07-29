@@ -8,4 +8,3 @@ revoke all on function private.sync_procurement_rfq_kernel(
 grant execute on function private.sync_procurement_rfq_kernel(
   text, jsonb, bigint, uuid
 ) to service_role;
-
