@@ -117,7 +117,7 @@ export function WorkflowRail({
             <>
               <span aria-hidden="true">{index + 1}. </span>
               {label}
-              <span className="sr-only"> â€” {state}</span>
+              <span className="sr-only"> — {state}</span>
             </>
           );
 
@@ -162,4 +162,3 @@ export function WorkflowRail({
     </section>
   );
 }
-
