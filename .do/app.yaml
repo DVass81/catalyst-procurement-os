@@ -25,13 +25,19 @@ services:
         value: ${APP_URL}
         scope: RUN_TIME
       - key: DEMO_AUTH_BYPASS
-        value: "0"
+        value: "1"
+        scope: RUN_TIME
+      - key: DEMO_AUTH_BYPASS_ACTOR_ID
+        type: SECRET
+        scope: RUN_TIME
+      - key: DEMO_AUTH_BYPASS_EXPIRES_AT
+        value: "2026-08-12T23:59:59-04:00"
         scope: RUN_TIME
       - key: CATALYST_SYNTHETIC_ONLY
         value: "1"
         scope: RUN_TIME
       - key: CATALYST_RELEASE_CHANNEL
-        value: commercialization-staging
+        value: development-preview
         scope: RUN_TIME
       - key: CATALYST_RELEASE_COMMIT
         value: ${_self.COMMIT_HASH}

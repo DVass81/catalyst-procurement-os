@@ -1,9 +1,15 @@
 import "server-only";
 
-import type { User } from "@supabase/supabase-js";
+import type { SupabaseClient, User } from "@supabase/supabase-js";
 
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  DEVELOPMENT_BYPASS_EXPIRES_AT,
+  DEVELOPMENT_BYPASS_TENANT_IDS,
+  isDevelopmentBypassExpiration,
+  resolveDevelopmentBypass,
+} from "@/server/auth/development-bypass";
 import {
   demoRoles,
   normalizeAssuranceLevel,
@@ -13,6 +19,7 @@ import {
   type TenantAuthority,
   type TenantIdentityPolicy,
 } from "@/server/auth/authority";
+import { createSupabaseServiceClient } from "@/server/supabase/admin";
 
 export interface AppSession {
   userId: string;
@@ -23,7 +30,13 @@ export interface AppSession {
   assuranceLevel: AssuranceLevel;
   nextAssuranceLevel: AssuranceLevel;
   authorities: Record<string, TenantAuthority>;
-  mode: "supabase" | "preview";
+  mode: "supabase" | "preview" | "staging_bypass";
+}
+
+export function auditActorRole(session: AppSession) {
+  return session.mode === "staging_bypass"
+    ? "staging_bypass_presenter"
+    : session.role;
 }
 
 type TenantAssignment = { tenant_id: string; role: string };
@@ -163,6 +176,7 @@ function fromUser(
   assuranceLevel: AssuranceLevel,
   nextAssuranceLevel: AssuranceLevel,
   authorities: Record<string, TenantAuthority>,
+  mode: AppSession["mode"] = "supabase",
 ): AppSession {
   const tenantIds = assignments.map((assignment) => assignment.tenant_id);
   const authority = deriveSessionAuthority(user.app_metadata, assignments);
@@ -175,97 +189,50 @@ function fromUser(
     assuranceLevel,
     nextAssuranceLevel,
     authorities,
-    mode: "supabase",
+    mode,
   };
 }
 
-export async function getAppSession(): Promise<AppSession | null> {
-  if (!isSupabaseConfigured()) {
-    if (process.env.NODE_ENV !== "production") {
-      const roles: ActiveRoleAssignment[] = demoRoles.map((role) => ({
-        role,
-        assignmentType: "presenter_simulation",
-        departmentIds: [],
-        locationIds: [],
-        categoryIds: [],
-        workflowOwnerIds: [],
-        startsAt: "2020-01-01T00:00:00.000Z",
-        emergencyAccess: false,
-      }));
-      const policy: TenantIdentityPolicy = {
-        internalAccessMode: "invite_magic_link",
-        supplierAccessMode: "invite_magic_link",
-        provisioningMode: "manual_review",
-        requireAal2ForProtectedActions: true,
-        allowSyntheticPresenterAal1: true,
-        status: "validation_required",
-        version: 1,
-      };
-      const authorities = Object.fromEntries(
-        ["org-y12-demo", "org-catalyst-community-demo"].map((tenantId) => [
-          tenantId,
-          {
-            tenantId,
-            policy,
-            roles,
-            supplierAccess: [],
-          } satisfies TenantAuthority,
-        ]),
-      );
-      return {
-        userId: "preview-presenter",
-        email: "preview@catalystinnovations.example",
-        role: "system_administrator",
-        tenantIds: ["org-y12-demo", "org-catalyst-community-demo"],
-        presenter: true,
-        assuranceLevel: "aal1",
-        nextAssuranceLevel: "aal1",
-        authorities,
-        mode: "preview",
-      };
-    }
-    return null;
-  }
-  const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return null;
-  const { data: assignments, error } = await supabase
+async function loadSessionForUser(input: {
+  client: SupabaseClient;
+  user: User;
+  assuranceLevel: AssuranceLevel;
+  nextAssuranceLevel: AssuranceLevel;
+  mode: AppSession["mode"];
+}) {
+  const { client, user } = input;
+  const { data: assignments, error } = await client
     .from("tenant_assignments")
     .select("tenant_id,role")
     .eq("user_id", user.id);
   if (error || !assignments?.length) return null;
   const tenantIds = assignments.map((assignment) => assignment.tenant_id);
-  const [roleResult, supplierResult, policyResult, assuranceResult] =
-    await Promise.all([
-      supabase
+  const [roleResult, supplierResult, policyResult] = await Promise.all([
+      client
         .from("tenant_role_assignments")
         .select(
           "tenant_id,role,assignment_type,department_ids,location_ids,category_ids,approval_limit_cents,workflow_owner_ids,starts_at,expires_at,emergency_access",
         )
         .eq("user_id", user.id)
         .is("suspended_at", null),
-      supabase
+      client
         .from("supplier_identity_assignments")
         .select(
           "tenant_id,supplier_organization_id,supplier_id,scopes,expires_at",
         )
         .eq("user_id", user.id)
         .eq("status", "active"),
-      supabase
+      client
         .from("identity_access_policies")
         .select(
           "tenant_id,internal_access_mode,supplier_access_mode,provisioning_mode,require_aal2_for_protected_actions,allow_synthetic_presenter_aal1,status,version",
         )
         .in("tenant_id", tenantIds),
-      supabase.auth.mfa.getAuthenticatorAssuranceLevel(),
     ]);
   if (
     roleResult.error ||
     supplierResult.error ||
-    policyResult.error ||
-    assuranceResult.error
+    policyResult.error
   ) {
     return null;
   }
@@ -278,10 +245,138 @@ export async function getAppSession(): Promise<AppSession | null> {
   return fromUser(
     user,
     assignments,
-    normalizeAssuranceLevel(assuranceResult.data.currentLevel),
-    normalizeAssuranceLevel(assuranceResult.data.nextLevel),
+    input.assuranceLevel,
+    input.nextAssuranceLevel,
     authorities,
+    input.mode,
   );
+}
+
+function createLocalPreviewSession(): AppSession {
+  const roles: ActiveRoleAssignment[] = demoRoles.map((role) => ({
+    role,
+    assignmentType: "presenter_simulation",
+    departmentIds: [],
+    locationIds: [],
+    categoryIds: [],
+    workflowOwnerIds: [],
+    startsAt: "2020-01-01T00:00:00.000Z",
+    emergencyAccess: false,
+  }));
+  const policy: TenantIdentityPolicy = {
+    internalAccessMode: "invite_magic_link",
+    supplierAccessMode: "invite_magic_link",
+    provisioningMode: "manual_review",
+    requireAal2ForProtectedActions: true,
+    allowSyntheticPresenterAal1: true,
+    status: "validation_required",
+    version: 1,
+  };
+  const authorities = Object.fromEntries(
+    DEVELOPMENT_BYPASS_TENANT_IDS.map((tenantId) => [
+      tenantId,
+      {
+        tenantId,
+        policy,
+        roles,
+        supplierAccess: [],
+      } satisfies TenantAuthority,
+    ]),
+  );
+  return {
+    userId: "preview-presenter",
+    email: "preview@catalystinnovations.example",
+    role: "system_administrator",
+    tenantIds: [...DEVELOPMENT_BYPASS_TENANT_IDS],
+    presenter: true,
+    assuranceLevel: "aal1",
+    nextAssuranceLevel: "aal1",
+    authorities,
+    mode: "preview",
+  };
+}
+
+async function getStagingBypassSession(actorId: string) {
+  try {
+    const client = createSupabaseServiceClient();
+    const {
+      data: { user },
+      error,
+    } = await client.auth.admin.getUserById(actorId);
+    if (error || !user) return null;
+    if (
+      user.app_metadata.presenter !== true ||
+      user.app_metadata.access_mode !== "staging_bypass" ||
+      user.app_metadata.bypass_expires_at !==
+        DEVELOPMENT_BYPASS_EXPIRES_AT
+    ) {
+      return null;
+    }
+    const session = await loadSessionForUser({
+      client,
+      user,
+      assuranceLevel: "aal1",
+      nextAssuranceLevel: "aal1",
+      mode: "staging_bypass",
+    });
+    if (!session || !session.presenter) return null;
+    const assignedTenants = [...session.tenantIds].sort();
+    const allowedTenants = [...DEVELOPMENT_BYPASS_TENANT_IDS].sort();
+    if (
+      assignedTenants.length !== allowedTenants.length ||
+      assignedTenants.some(
+        (tenantId, index) => tenantId !== allowedTenants[index],
+      )
+    ) {
+      return null;
+    }
+    const hasCompleteSimulationAuthority = allowedTenants.every((tenantId) => {
+      const roles = session.authorities[tenantId]?.roles ?? [];
+      return demoRoles.every((role) =>
+        roles.some(
+          (assignment) =>
+            assignment.role === role &&
+            assignment.assignmentType === "presenter_simulation" &&
+            isDevelopmentBypassExpiration(assignment.expiresAt),
+        ),
+      );
+    });
+    return hasCompleteSimulationAuthority ? session : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function getAppSession(): Promise<AppSession | null> {
+  const bypass = resolveDevelopmentBypass();
+  if (bypass.active && bypass.actorId) {
+    const bypassSession = await getStagingBypassSession(bypass.actorId);
+    if (bypassSession) return bypassSession;
+  }
+  if (!isSupabaseConfigured()) {
+    return process.env.NODE_ENV !== "production"
+      ? createLocalPreviewSession()
+      : null;
+  }
+  const supabase = await createSupabaseServerClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return null;
+  const assuranceResult =
+    await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+  if (assuranceResult.error) return null;
+  return loadSessionForUser({
+    client: supabase,
+    user,
+    assuranceLevel: normalizeAssuranceLevel(
+      assuranceResult.data.currentLevel,
+    ),
+    nextAssuranceLevel: normalizeAssuranceLevel(
+      assuranceResult.data.nextLevel,
+    ),
+    mode: "supabase",
+  });
 }
 
 export async function requireAppSession(tenantId?: string) {

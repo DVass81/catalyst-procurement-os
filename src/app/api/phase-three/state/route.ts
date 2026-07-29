@@ -6,7 +6,10 @@ import {
   authorizePhaseThreeActor,
   requireSupplierScope,
 } from "@/server/auth/authority";
-import { requireAppSession } from "@/server/auth/session";
+import {
+  auditActorRole,
+  requireAppSession,
+} from "@/server/auth/session";
 import { executePhaseThreeCommand } from "@/server/phase-three/command-engine";
 import {
   commitPhaseTwoState,
@@ -227,7 +230,7 @@ export async function POST(request: Request) {
     const committed = await commitPhaseTwoState({
       tenantId: parsed.data.tenantId,
       actorId: session.userId,
-      actorRole: session.role,
+      actorRole: auditActorRole(session),
       expectedRevision: parsed.data.expectedRevision,
       idempotencyKey: parsed.data.idempotencyKey,
       command,

@@ -9,7 +9,10 @@ import {
   commitPhaseTwoState,
   loadPhaseTwoState,
 } from "@/server/phase-two/repository";
-import { requireAppSession } from "@/server/auth/session";
+import {
+  auditActorRole,
+  requireAppSession,
+} from "@/server/auth/session";
 import {
   consumeRateLimit,
   requestFingerprint,
@@ -156,7 +159,7 @@ export async function POST(request: Request) {
     const committed = await commitPhaseTwoState({
       tenantId: parsed.data.tenantId,
       actorId: session.userId,
-      actorRole: session.role,
+      actorRole: auditActorRole(session),
       expectedRevision: parsed.data.expectedRevision,
       idempotencyKey: parsed.data.idempotencyKey,
       command: parsed.data.command,

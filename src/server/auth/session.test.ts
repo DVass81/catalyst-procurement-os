@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { deriveSessionAuthority } from "@/server/auth/session";
+import {
+  auditActorRole,
+  deriveSessionAuthority,
+  type AppSession,
+} from "@/server/auth/session";
 
 describe("Phase 3 session authority", () => {
   it("requires protected metadata and an authoritative presenter assignment", () => {
@@ -33,5 +37,23 @@ describe("Phase 3 session authority", () => {
         [{ tenant_id: "org-y12-demo", role: "administrator" }],
       ),
     ).toEqual({ role: "administrator", presenter: true });
+  });
+});
+
+describe("audit actor role", () => {
+  const session = {
+    role: "presenter",
+  } as AppSession;
+
+  it("records the dedicated staging bypass actor label", () => {
+    expect(
+      auditActorRole({ ...session, mode: "staging_bypass" }),
+    ).toBe("staging_bypass_presenter");
+  });
+
+  it("retains the authoritative role for normal sessions", () => {
+    expect(auditActorRole({ ...session, mode: "supabase" })).toBe(
+      "presenter",
+    );
   });
 });

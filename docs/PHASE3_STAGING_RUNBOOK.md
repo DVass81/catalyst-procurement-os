@@ -36,6 +36,39 @@ The AI, voice, and Google provider secrets are optional for the primary determin
 | `CATALYST_SYNTHETIC_ONLY` | `1` |
 | `CATALYST_RELEASE_CHANNEL` | `commercialization-staging` |
 
+## Temporary development-preview bypass
+
+The Phase 3 staging app may use the approved public development bypass only
+through August 12, 2026. This mode is not release-qualified or sales-ready.
+It must never be enabled on Phase 2, `main`, a pilot, or a production
+environment.
+
+All of these settings must match or the application fails closed to normal
+invite-only magic-link access:
+
+| Setting | Temporary value |
+|---|---|
+| `DEMO_AUTH_BYPASS` | `1` |
+| `DEMO_AUTH_BYPASS_ACTOR_ID` | Dedicated synthetic actor UUID, stored as a secret |
+| `DEMO_AUTH_BYPASS_EXPIRES_AT` | `2026-08-12T23:59:59-04:00` |
+| `CATALYST_SYNTHETIC_ONLY` | `1` |
+| `CATALYST_RELEASE_CHANNEL` | `development-preview` |
+
+The dedicated identity must be email-confirmed, have protected
+`app_metadata.access_mode=staging_bypass`, be assigned only to
+`org-y12-demo` and `org-catalyst-community-demo`, and hold expiring
+`presenter_simulation` assignments for every demo persona. Do not impersonate
+a named employee. Every committed command must record the actor role as
+`staging_bypass_presenter`.
+
+Before any prospect or sales use, set `DEMO_AUTH_BYPASS=0`, remove
+`DEMO_AUTH_BYPASS_ACTOR_ID`, restore
+`CATALYST_RELEASE_CHANNEL=commercialization-staging`, and disable the
+dedicated actor. Confirm health reports `invite-magic-link`; then verify custom
+SMTP, invited and uninvited addresses, callback, session persistence,
+expiration, sign-out, tenant authority, accessibility/security qualification,
+and three Golden Thread rehearsals.
+
 ## Database verification
 
 The staging audit must prove:
