@@ -35,4 +35,3 @@ describe("Phase 3 presenter workflow rail", () => {
     expect(isWorkflowActivationKey("Escape")).toBe(false);
   });
 });
-
