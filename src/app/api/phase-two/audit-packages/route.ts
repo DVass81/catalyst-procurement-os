@@ -11,7 +11,10 @@ import {
   phaseTwoCommandRequestSchema,
   type PhaseTwoStateEnvelope,
 } from "@/phase-two/commands";
-import { requireAppSession } from "@/server/auth/session";
+import {
+  auditActorRole,
+  requireAppSession,
+} from "@/server/auth/session";
 import {
   createPrivateAuditPackageAccess,
   materializeAuditPackage,
@@ -49,6 +52,9 @@ function statusFor(error: unknown) {
     return 403;
   }
   if (message === "REVISION_CONFLICT") return 409;
+  if (message === "IDEMPOTENCY_KEY_REUSED") return 409;
+  if (message === "TRANSACTION_KERNEL_UNAVAILABLE") return 503;
+  if (message === "AUDIT_INTEGRITY_VIOLATION") return 503;
   if (error instanceof Error && error.name === "WorkflowError") return 409;
   if (message.includes("NOT_FOUND")) return 404;
   return 500;
@@ -65,6 +71,15 @@ function safeMessage(error: unknown) {
   }
   if (message === "REVISION_CONFLICT") {
     return "The workflow changed in another session. Refresh and generate a new package version.";
+  }
+  if (message === "IDEMPOTENCY_KEY_REUSED") {
+    return "This command identifier was already used for different content. No artifact was generated.";
+  }
+  if (message === "TRANSACTION_KERNEL_UNAVAILABLE") {
+    return "Audit-package generation is blocked because the authoritative transaction kernel is not ready.";
+  }
+  if (message === "AUDIT_INTEGRITY_VIOLATION") {
+    return "Audit-package generation is blocked because audit integrity could not be preserved.";
   }
   if (error instanceof Error && error.name === "WorkflowError") return message;
   return "The private audit package could not be generated.";
@@ -110,9 +125,15 @@ export async function POST(request: Request) {
       throw new Error("AUDIT_PACKAGE_ACCESS_DENIED");
     }
     const current = await loadPhaseTwoState(parsed.data.tenantId);
+    if (current.durability !== "authoritative") {
+      throw new Error("TRANSACTION_KERNEL_UNAVAILABLE");
+    }
     if (current.revision !== parsed.data.expectedRevision) {
       if (current.lastCommandId === parsed.data.idempotencyKey) {
-        return NextResponse.json(current, { headers: noStore });
+        return NextResponse.json(
+          { ...current, presenter: session.presenter },
+          { headers: noStore },
+        );
       }
       throw new Error("REVISION_CONFLICT");
     }
@@ -144,7 +165,7 @@ export async function POST(request: Request) {
       const committed = await commitPhaseTwoState({
         tenantId: parsed.data.tenantId,
         actorId: session.userId,
-        actorRole: session.role,
+        actorRole: auditActorRole(session),
         expectedRevision: parsed.data.expectedRevision,
         idempotencyKey: parsed.data.idempotencyKey,
         command: parsed.data.command,
@@ -155,7 +176,14 @@ export async function POST(request: Request) {
         revision: committed.revision,
         persistence: committed.persistence,
         durability: committed.durability,
+        presenter: session.presenter,
         lastCommandId: committed.last_command_id,
+        operationalReadiness: {
+          ...current.operationalReadiness,
+          checkedAt: new Date().toISOString(),
+          snapshotRevision: committed.revision,
+          ledgerRevision: committed.revision,
+        },
       };
       return NextResponse.json(response, {
         status: 201,

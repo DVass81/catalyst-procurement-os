@@ -21,27 +21,26 @@ import type {
   PhaseTwoCommand,
   PhaseTwoStateEnvelope,
 } from "@/phase-two/commands";
+import type { PhaseThreeCommand } from "@/phase-three/commands";
 
 const ACTIVE_TENANT_KEY = "catalyst-procurement-os-active-tenant-v1";
+const HYDRATION_SAFE_SESSION_DATE = "2026-07-29";
 
 interface DemoContextValue {
   state: DemoState;
-  dispatch: (command: PhaseTwoCommand) => Promise<DemoState>;
+  dispatch: (command: PhaseTwoCommand | PhaseThreeCommand) => Promise<DemoState>;
   switchTenant: (tenantId: TenantId) => Promise<void>;
   activeTenantId: TenantId;
   hydrated: boolean;
   pending: boolean;
   persistence: "supabase" | "preview" | "unavailable";
   durability: "authoritative" | "temporary" | "read_only";
+  operationalReadiness: PhaseTwoStateEnvelope["operationalReadiness"];
   revision: number;
   error: string | null;
 }
 
 const DemoContext = createContext<DemoContextValue | null>(null);
-
-function presenterMode() {
-  return new URLSearchParams(window.location.search).get("presenter") === "1";
-}
 
 async function requestState(tenantId: TenantId) {
   const response = await fetch(
@@ -65,7 +64,10 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
   const [activeTenantId, setActiveTenantId] =
     useState<TenantId>("org-y12-demo");
   const [state, setState] = useState<DemoState>(() =>
-    createDemoState(tenantThemes["org-y12-demo"]),
+    createDemoState(
+      tenantThemes["org-y12-demo"],
+      HYDRATION_SAFE_SESSION_DATE,
+    ),
   );
   const [revision, setRevision] = useState(0);
   const [hydrated, setHydrated] = useState(false);
@@ -75,6 +77,14 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
   const [durability, setDurability] =
     useState<DemoContextValue["durability"]>("read_only");
   const [error, setError] = useState<string | null>(null);
+  const [operationalReadiness, setOperationalReadiness] = useState<
+    PhaseTwoStateEnvelope["operationalReadiness"]
+  >({
+    ready: false,
+    mode: "blocked",
+    checkedAt: new Date(0).toISOString(),
+    reasons: ["authoritative_state_not_loaded"],
+  });
   const tenantRef = useRef<TenantId>("org-y12-demo");
   const revisionRef = useRef(0);
 
@@ -82,7 +92,7 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
     (tenantId: TenantId, envelope: PhaseTwoStateEnvelope) => {
       const next = {
         ...envelope.state,
-        presenterMode: presenterMode(),
+        presenterMode: envelope.presenter === true,
       };
       if (next.organization.organizationId !== tenantId) {
         throw new Error("The server returned state for a different tenant.");
@@ -94,7 +104,16 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
       setRevision(envelope.revision);
       setPersistence(envelope.persistence);
       setDurability(envelope.durability);
-      setError(null);
+      setOperationalReadiness(envelope.operationalReadiness);
+      setError(
+        envelope.operationalReadiness.ready
+          ? null
+          : `Controlled actions are blocked: ${
+              envelope.operationalReadiness.reasons
+                .map((reason) => reason.replaceAll("_", " "))
+                .join(", ") || "authoritative transaction checks did not pass"
+            }.`,
+      );
     },
     [],
   );
@@ -103,21 +122,33 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
     let cancelled = false;
     const load = async () => {
       const storedTenant = window.localStorage.getItem(ACTIVE_TENANT_KEY);
-      const tenantId =
-        presenterMode() && storedTenant && isTenantId(storedTenant)
-          ? storedTenant
-          : "org-y12-demo";
+      let tenantId: TenantId = "org-y12-demo";
       try {
-        const envelope = await requestState(tenantId);
+        let envelope = await requestState(tenantId);
+        if (
+          envelope.presenter === true &&
+          storedTenant &&
+          isTenantId(storedTenant) &&
+          storedTenant !== tenantId
+        ) {
+          tenantId = storedTenant;
+          envelope = await requestState(tenantId);
+        }
         if (!cancelled) acceptEnvelope(tenantId, envelope);
       } catch (loadError) {
         if (cancelled) return;
         setState({
           ...createDemoState(tenantThemes[tenantId]),
-          presenterMode: presenterMode(),
+          presenterMode: false,
         });
         setPersistence("unavailable");
         setDurability("read_only");
+        setOperationalReadiness({
+          ready: false,
+          mode: "blocked",
+          checkedAt: new Date().toISOString(),
+          reasons: ["authoritative_state_unavailable"],
+        });
         setError(
           loadError instanceof Error
             ? loadError.message
@@ -134,7 +165,7 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
   }, [acceptEnvelope]);
 
   const dispatch = useCallback(
-    async (command: PhaseTwoCommand) => {
+    async (command: PhaseTwoCommand | PhaseThreeCommand) => {
       if (durability === "read_only") {
         throw new Error(
           "The workspace is in read-only fallback because authoritative state is unavailable.",
@@ -144,8 +175,9 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
       setPending(true);
       setError(null);
       try {
-        const endpoint =
-          command.type === "generate_audit_package"
+        const endpoint = command.type.startsWith("phase3_")
+          ? "/api/phase-three/state"
+          : command.type === "generate_audit_package"
             ? "/api/phase-two/audit-packages"
             : "/api/phase-two/state";
         const response = await fetch(endpoint, {
@@ -220,6 +252,7 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
       pending,
       persistence,
       durability,
+      operationalReadiness,
       revision,
       error,
     }),
@@ -231,6 +264,7 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
       hydrated,
       pending,
       persistence,
+      operationalReadiness,
       revision,
       state,
       switchTenant,

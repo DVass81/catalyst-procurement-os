@@ -7,10 +7,13 @@ import type {
   PhaseTwoCommand,
   PhaseTwoStateEnvelope,
 } from "@/phase-two/commands";
+import type { PhaseThreePersistedCommand } from "@/phase-three/commands";
+import { createPhaseThreeState } from "@/phase-three/seed";
 import { createDemoState } from "@/demo/seed";
 import { tenantThemes, type TenantId } from "@/config/organizations";
 import type { DemoState } from "@/demo/model";
 import { createSupabaseServiceClient } from "@/server/supabase/admin";
+import { syncPhaseThreeProjection } from "@/server/phase-three/projection";
 
 interface StoredSnapshot {
   tenant_id: string;
@@ -24,6 +27,20 @@ interface CommitResult {
   revision: number;
   last_command_id: string;
   replayed: boolean;
+}
+
+interface KernelReadinessRow {
+  ready: boolean;
+  snapshot_revision: number;
+  ledger_revision: number | null;
+  mismatch_reasons: string[] | null;
+}
+
+interface SourcingReadinessRow {
+  ready: boolean;
+  snapshot_revision: number;
+  sourcing_revision: number | null;
+  mismatch_reasons: string[] | null;
 }
 
 const previewSnapshots = new Map<string, StoredSnapshot>();
@@ -42,6 +59,167 @@ function seedFor(tenantId: string, sessionDate?: string) {
   const theme =
     tenantThemes[tenantId as TenantId] ?? tenantThemes["org-y12-demo"];
   return createDemoState(theme, sessionDate);
+}
+
+function normalizeState(state: DemoState): DemoState {
+  const candidate = state as DemoState & {
+    phaseThree?: DemoState["phaseThree"];
+    schemaVersion: number;
+  };
+  if (candidate.schemaVersion >= 6 && candidate.phaseThree) {
+    if (
+      candidate.phaseThree.schemaVersion >= 2 &&
+      Array.isArray(candidate.phaseThree.rfqs)
+    ) {
+      return candidate;
+    }
+    const upgraded = createPhaseThreeState(
+      candidate.sessionDate,
+      candidate.organization.organizationId,
+    );
+    return {
+      ...candidate,
+      phaseThree: {
+        ...candidate.phaseThree,
+        schemaVersion: upgraded.schemaVersion,
+        dataset: upgraded.dataset,
+        rfqs: upgraded.rfqs,
+      },
+    };
+  }
+  return {
+    ...candidate,
+    schemaVersion: 6,
+    phaseThree: createPhaseThreeState(
+      candidate.sessionDate,
+      candidate.organization.organizationId,
+    ),
+  };
+}
+
+async function loadKernelReadiness(
+  client: ReturnType<typeof createSupabaseServiceClient>,
+  tenantId: string,
+): Promise<PhaseTwoStateEnvelope["operationalReadiness"]> {
+  const [kernelResult, sourcingResult] = await Promise.all([
+    client.rpc("procurement_kernel_readiness", {
+      p_tenant_id: tenantId,
+    }),
+    client.rpc("procurement_sourcing_readiness", {
+      p_tenant_id: tenantId,
+    }),
+  ]);
+  if (kernelResult.error || sourcingResult.error) {
+    const reasons = [
+      ...(kernelResult.error ? ["transaction_kernel_unavailable"] : []),
+      ...(sourcingResult.error ? ["sourcing_kernel_unavailable"] : []),
+    ];
+    return {
+      ready: false,
+      mode: "blocked",
+      checkedAt: new Date().toISOString(),
+      reasons,
+    };
+  }
+  const kernel = (
+    Array.isArray(kernelResult.data)
+      ? kernelResult.data[0]
+      : kernelResult.data
+  ) as KernelReadinessRow | null;
+  const sourcing = (
+    Array.isArray(sourcingResult.data)
+      ? sourcingResult.data[0]
+      : sourcingResult.data
+  ) as SourcingReadinessRow | null;
+  if (!kernel || !sourcing) {
+    return {
+      ready: false,
+      mode: "blocked",
+      checkedAt: new Date().toISOString(),
+      reasons: [
+        ...(!kernel ? ["transaction_state_not_initialized"] : []),
+        ...(!sourcing ? ["sourcing_state_not_initialized"] : []),
+      ],
+    };
+  }
+  const ready =
+    kernel.ready &&
+    sourcing.ready &&
+    kernel.snapshot_revision === sourcing.snapshot_revision;
+  const reasons = [
+    ...(kernel.mismatch_reasons ?? []),
+    ...(sourcing.mismatch_reasons ?? []),
+    ...(kernel.snapshot_revision !== sourcing.snapshot_revision
+      ? ["kernel_snapshot_revision_mismatch"]
+      : []),
+  ];
+  return {
+    ready,
+    mode: ready ? "normalized_kernel" : "blocked",
+    checkedAt: new Date().toISOString(),
+    reasons,
+    snapshotRevision: kernel.snapshot_revision,
+    ledgerRevision: kernel.ledger_revision ?? undefined,
+  };
+}
+
+async function attemptPhaseThreeProjection(input: {
+  client: ReturnType<typeof createSupabaseServiceClient>;
+  tenantId: string;
+  commandId: string;
+  state: DemoState;
+}) {
+  const { data, error: lookupError } = await input.client
+    .from("procurement_projection_outbox")
+    .select("attempts")
+    .eq("tenant_id", input.tenantId)
+    .eq("command_id", input.commandId)
+    .eq("projection_type", "phase3_registry")
+    .maybeSingle<{ attempts: number }>();
+  if (lookupError || !data) return;
+
+  const attempts = (data?.attempts ?? 0) + 1;
+  const { error: claimError } = await input.client
+    .from("procurement_projection_outbox")
+    .update({
+      status: "processing",
+      attempts,
+      last_error_code: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("tenant_id", input.tenantId)
+    .eq("command_id", input.commandId)
+    .eq("projection_type", "phase3_registry");
+  if (claimError) return;
+
+  try {
+    await syncPhaseThreeProjection(input.tenantId, input.state);
+    const { error: completionError } = await input.client
+      .from("procurement_projection_outbox")
+      .update({
+        status: "completed",
+        completed_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("tenant_id", input.tenantId)
+      .eq("command_id", input.commandId)
+      .eq("projection_type", "phase3_registry");
+    if (completionError) {
+      throw new Error("PHASE3_PROJECTION_COMPLETION_NOT_RECORDED");
+    }
+  } catch {
+    await input.client
+      .from("procurement_projection_outbox")
+      .update({
+        status: attempts >= 10 ? "dead_letter" : "pending",
+        last_error_code: "PHASE3_PROJECTION_RETRY_REQUIRED",
+        available_at: new Date(Date.now() + 30_000).toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("tenant_id", input.tenantId)
+      .eq("command_id", input.commandId)
+      .eq("projection_type", "phase3_registry");
+  }
 }
 
 function previewSnapshot(tenantId: string) {
@@ -67,6 +245,14 @@ export async function loadPhaseTwoState(
       revision: snapshot.revision,
       persistence: "preview",
       durability: "temporary",
+      operationalReadiness: {
+        ready: true,
+        mode: "preview",
+        checkedAt: new Date().toISOString(),
+        reasons: ["development_preview_is_not_durable"],
+        snapshotRevision: snapshot.revision,
+        ledgerRevision: snapshot.revision,
+      },
       lastCommandId: snapshot.last_command_id ?? undefined,
     };
   }
@@ -79,11 +265,18 @@ export async function loadPhaseTwoState(
     .maybeSingle<StoredSnapshot>();
   if (error) throw new Error(`STATE_LOAD_FAILED:${error.code}`);
   if (data) {
+    const operationalReadiness = await loadKernelReadiness(
+      client,
+      tenantId,
+    );
     return {
-      state: data.state,
+      state: normalizeState(data.state),
       revision: data.revision,
       persistence: "supabase",
-      durability: "authoritative",
+      durability: operationalReadiness.ready
+        ? "authoritative"
+        : "read_only",
+      operationalReadiness,
       lastCommandId: data.last_command_id ?? undefined,
     };
   }
@@ -110,7 +303,7 @@ export async function commitPhaseTwoState(input: {
   actorRole: string;
   expectedRevision: number;
   idempotencyKey: string;
-  command: PhaseTwoCommand;
+  command: PhaseTwoCommand | PhaseThreePersistedCommand;
   nextState: DemoState;
 }): Promise<CommitResult & Pick<PhaseTwoStateEnvelope, "persistence" | "durability">> {
   if (!hasDurableStore()) {
@@ -146,6 +339,13 @@ export async function commitPhaseTwoState(input: {
   }
 
   const client = createSupabaseServiceClient();
+  const operationalReadiness = await loadKernelReadiness(
+    client,
+    input.tenantId,
+  );
+  if (!operationalReadiness.ready) {
+    throw new Error("TRANSACTION_KERNEL_UNAVAILABLE");
+  }
   const checksum = stateChecksum(input.nextState);
   const { data, error } = await client.rpc("commit_demo_command", {
     p_tenant_id: input.tenantId,
@@ -163,10 +363,27 @@ export async function commitPhaseTwoState(input: {
     if (combined.includes("REVISION_CONFLICT")) {
       throw new Error("REVISION_CONFLICT");
     }
+    if (combined.includes("IDEMPOTENCY_KEY_REUSED")) {
+      throw new Error("IDEMPOTENCY_KEY_REUSED");
+    }
+    if (combined.includes("COMMAND_AUTHORITY_DENIED")) {
+      throw new Error("COMMAND_AUTHORITY_DENIED");
+    }
+    if (combined.includes("PROCUREMENT_EVIDENCE_IS_APPEND_ONLY")) {
+      throw new Error("AUDIT_INTEGRITY_VIOLATION");
+    }
     throw new Error(`STATE_COMMIT_FAILED:${error.code}`);
   }
   const result = (Array.isArray(data) ? data[0] : data) as CommitResult | null;
   if (!result) throw new Error("STATE_COMMIT_FAILED:NO_RESULT");
+  if (input.command.type.startsWith("phase3_")) {
+    await attemptPhaseThreeProjection({
+      client,
+      tenantId: input.tenantId,
+      commandId: input.idempotencyKey,
+      state: result.state,
+    });
+  }
   return {
     ...result,
     persistence: "supabase",

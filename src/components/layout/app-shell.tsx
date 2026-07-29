@@ -19,6 +19,8 @@ import {
   Moon,
   Search,
   Settings,
+  ShieldAlert,
+  ShieldCheck,
   Sparkles,
   Sun,
   UserRound,
@@ -169,14 +171,14 @@ function Sidebar({ pathname }: { pathname: string }) {
               <Sparkles className="size-3.5" aria-hidden="true" />
             </span>
             <span className="text-xs font-bold text-white">
-              Catalyst Guide Live
+              CATE Guide
             </span>
             <Badge className="ml-auto border-white/10 bg-white/10 px-1.5 py-0.5 text-[9px] text-[#f0cb7c]">
-              Phase 4
+              AI
             </Badge>
           </div>
           <p className="mt-2 text-[11px] leading-4.5 text-white/55">
-            CATE Live, grounded procurement answers, captions, and a
+            Evidence-grounded procurement answers, captions, and a
             presenter-controlled fallback.
           </p>
           <button
@@ -465,9 +467,13 @@ function OrganizationMenu() {
             );
           })}
           <DropdownMenu.Separator className="my-1 h-px bg-[var(--border)]" />
-          <DropdownMenu.Item className="flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-[var(--muted-foreground)] outline-none hover:bg-[var(--surface-muted)] focus:bg-[var(--surface-muted)]">
+          <DropdownMenu.Item
+            disabled
+            className="flex cursor-not-allowed items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-[var(--muted-foreground)] opacity-70 outline-none"
+          >
             <Building2 className="size-4" />
-            Manage organizations
+            Organization administration
+            <Badge className="ml-auto">Future Activation</Badge>
           </DropdownMenu.Item>
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
@@ -537,9 +543,12 @@ function NotificationMenu() {
             ))}
           </div>
           <div className="border-t border-[var(--border)] p-2">
-            <button className="w-full rounded-xl py-2 text-xs font-bold text-[var(--brand-primary)] hover:bg-[var(--surface-muted)]">
+            <Link
+              href="/operations-center"
+              className="block w-full rounded-xl py-2 text-center text-xs font-bold text-[var(--brand-primary)] hover:bg-[var(--surface-muted)]"
+            >
               View all notifications
-            </button>
+            </Link>
           </div>
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
@@ -547,7 +556,12 @@ function NotificationMenu() {
   );
 }
 
-function ProfileMenu() {
+function ProfileMenu({ stagingBypass }: { stagingBypass: boolean }) {
+  async function signOut() {
+    await fetch("/api/auth/sign-out", { method: "POST" }).catch(() => null);
+    window.location.assign("/");
+  }
+
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
@@ -587,38 +601,76 @@ function ProfileMenu() {
           </div>
           <DropdownMenu.Separator className="my-1 h-px bg-[var(--border)]" />
           {[
-            { label: "My profile", icon: UserRound },
-            { label: "Settings", icon: Settings },
-            { label: "Help center", icon: HelpCircle },
+            { label: "My profile", icon: UserRound, href: "/settings" },
+            {
+              label: "Multi-factor security",
+              icon: ShieldCheck,
+              href: "/auth/mfa",
+            },
+            { label: "Settings", icon: Settings, href: "/settings" },
+            {
+              label: "Help center",
+              icon: HelpCircle,
+              href: "/operations-center",
+            },
           ].map((item) => {
             const Icon = item.icon;
             return (
               <DropdownMenu.Item
                 key={item.label}
+                asChild
                 className="flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-[var(--muted-foreground)] outline-none hover:bg-[var(--surface-muted)] focus:bg-[var(--surface-muted)] focus:text-[var(--foreground)]"
               >
-                <Icon className="size-4" />
-                {item.label}
+                <Link href={item.href}>
+                  <Icon className="size-4" />
+                  {item.label}
+                </Link>
               </DropdownMenu.Item>
             );
           })}
-          <DropdownMenu.Separator className="my-1 h-px bg-[var(--border)]" />
-          <DropdownMenu.Item asChild>
-            <Link
-              href="/"
-              className="flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-rose-600 outline-none hover:bg-rose-500/10 focus:bg-rose-500/10"
-            >
-              <LogOut className="size-4" />
-              Exit demo
-            </Link>
-          </DropdownMenu.Item>
+          {stagingBypass ? (
+            <>
+              <DropdownMenu.Separator className="my-1 h-px bg-[var(--border)]" />
+              <div className="px-3 py-2 text-[10px] leading-4 text-amber-700">
+                Sign-out is unavailable while the temporary development bypass
+                is active.
+              </div>
+            </>
+          ) : (
+            <>
+              <DropdownMenu.Separator className="my-1 h-px bg-[var(--border)]" />
+              <DropdownMenu.Item
+                asChild
+                onSelect={(event) => {
+                  event.preventDefault();
+                  void signOut();
+                }}
+              >
+                <button
+                  type="button"
+                  className="flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-rose-600 outline-none hover:bg-rose-500/10 focus:bg-rose-500/10"
+                >
+                  <LogOut className="size-4" />
+                  Sign out
+                </button>
+              </DropdownMenu.Item>
+            </>
+          )}
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
     </DropdownMenu.Root>
   );
 }
 
-export function AppShell({ children }: { children: React.ReactNode }) {
+export function AppShell({
+  children,
+  accessMode,
+  bypassExpiresAt,
+}: {
+  children: React.ReactNode;
+  accessMode: "supabase" | "preview" | "staging_bypass";
+  bypassExpiresAt?: string;
+}) {
   const pathname = usePathname();
   const guide = useCatalystGuide();
   const { state } = useDemo();
@@ -675,6 +727,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pageTitle =
     currentItem?.label ??
     titleCase(pathname.split("/").filter(Boolean).at(-1) ?? "Dashboard");
+  const stagingBypass = accessMode === "staging_bypass";
 
   return (
     <div
@@ -696,7 +749,29 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <Sidebar pathname={pathname} />
 
       <div className="lg:pl-64">
-        <header className="sticky top-0 z-20 flex h-[var(--topbar-height)] items-center border-b border-[var(--border)] bg-[color-mix(in_srgb,var(--surface)_92%,transparent)] px-4 backdrop-blur-xl sm:px-6 lg:px-8">
+        {stagingBypass && (
+          <div
+            role="status"
+            className="sticky top-0 z-30 flex min-h-10 items-center justify-center gap-2 border-b border-amber-300 bg-amber-100 px-3 py-2 text-center text-[10px] font-black uppercase tracking-[0.08em] text-amber-950 sm:text-xs"
+          >
+            <ShieldAlert className="size-4 shrink-0" aria-hidden="true" />
+            <span>
+              Authentication bypass active — public synthetic development
+              environment — expires August 12, 2026 — not sales ready
+            </span>
+            {bypassExpiresAt && (
+              <time className="sr-only" dateTime={bypassExpiresAt}>
+                {bypassExpiresAt}
+              </time>
+            )}
+          </div>
+        )}
+        <header
+          className={cn(
+            "sticky z-20 flex h-[var(--topbar-height)] items-center border-b border-[var(--border)] bg-[color-mix(in_srgb,var(--surface)_92%,transparent)] px-4 backdrop-blur-xl sm:px-6 lg:px-8",
+            stagingBypass ? "top-10" : "top-0",
+          )}
+        >
           <div className="flex min-w-0 flex-1 items-center gap-3">
             <Dialog.Root open={mobileOpen} onOpenChange={setMobileOpen}>
               <Dialog.Trigger asChild>
@@ -777,7 +852,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <ThemeMenu theme={theme} setTheme={setTheme} />
             <NotificationMenu />
             <div className="mx-1 hidden h-6 w-px bg-[var(--border)] sm:block" />
-            <ProfileMenu />
+            <ProfileMenu stagingBypass={stagingBypass} />
           </div>
         </header>
 
@@ -801,7 +876,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       <button
         onClick={() => guide.setOpen(true)}
-        aria-label="Open Catalyst Guide Live"
+        aria-label="Open CATE Guide"
         className="fixed bottom-5 right-5 z-20 flex size-14 items-center justify-center rounded-2xl bg-gradient-to-br from-[#ebbf5d] to-[#cf4427] text-[#041a6c] shadow-[0_18px_42px_rgba(4,26,108,.28)] transition-transform hover:-translate-y-1 lg:bottom-7 lg:right-7"
       >
         <Sparkles className="size-5" />

@@ -43,7 +43,7 @@ export function CertifiedKpiDashboard({ state }: { state: DemoState }) {
           Role-specific measures with versioned definitions, synthetic targets,
           exact lineage, freshness, quality, guardrails, and record-level
           drilldown. The registry contains {certifiedKpiCatalog.length} certified
-          Phase 2 definitions.
+          Catalyst metric definitions.
         </p>
       </div>
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">

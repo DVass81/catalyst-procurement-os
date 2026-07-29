@@ -9,7 +9,10 @@ import {
   commitPhaseTwoState,
   loadPhaseTwoState,
 } from "@/server/phase-two/repository";
-import { requireAppSession } from "@/server/auth/session";
+import {
+  auditActorRole,
+  requireAppSession,
+} from "@/server/auth/session";
 import {
   consumeRateLimit,
   requestFingerprint,
@@ -25,8 +28,12 @@ function statusFor(error: unknown) {
   if (message === "AUTHENTICATION_REQUIRED") return 401;
   if (message === "TENANT_ACCESS_DENIED") return 403;
   if (message === "DEMO_MUTATION_DENIED") return 403;
+  if (message === "COMMAND_AUTHORITY_DENIED") return 403;
   if (message === "REVISION_CONFLICT") return 409;
+  if (message === "IDEMPOTENCY_KEY_REUSED") return 409;
   if (message === "TENANT_STATE_MISMATCH") return 409;
+  if (message === "TRANSACTION_KERNEL_UNAVAILABLE") return 503;
+  if (message === "AUDIT_INTEGRITY_VIOLATION") return 503;
   if (error instanceof Error && error.name === "WorkflowError") return 409;
   return 500;
 }
@@ -40,8 +47,20 @@ function safeMessage(error: unknown) {
   if (message === "DEMO_MUTATION_DENIED") {
     return "Presenter or administrator authority is required.";
   }
+  if (message === "COMMAND_AUTHORITY_DENIED") {
+    return "The authenticated user is not authorized for this tenant command.";
+  }
   if (message === "REVISION_CONFLICT") {
     return "This demo changed in another session. Refreshing will load the current state.";
+  }
+  if (message === "IDEMPOTENCY_KEY_REUSED") {
+    return "This command identifier was already used for different content. No change was applied.";
+  }
+  if (message === "TRANSACTION_KERNEL_UNAVAILABLE") {
+    return "Controlled actions are blocked because the authoritative transaction kernel is not ready.";
+  }
+  if (message === "AUDIT_INTEGRITY_VIOLATION") {
+    return "Controlled actions are blocked because audit integrity could not be preserved.";
   }
   if (error instanceof Error && error.name === "WorkflowError") return message;
   return "The authoritative demo state is temporarily unavailable.";
@@ -56,9 +75,12 @@ export async function GET(request: Request) {
     );
   }
   try {
-    await requireAppSession(tenantId);
+    const session = await requireAppSession(tenantId);
     const envelope = await loadPhaseTwoState(tenantId);
-    return NextResponse.json(envelope, { headers: noStoreHeaders });
+    return NextResponse.json(
+      { ...envelope, presenter: session.presenter },
+      { headers: noStoreHeaders },
+    );
   } catch (error) {
     return NextResponse.json(
       { message: safeMessage(error) },
@@ -115,9 +137,18 @@ export async function POST(request: Request) {
       throw new Error("DEMO_MUTATION_DENIED");
     }
     const current = await loadPhaseTwoState(parsed.data.tenantId);
+    if (
+      current.durability !== "authoritative" &&
+      current.persistence === "supabase"
+    ) {
+      throw new Error("TRANSACTION_KERNEL_UNAVAILABLE");
+    }
     if (current.revision !== parsed.data.expectedRevision) {
       if (current.lastCommandId === parsed.data.idempotencyKey) {
-        return NextResponse.json(current, { headers: noStoreHeaders });
+        return NextResponse.json(
+          { ...current, presenter: session.presenter },
+          { headers: noStoreHeaders },
+        );
       }
       throw new Error("REVISION_CONFLICT");
     }
@@ -128,7 +159,7 @@ export async function POST(request: Request) {
     const committed = await commitPhaseTwoState({
       tenantId: parsed.data.tenantId,
       actorId: session.userId,
-      actorRole: session.role,
+      actorRole: auditActorRole(session),
       expectedRevision: parsed.data.expectedRevision,
       idempotencyKey: parsed.data.idempotencyKey,
       command: parsed.data.command,
@@ -139,7 +170,14 @@ export async function POST(request: Request) {
       revision: committed.revision,
       persistence: committed.persistence,
       durability: committed.durability,
+      presenter: session.presenter,
       lastCommandId: committed.last_command_id,
+      operationalReadiness: {
+        ...current.operationalReadiness,
+        checkedAt: new Date().toISOString(),
+        snapshotRevision: committed.revision,
+        ledgerRevision: committed.revision,
+      },
     };
     return NextResponse.json(response, {
       headers: {

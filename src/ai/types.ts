@@ -9,6 +9,7 @@ export const aiCapabilitySchema = z.enum([
   "vendor_risk",
   "contract_review",
   "invoice_match",
+  "posted_spend",
   "spend_intelligence",
   "negotiation",
   "market_research",
@@ -68,6 +69,56 @@ export interface CatePolicyContext {
 export interface CateConfidence {
   band: "high" | "moderate" | "low" | "insufficient";
   reason: string;
+}
+
+export type CateIntentId =
+  | AiCapability
+  | "permission_limited";
+
+export interface CateIntentAssessment {
+  intentId: CateIntentId;
+  resolvedCapability: AiCapability;
+  requestedCapability?: AiCapability;
+  resolutionSource:
+    | "prompt"
+    | "requested_capability"
+    | "prompt_overrode_requested_capability";
+  requestedMeasure?: string;
+  expectedAnswer: string;
+  material: boolean;
+}
+
+export interface CateAnswerAssessment {
+  status: "complete" | "partial" | "insufficient" | "permission_limited";
+  questionAnswered: boolean;
+  validationVersion: "cate-answer-validation-v2";
+  reason: string;
+  outputClass:
+    | "deterministic_calculation"
+    | "deterministic_guidance"
+    | "generative_interpretation"
+    | "permission_boundary";
+}
+
+export interface CateCalculation {
+  formula: string;
+  asOf: string;
+  filters: string[];
+  recordCount: number;
+  result: string;
+  sourceCitationIds: string[];
+}
+
+export interface CateClaim {
+  id: string;
+  text: string;
+  classification:
+    | "fact"
+    | "inference"
+    | "assumption"
+    | "limitation"
+    | "human_action";
+  sourceCitationIds: string[];
 }
 
 export type ToolPermission =
@@ -150,6 +201,10 @@ export interface AiRunResult {
   risksAndAlternatives: string[];
   recommendedNextAction: string;
   humanDecisionBoundary: string;
+  intentAssessment: CateIntentAssessment;
+  answerAssessment: CateAnswerAssessment;
+  calculation?: CateCalculation;
+  claims: CateClaim[];
   usage: ProviderUsageEvent;
   tourStepToResume?: string;
   humanReviewNotice: string;

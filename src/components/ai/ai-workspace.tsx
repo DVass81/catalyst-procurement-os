@@ -17,7 +17,7 @@ import {
   Zap,
 } from "lucide-react";
 import Link from "next/link";
-import { useMemo, useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
 
 import type {
   AiCapability,
@@ -63,6 +63,12 @@ const prompts: Array<{
     prompt:
       "Summarize elevated vendor-risk indicators without making a compliance determination.",
     capability: "vendor_risk",
+  },
+  {
+    label: "Posted spend",
+    prompt:
+      "What is current posted spend, what evidence supports it, and what action should a purchasing manager take next?",
+    capability: "posted_spend",
   },
   {
     label: "Savings",
@@ -168,14 +174,16 @@ export function AiWorkspace() {
   const [error, setError] = useState("");
   const [acknowledged, setAcknowledged] = useState(false);
   const [attachment, setAttachment] = useState<File | null>(null);
+  const [feedbackStatus, setFeedbackStatus] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
-  const sessionId = useMemo(() => crypto.randomUUID(), []);
+  const sessionId = `cate-${useId()}`;
 
   async function run(value = prompt, capability?: AiCapability) {
     const question = value.trim();
     if (!question) return;
     setLoading(true);
     setError("");
+    setFeedbackStatus("");
     setSubmitted(question);
     try {
       const metadata = {
@@ -224,6 +232,31 @@ export function AiWorkspace() {
     }
   }
 
+  async function submitFeedback(disposition: "accepted" | "rejected") {
+    if (!result) return;
+    setFeedbackStatus("Recording feedback…");
+    const response = await fetch("/api/ai/feedback", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        tenantId: state.organization.organizationId,
+        runId: result.runId,
+        disposition,
+        reason:
+          disposition === "accepted"
+            ? "The answer directly addressed the question and the cited evidence was verified."
+            : "The answer or cited grounding requires correction before it can support a decision.",
+      }),
+    });
+    const data = (await response.json()) as { message?: string };
+    setFeedbackStatus(
+      data.message ??
+        (response.ok
+          ? "Feedback recorded."
+          : "Feedback could not be recorded."),
+    );
+  }
+
   return (
     <div className="overflow-hidden rounded-[2rem] border border-[var(--border)] bg-[var(--surface)] shadow-[var(--shadow-elevated)]">
       <header className="relative overflow-hidden bg-[var(--brand-primary)] px-5 py-6 text-white sm:px-8">
@@ -240,7 +273,7 @@ export function AiWorkspace() {
                   CATE · Catalyst AI for Trusted Evaluation
                 </h1>
                 <Badge className="border-white/15 bg-white/10 text-white">
-                  Phase 4
+                  Advisory AI
                 </Badge>
               </div>
               <p className="mt-1 text-sm text-white/65">
@@ -335,6 +368,23 @@ export function AiWorkspace() {
                               : "Reliable demo fallback"}
                           </Badge>
                           <Badge>{result.capability.replaceAll("_", " ")}</Badge>
+                          <Badge
+                            tone={
+                              result.answerAssessment.questionAnswered
+                                ? "success"
+                                : "danger"
+                            }
+                          >
+                            {result.answerAssessment.questionAnswered
+                              ? "Question answered"
+                              : "Answer blocked"}
+                          </Badge>
+                          <Badge>
+                            {result.answerAssessment.outputClass.replaceAll(
+                              "_",
+                              " ",
+                            )}
+                          </Badge>
                         </div>
                         <p className="whitespace-pre-line text-sm leading-7 text-[var(--foreground)]">
                           {result.displayText}
@@ -363,6 +413,14 @@ export function AiWorkspace() {
                             </Badge>
                           </div>
                           <dl className="mt-3 grid gap-3 text-xs leading-5 md:grid-cols-2">
+                            <div>
+                              <dt className="font-black">Intent validation</dt>
+                              <dd className="text-[var(--muted-foreground)]">
+                                {result.intentAssessment.expectedAnswer}
+                                <br />
+                                {result.answerAssessment.reason}
+                              </dd>
+                            </div>
                             <div>
                               <dt className="font-black">Policy</dt>
                               <dd className="text-[var(--muted-foreground)]">
@@ -405,6 +463,31 @@ export function AiWorkspace() {
                               </dd>
                             </div>
                           </dl>
+                          {result.calculation && (
+                            <div className="mt-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3 text-xs leading-5">
+                              <p className="font-black">Certified calculation</p>
+                              <p className="mt-1 text-[var(--muted-foreground)]">
+                                {result.calculation.formula}
+                              </p>
+                              <dl className="mt-2 grid gap-2 sm:grid-cols-3">
+                                <div>
+                                  <dt className="font-black">As of</dt>
+                                  <dd>{result.calculation.asOf}</dd>
+                                </div>
+                                <div>
+                                  <dt className="font-black">Records</dt>
+                                  <dd>{result.calculation.recordCount}</dd>
+                                </div>
+                                <div>
+                                  <dt className="font-black">Result</dt>
+                                  <dd>{result.calculation.result}</dd>
+                                </div>
+                              </dl>
+                              <p className="mt-2 text-[var(--muted-foreground)]">
+                                Filters: {result.calculation.filters.join(" · ")}
+                              </p>
+                            </div>
+                          )}
                           <p className="mt-3 border-l-2 border-[var(--brand-accent)] pl-3 text-[11px] font-bold leading-5">
                             {result.humanDecisionBoundary}
                           </p>
@@ -437,6 +520,33 @@ export function AiWorkspace() {
                             ))}
                           </div>
                         )}
+                        {result.claims.length > 0 && (
+                          <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface-subtle)] p-4">
+                            <p className="text-[10px] font-black uppercase tracking-wider text-[var(--muted-foreground)]">
+                              Claim-level grounding
+                            </p>
+                            <ul className="mt-3 space-y-3">
+                              {result.claims.map((claim) => (
+                                <li
+                                  key={claim.id}
+                                  className="rounded-xl bg-[var(--surface)] p-3 text-xs leading-5"
+                                >
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <Badge>
+                                      {claim.classification.replaceAll("_", " ")}
+                                    </Badge>
+                                    <span className="text-[var(--muted-foreground)]">
+                                      {claim.sourceCitationIds.length
+                                        ? `Sources: ${claim.sourceCitationIds.join(", ")}`
+                                        : "No source claim; limitation or human-action boundary."}
+                                    </span>
+                                  </div>
+                                  <p className="mt-2">{claim.text}</p>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
                         {result.citations.length > 0 && (
                           <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface-subtle)] p-4">
                             <p className="text-[10px] font-black uppercase tracking-wider text-[var(--muted-foreground)]">
@@ -466,6 +576,36 @@ export function AiWorkspace() {
                             </div>
                           </div>
                         )}
+                        <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface-subtle)] p-4">
+                          <p className="text-xs font-black">
+                            Verify or challenge this answer
+                          </p>
+                          <p className="mt-1 text-xs text-[var(--muted-foreground)]">
+                            Feedback is linked to this exact run, model, prompt
+                            version, evidence manifest, and answer contract.
+                          </p>
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onClick={() => void submitFeedback("accepted")}
+                            >
+                              Evidence verified
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onClick={() => void submitFeedback("rejected")}
+                            >
+                              Challenge answer
+                            </Button>
+                          </div>
+                          {feedbackStatus && (
+                            <p className="mt-2 text-xs font-bold" role="status">
+                              {feedbackStatus}
+                            </p>
+                          )}
+                        </div>
                         {result.proposedActions.map((action) => (
                           <ActionCard
                             key={action.id}

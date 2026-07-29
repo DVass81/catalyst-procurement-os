@@ -6,45 +6,27 @@ import {
   controlledImportCellValue,
   loadControlledImportRows,
 } from "@/phase-two/import-parser";
+import {
+  createStarterMappingProfile,
+  importMappingProfileSchema,
+  mapImportRows,
+  normalizeImportHeader,
+  type ImportEntityType,
+  type ImportMappingProfile,
+} from "@/phase-two/import-mapping";
 import { sanitizeDocumentFilename } from "@/server/phase-two/documents";
 import { createSupabaseServiceClient } from "@/server/supabase/admin";
-
-type ImportType = "vendor_master" | "catalog" | "opening_inventory";
-
-const requiredColumns: Record<ImportType, string[]> = {
-  vendor_master: ["external_id", "legal_name", "status", "risk_tier"],
-  catalog: [
-    "external_id",
-    "description",
-    "unit_of_measure",
-    "unit_price_cents",
-  ],
-  opening_inventory: [
-    "external_id",
-    "location_id",
-    "quantity",
-    "unit_cost_cents",
-  ],
-};
 
 const prohibitedHeaders =
   /(^|_)(ssn|social_security|member_number|account_number|routing_number|card_number|date_of_birth|consumer)($|_)/i;
 
-function headerName(value: string) {
-  return value
-    .normalize("NFKC")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "");
-}
-
 export async function stageControlledImport(input: {
   tenantId: string;
   actorId: string;
-  importType: ImportType;
+  importType: ImportEntityType;
   sourceSystem: string;
   file: File;
+  mappingProfile?: ImportMappingProfile;
 }) {
   if (!input.file.size || input.file.size > 10 * 1024 * 1024) {
     throw new Error("IMPORT_SIZE_REJECTED");
@@ -54,7 +36,7 @@ export async function stageControlledImport(input: {
     throw new Error("IMPORT_ROW_LIMIT");
   }
   const headers = rows[0]!.map((value) =>
-    headerName(controlledImportCellValue(value)),
+    normalizeImportHeader(controlledImportCellValue(value)),
   );
   if (!headers.length || headers.length > 500) {
     throw new Error("IMPORT_COLUMN_LIMIT");
@@ -62,19 +44,27 @@ export async function stageControlledImport(input: {
   if (headers.some((header) => prohibitedHeaders.test(header))) {
     throw new Error("PROHIBITED_DATA_HEADER");
   }
-  const missing = requiredColumns[input.importType].filter(
-    (column) => !headers.includes(column),
+  const profile = importMappingProfileSchema.parse(
+    input.mappingProfile ?? createStarterMappingProfile(input.importType),
   );
-  if (missing.length) throw new Error(`IMPORT_MAPPING_MISSING:${missing.join(",")}`);
+  if (profile.entityType !== input.importType) {
+    throw new Error("IMPORT_PROFILE_ENTITY_MISMATCH");
+  }
+  const missing = profile.mappings
+    .filter(
+      (mapping) =>
+        mapping.required &&
+        !mapping.sourceHeaders.some((header) => headers.includes(header)),
+    )
+    .map((mapping) => mapping.targetField);
+  if (missing.length) {
+    throw new Error(`IMPORT_MAPPING_MISSING:${missing.join(",")}`);
+  }
 
-  const records: Array<{
+  const sourceRows: Array<{
     rowNumber: number;
     source: Record<string, string>;
-    normalized: Record<string, string | number>;
-    errors: string[];
   }> = [];
-  const externalIds = new Set<string>();
-  let sourceTotalCents = 0;
   for (let rowNumber = 2; rowNumber <= rows.length; rowNumber += 1) {
     const row = rows[rowNumber - 1]!;
     const source: Record<string, string> = {};
@@ -82,40 +72,18 @@ export async function stageControlledImport(input: {
       if (header) source[header] = controlledImportCellValue(row[index]);
     });
     if (Object.values(source).every((value) => !value)) continue;
-    const errors: string[] = [];
-    for (const column of requiredColumns[input.importType]) {
-      if (!source[column]) errors.push(`${column} is required`);
-    }
-    const externalId = source.external_id ?? "";
-    if (externalIds.has(externalId)) {
-      errors.push("duplicate external_id in batch; no automatic merge performed");
-    }
-    externalIds.add(externalId);
-    const normalized: Record<string, string | number> = { ...source };
-    for (const numericColumn of [
-      "unit_price_cents",
-      "quantity",
-      "unit_cost_cents",
-    ]) {
-      if (!(numericColumn in source)) continue;
-      const numeric = Number(source[numericColumn]);
-      if (!Number.isInteger(numeric) || numeric < 0) {
-        errors.push(`${numericColumn} must be a nonnegative integer`);
-      } else {
-        normalized[numericColumn] = numeric;
-      }
-    }
-    if (input.importType === "catalog") {
-      sourceTotalCents += Number(normalized.unit_price_cents ?? 0);
-    }
-    if (input.importType === "opening_inventory") {
-      sourceTotalCents +=
-        Number(normalized.quantity ?? 0) *
-        Number(normalized.unit_cost_cents ?? 0);
-    }
-    records.push({ rowNumber, source, normalized, errors });
+    sourceRows.push({ rowNumber, source });
   }
+  const mapped = mapImportRows({ rows: sourceRows, profile });
+  const records = mapped.rows;
   if (!records.length) throw new Error("IMPORT_EMPTY");
+  const sourceTotalCents = Number(
+    mapped.controlTotals.extended_inventory_value_cents ??
+      mapped.controlTotals.unit_price_cents ??
+      mapped.controlTotals.total_cents ??
+      mapped.controlTotals.value_cents ??
+      0,
+  );
 
   const batchId = crypto.randomUUID();
   const sha256 = createHash("sha256").update(bytes).digest("hex");
@@ -145,7 +113,8 @@ export async function stageControlledImport(input: {
     storage_path: storagePath,
     mapping: {
       headers,
-      required: requiredColumns[input.importType],
+      profile,
+      controlTotals: mapped.controlTotals,
       preview: records.slice(0, 5).map((record) => record.normalized),
     },
     source_system: input.sourceSystem,
@@ -161,6 +130,12 @@ export async function stageControlledImport(input: {
       })),
       duplicateHandling: "flag_only_no_merge",
       formulasAllowed: false,
+      mappingProfile: {
+        profileId: profile.profileId,
+        version: profile.version,
+        entityType: profile.entityType,
+      },
+      controlTotals: mapped.controlTotals,
     },
     imported_by: input.actorId,
   });
@@ -177,7 +152,7 @@ export async function stageControlledImport(input: {
       source_record: record.source,
       normalized_record: record.normalized,
       validation_errors: record.errors,
-      immutable_external_id: record.source.external_id,
+      immutable_external_id: String(record.normalized.external_id ?? ""),
     }));
     const { error } = await client.from("import_rows").insert(chunk);
     if (error) {
@@ -193,6 +168,12 @@ export async function stageControlledImport(input: {
             })),
             duplicateHandling: "flag_only_no_merge",
             formulasAllowed: false,
+            mappingProfile: {
+              profileId: profile.profileId,
+              version: profile.version,
+              entityType: profile.entityType,
+            },
+            controlTotals: mapped.controlTotals,
             persistenceFailure: {
               code: error.code,
               offset,
@@ -215,6 +196,12 @@ export async function stageControlledImport(input: {
     validRowCount: records.length - errorRows.length,
     errorRowCount: errorRows.length,
     sourceTotalCents,
+    controlTotals: mapped.controlTotals,
+    mappingProfile: {
+      profileId: profile.profileId,
+      version: profile.version,
+      entityType: profile.entityType,
+    },
     mappingPreview: records.slice(0, 5).map((record) => record.normalized),
     errors: errorRows.slice(0, 20).map((record) => ({
       row: record.rowNumber,
