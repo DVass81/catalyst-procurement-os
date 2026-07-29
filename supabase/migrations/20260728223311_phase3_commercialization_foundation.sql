@@ -522,9 +522,10 @@ begin
           select 1
           from public.tenant_assignments as assignment
           where assignment.user_id = (select auth.uid())
-            and assignment.tenant_id = tenant_id
+            and assignment.tenant_id = %I.tenant_id
         )
       )',
+      table_name,
       table_name
     );
   end loop;
