@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { resolvePublicOrigin } from "@/server/http/public-origin";
 
 function safeNextPath(value: string | null) {
   return value?.startsWith("/") && !value.startsWith("//")
@@ -11,12 +12,13 @@ function safeNextPath(value: string | null) {
 
 export async function GET(request: Request) {
   const requestUrl = new URL(request.url);
+  const publicOrigin = resolvePublicOrigin(request);
   const code = requestUrl.searchParams.get("code");
   const next = safeNextPath(requestUrl.searchParams.get("next"));
 
   if (!code || !isSupabaseConfigured()) {
     return NextResponse.redirect(
-      new URL("/?authError=secure-link-unavailable", requestUrl.origin),
+      new URL("/?authError=secure-link-unavailable", publicOrigin),
     );
   }
 
@@ -32,9 +34,9 @@ export async function GET(request: Request) {
   if (error || !data.user || !assignments?.length) {
     await supabase.auth.signOut();
     return NextResponse.redirect(
-      new URL("/?authError=invitation-required", requestUrl.origin),
+      new URL("/?authError=invitation-required", publicOrigin),
     );
   }
 
-  return NextResponse.redirect(new URL(next, requestUrl.origin));
+  return NextResponse.redirect(new URL(next, publicOrigin));
 }

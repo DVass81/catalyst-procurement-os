@@ -7,27 +7,14 @@ import {
   consumeRateLimit,
   requestFingerprint,
 } from "@/server/security/rate-limit";
+import { resolvePublicOrigin } from "@/server/http/public-origin";
 
 const bodySchema = z.object({
   email: z.string().trim().email().max(320),
 });
 
 function authCallbackUrl(request: Request) {
-  const configuredBaseUrl = process.env.APP_BASE_URL?.trim();
-  let baseUrl = new URL(request.url).origin;
-
-  if (configuredBaseUrl) {
-    try {
-      const candidate = new URL(configuredBaseUrl);
-      if (candidate.protocol === "https:" || candidate.protocol === "http:") {
-        baseUrl = candidate.origin;
-      }
-    } catch {
-      // Fall back to the current request origin when configuration is invalid.
-    }
-  }
-
-  const callbackUrl = new URL("/auth/callback", baseUrl);
+  const callbackUrl = new URL("/auth/callback", resolvePublicOrigin(request));
   callbackUrl.searchParams.set("next", "/dashboard");
   return callbackUrl.toString();
 }
