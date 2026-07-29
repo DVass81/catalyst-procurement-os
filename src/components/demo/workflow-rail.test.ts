@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  isWorkflowActivationKey,
   workflowSteps,
   workflowStepState,
 } from "@/components/demo/workflow-rail";
@@ -26,4 +27,12 @@ describe("Phase 3 presenter workflow rail", () => {
     expect(workflowStepState("manager_approved", 6)).toBe("upcoming");
     expect(workflowStepState("resolved", 8)).toBe("current");
   });
+
+  it("activates presenter buttons with Enter or Space only", () => {
+    expect(isWorkflowActivationKey("Enter")).toBe(true);
+    expect(isWorkflowActivationKey(" ")).toBe(true);
+    expect(isWorkflowActivationKey("Tab")).toBe(false);
+    expect(isWorkflowActivationKey("Escape")).toBe(false);
+  });
 });
+
