@@ -6,4 +6,3 @@ revoke all on function private.initialize_procurement_kernel()
   from public, anon, authenticated;
 grant execute on function private.initialize_procurement_kernel()
   to service_role;
-
