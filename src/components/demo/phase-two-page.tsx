@@ -50,6 +50,7 @@ import { formatSessionDate } from "@/demo/clock";
 import { statusLabel, statusPresentation } from "@/demo/presentation";
 import { evaluateVendorQuotes } from "@/demo/vendor-policy";
 import type { PhaseTwoCommand } from "@/phase-two/commands";
+import type { ImportEntityType } from "@/phase-two/import-mapping";
 
 type ExecuteCommand = (
   command: PhaseTwoCommand | PhaseTwoCommand[],
@@ -1759,12 +1760,28 @@ function PrivateDocumentUpload({
   );
 }
 
+const controlledImportTypes: ReadonlyArray<{
+  value: ImportEntityType;
+  label: string;
+}> = [
+  { value: "vendor_master", label: "Supplier master" },
+  { value: "catalog", label: "Catalog" },
+  { value: "opening_inventory", label: "Opening inventory" },
+  { value: "budget", label: "Budget" },
+  { value: "purchase_request", label: "Purchase requests" },
+  { value: "purchase_order", label: "Purchase orders" },
+  { value: "receipt", label: "Receipts" },
+  { value: "invoice", label: "Invoices" },
+  { value: "contract", label: "Contracts" },
+];
+
 function ControlledImportUpload({ tenantId }: { tenantId: string }) {
   const [file, setFile] = useState<File | null>(null);
   const [acknowledged, setAcknowledged] = useState(false);
-  const [importType, setImportType] = useState<
-    "vendor_master" | "catalog" | "opening_inventory"
-  >("vendor_master");
+  const [importType, setImportType] =
+    useState<ImportEntityType>("vendor_master");
+  const [sourceSystem, setSourceSystem] = useState("Unknown legacy source");
+  const [mappingProfile, setMappingProfile] = useState("");
   const [status, setStatus] = useState("");
   const [working, setWorking] = useState(false);
 
@@ -1775,7 +1792,10 @@ function ControlledImportUpload({ tenantId }: { tenantId: string }) {
     const form = new FormData();
     form.append("tenantId", tenantId);
     form.append("importType", importType);
-    form.append("sourceSystem", "Synthetic controlled upload");
+    form.append("sourceSystem", sourceSystem.trim() || "Unknown legacy source");
+    if (mappingProfile.trim()) {
+      form.append("mappingProfile", mappingProfile.trim());
+    }
     form.append("syntheticDataAttestation", "true");
     form.append("file", file);
     try {
@@ -1791,10 +1811,17 @@ function ControlledImportUpload({ tenantId }: { tenantId: string }) {
         validRowCount?: number;
         errorRowCount?: number;
         sha256?: string;
+        mappingProfile?: {
+          profileId: string;
+          version: number;
+          entityType: ImportEntityType;
+        };
       };
-      if (!response.ok) throw new Error(result.message ?? "Import staging failed.");
+      if (!response.ok) {
+        throw new Error(result.message ?? "Import staging failed.");
+      }
       setStatus(
-        `Batch ${result.batchId} · ${result.lifecycleState} · ${result.validRowCount}/${result.rowCount} valid rows · ${result.errorRowCount} errors · SHA-256 ${result.sha256}`,
+        `Batch ${result.batchId} · ${result.lifecycleState} · ${result.validRowCount}/${result.rowCount} valid rows · ${result.errorRowCount} errors · mapping ${result.mappingProfile?.profileId ?? "starter"} v${result.mappingProfile?.version ?? 1} · SHA-256 ${result.sha256}`,
       );
       setFile(null);
       setAcknowledged(false);
@@ -1809,26 +1836,24 @@ function ControlledImportUpload({ tenantId }: { tenantId: string }) {
     <div className="mt-4 rounded-xl border border-[var(--border)] p-3">
       <p className="text-xs font-black">Stage a controlled import</p>
       <p className="mt-1 text-[11px] text-[var(--muted-foreground)]">
-        CSV or macro-free XLSX · formulas rejected · duplicates flagged without
-        automatic merge · no member or consumer financial fields.
+        Source-neutral CSV or macro-free XLSX · formulas rejected · duplicates
+        flagged without automatic merge · no member or consumer financial
+        fields. Common column names auto-map when no profile is supplied.
       </p>
       <div className="mt-3 grid gap-2 sm:grid-cols-2">
         <select
           aria-label="Import type"
           value={importType}
           onChange={(event) =>
-            setImportType(
-              event.target.value as
-                | "vendor_master"
-                | "catalog"
-                | "opening_inventory",
-            )
+            setImportType(event.target.value as ImportEntityType)
           }
           className="h-10 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-xs"
         >
-          <option value="vendor_master">Vendor master</option>
-          <option value="catalog">Catalog</option>
-          <option value="opening_inventory">Opening inventory</option>
+          {controlledImportTypes.map((type) => (
+            <option key={type.value} value={type.value}>
+              {type.label}
+            </option>
+          ))}
         </select>
         <input
           type="file"
@@ -1838,6 +1863,43 @@ function ControlledImportUpload({ tenantId }: { tenantId: string }) {
           className="text-xs"
         />
       </div>
+      <label className="mt-3 block text-[11px] font-bold">
+        Source label
+        <input
+          value={sourceSystem}
+          maxLength={160}
+          onChange={(event) => setSourceSystem(event.target.value)}
+          placeholder="Unknown legacy source"
+          className="mt-1 h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-xs"
+        />
+      </label>
+      <details className="mt-3 rounded-xl border border-[var(--border)] p-3">
+        <summary className="cursor-pointer text-[11px] font-black">
+          Optional versioned mapping profile
+        </summary>
+        <p className="mt-2 text-[11px] leading-5 text-[var(--muted-foreground)]">
+          Leave this blank to use Catalyst&apos;s source-neutral aliases. A
+          customer-specific JSON profile can later map its actual headers
+          without changing the transaction core.
+        </p>
+        <textarea
+          value={mappingProfile}
+          maxLength={60_000}
+          onChange={(event) => setMappingProfile(event.target.value)}
+          aria-label="Optional versioned mapping profile JSON"
+          placeholder='{"profileId":"customer-v1","version":1,"entityType":"vendor_master",...}'
+          className="mt-2 min-h-32 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3 font-mono text-[11px]"
+        />
+        <Button
+          className="mt-2"
+          size="sm"
+          variant="secondary"
+          disabled={!mappingProfile}
+          onClick={() => setMappingProfile("")}
+        >
+          Use starter auto-mapping
+        </Button>
+      </details>
       <label className="mt-3 flex min-h-6 items-center gap-2 text-[11px] font-bold">
         <input
           type="checkbox"
@@ -1911,6 +1973,7 @@ export function PhaseTwoPage({ section }: { section: string }) {
     pending,
     persistence,
     durability,
+    operationalReadiness,
     revision,
     error: persistenceError,
   } = useDemo();
@@ -1956,15 +2019,16 @@ export function PhaseTwoPage({ section }: { section: string }) {
       >
         <span className="font-bold">
           {durability === "authoritative"
-            ? `Supabase authoritative state · revision ${revision}`
+            ? `Authoritative transaction kernel ready · revision ${revision}`
             : durability === "temporary"
-              ? `Temporary server fallback · revision ${revision} · resets when the server restarts`
-              : "Read-only deterministic fallback · authoritative state unavailable"}
+              ? `Temporary development preview · revision ${revision} · not durable`
+              : "Controlled actions blocked · authoritative transaction checks did not pass"}
         </span>
         <span>
           {pending
             ? "Saving controlled command…"
-            : persistenceError ?? `Persistence: ${persistence}`}
+            : persistenceError ??
+              `${operationalReadiness.mode.replaceAll("_", " ")} · persistence: ${persistence}`}
         </span>
       </div>
       {state.presenterMode && (
@@ -2018,7 +2082,13 @@ export function PhaseTwoPage({ section }: { section: string }) {
         }
       />
       <DecisionGuide section={section} />
-      {section === "dashboard" ? <DashboardView state={state} /> : section === "purchase-requests" ? <RequestView state={state} execute={execute} /> : section === "approvals" ? <ApprovalView state={state} execute={execute} /> : section === "purchase-orders" ? <PurchaseOrderView state={state} execute={execute} /> : section === "receiving" ? <ReceivingView state={state} execute={execute} /> : section === "invoices" ? <InvoiceView state={state} execute={execute} /> : section === "analytics" ? <CertifiedKpiDashboard state={state} /> : section === "audit-center" ? <AuditView state={state} execute={execute} activeTenantId={activeTenantId} durableArtifacts={durability === "authoritative"} /> : section === "administration" ? <GovernanceView state={state} execute={execute} /> : section === "ai-procurement" ? <AiWorkspace /> : <GenericView section={section} state={state} />}
+      <fieldset
+        disabled={durability === "read_only"}
+        aria-disabled={durability === "read_only"}
+        className="contents"
+      >
+        {section === "dashboard" ? <DashboardView state={state} /> : section === "purchase-requests" ? <RequestView state={state} execute={execute} /> : section === "approvals" ? <ApprovalView state={state} execute={execute} /> : section === "purchase-orders" ? <PurchaseOrderView state={state} execute={execute} /> : section === "receiving" ? <ReceivingView state={state} execute={execute} /> : section === "invoices" ? <InvoiceView state={state} execute={execute} /> : section === "analytics" ? <CertifiedKpiDashboard state={state} /> : section === "audit-center" ? <AuditView state={state} execute={execute} activeTenantId={activeTenantId} durableArtifacts={durability === "authoritative"} /> : section === "administration" ? <GovernanceView state={state} execute={execute} /> : section === "ai-procurement" ? <AiWorkspace /> : <GenericView section={section} state={state} />}
+      </fieldset>
       {message && (
         <div role="status" className="fixed bottom-5 right-5 z-50 flex max-w-sm items-start gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface-elevated)] p-4 shadow-[var(--shadow-elevated)]">
           <Check className="mt-0.5 size-4 text-emerald-600" />

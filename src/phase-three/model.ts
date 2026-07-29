@@ -520,8 +520,118 @@ export interface PreflightCheck {
   blocking: boolean;
 }
 
+export interface RfqLine {
+  id: string;
+  requestLineId: string;
+  description: string;
+  quantity: number;
+  unitOfMeasure: string;
+  requiredByDate: string;
+  specification: string;
+}
+
+export interface RfqSupplierInvitation {
+  supplierId: string;
+  supplierOrganizationId: string;
+  supplierName: string;
+  status:
+    | "selected"
+    | "invited"
+    | "viewed"
+    | "responded"
+    | "declined"
+    | "shortlisted"
+    | "not_awarded"
+    | "awarded";
+  invitedAt?: string;
+  viewedAt?: string;
+}
+
+export interface RfqResponseLine {
+  rfqLineId: string;
+  unitPriceCents: number;
+  extendedPriceCents: number;
+  promisedDate: string;
+  exception?: string;
+}
+
+export interface RfqResponse {
+  id: string;
+  supplierId: string;
+  supplierOrganizationId: string;
+  round: number;
+  status: "draft" | "submitted" | "withdrawn" | "revealed" | "superseded";
+  submittedAt?: string;
+  revealedAt?: string;
+  totalCents: number;
+  freightCents: number;
+  paymentTerms: string;
+  validityDate: string;
+  lines: RfqResponseLine[];
+  attachments: string[];
+  responseHash: string;
+}
+
+export interface RfqEvaluation {
+  id: string;
+  responseId: string;
+  supplierId: string;
+  round: number;
+  priceScore: number;
+  deliveryScore: number;
+  riskScore: number;
+  serviceScore: number;
+  totalScore: number;
+  rank: number;
+  completedByRole: string;
+  evidence: string[];
+}
+
+export interface RfqAward {
+  supplierId: string;
+  responseId: string;
+  awardedByRole: string;
+  awardedAt: string;
+  rationale: string;
+  totalCents: number;
+  purchaseOrderId?: string;
+}
+
+export interface RfqRecord {
+  id: string;
+  rfqNumber: string;
+  requestId: string;
+  title: string;
+  description: string;
+  sourcingMethod: "rfq" | "rfp";
+  lifecycleState:
+    | "draft"
+    | "open"
+    | "responses_received"
+    | "closed"
+    | "bafo_open"
+    | "evaluated"
+    | "awarded"
+    | "cancelled";
+  currency: "USD";
+  issueDate?: string;
+  responseDeadline: string;
+  sealedUntil: string;
+  retentionUntil: string;
+  termsVersion: string;
+  evaluationVersion: string;
+  lines: RfqLine[];
+  suppliers: RfqSupplierInvitation[];
+  responses: RfqResponse[];
+  evaluations: RfqEvaluation[];
+  bafoRound: number;
+  award?: RfqAward;
+  version: number;
+  correlationId: string;
+}
+
 export interface PhaseThreeState {
-  schemaVersion: 1;
+  schemaVersion: 2;
   dataset: SyntheticDatasetManifest;
   capabilityRegistry: CapabilityRecord[];
   canonicalEntities: CanonicalEntityDefinition[];
@@ -529,6 +639,7 @@ export interface PhaseThreeState {
   integrationRuns: IntegrationRun[];
   ssoTemplates: SsoTemplate[];
   supplierApplications: SupplierApplication[];
+  rfqs: RfqRecord[];
   contracts: ContractIntelligenceRecord[];
   workflowVersions: WorkflowVersion[];
   mobileTasks: MobileTask[];

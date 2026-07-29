@@ -682,6 +682,12 @@ export function createFeaturedPurchaseOrder(state: DemoState) {
     changeOrderHistory: [],
   };
   next.purchaseOrders.unshift(po);
+  const sourcingAward = next.phaseThree.rfqs.find(
+    (rfq) =>
+      rfq.requestId === request.id &&
+      rfq.award?.supplierId === request.selectedVendorId,
+  )?.award;
+  if (sourcingAward) sourcingAward.purchaseOrderId = po.id;
   request.status = "converted_to_po";
   next.stage = "po_draft";
   appendAudit(

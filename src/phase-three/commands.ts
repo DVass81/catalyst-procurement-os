@@ -38,6 +38,64 @@ export const phaseThreeCommandSchema = z.discriminatedUnion("type", [
     ...common,
   }),
   z.object({
+    type: z.literal("phase3_rfq_release"),
+    rfqId: z.string().min(1).max(160),
+    ...common,
+  }),
+  z.object({
+    type: z.enum([
+      "phase3_rfq_submit_response",
+      "phase3_rfq_submit_bafo",
+    ]),
+    rfqId: z.string().min(1).max(160),
+    supplierId: z.string().min(1).max(160),
+    freightCents: z.number().int().nonnegative(),
+    paymentTerms: z.string().trim().min(1).max(160),
+    validityDate: z.string().date(),
+    offers: z
+      .array(
+        z.object({
+          rfqLineId: z.string().min(1).max(160),
+          unitPriceCents: z.number().int().nonnegative(),
+          promisedDate: z.string().date(),
+          exception: z.string().trim().min(1).max(500).optional(),
+        }),
+      )
+      .min(1)
+      .max(100),
+    attachments: z.array(z.string().trim().min(1).max(240)).max(20),
+    ...common,
+  }),
+  z.object({
+    type: z.literal("phase3_rfq_close"),
+    rfqId: z.string().min(1).max(160),
+    ...common,
+  }),
+  z.object({
+    type: z.literal("phase3_rfq_evaluate"),
+    rfqId: z.string().min(1).max(160),
+    ...common,
+  }),
+  z.object({
+    type: z.literal("phase3_rfq_request_bafo"),
+    rfqId: z.string().min(1).max(160),
+    supplierIds: z.array(z.string().min(1).max(160)).min(2).max(10),
+    ...common,
+  }),
+  z.object({
+    type: z.literal("phase3_rfq_award"),
+    rfqId: z.string().min(1).max(160),
+    supplierId: z.string().min(1).max(160),
+    rationale: z.string().trim().min(20).max(2_000),
+    ...common,
+  }),
+  z.object({
+    type: z.literal("phase3_rfq_cancel"),
+    rfqId: z.string().min(1).max(160),
+    rationale: z.string().trim().min(20).max(2_000),
+    ...common,
+  }),
+  z.object({
     type: z.literal("phase3_supplier_request_remediation"),
     applicationId: z.string().min(1).max(120),
     remediation: z.string().trim().min(10).max(2_000),

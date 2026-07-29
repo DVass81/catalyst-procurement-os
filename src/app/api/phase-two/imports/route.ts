@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import {
+  importEntityTypes,
+  importMappingProfileSchema,
+} from "@/phase-two/import-mapping";
 import { requireAppSession } from "@/server/auth/session";
 import { stageControlledImport } from "@/server/phase-two/imports";
 import {
@@ -38,18 +42,16 @@ export async function POST(request: Request) {
   const parsed = z
     .object({
       tenantId: z.string().min(1).max(80),
-      importType: z.enum([
-        "vendor_master",
-        "catalog",
-        "opening_inventory",
-      ]),
-      sourceSystem: z.string().trim().min(3).max(120),
+      importType: z.enum(importEntityTypes),
+      sourceSystem: z.string().trim().min(1).max(160),
+      mappingProfile: z.string().max(60_000).optional(),
       syntheticDataAttestation: z.literal("true"),
     })
     .safeParse({
       tenantId: form?.get("tenantId"),
       importType: form?.get("importType"),
       sourceSystem: form?.get("sourceSystem"),
+      mappingProfile: form?.get("mappingProfile") || undefined,
       syntheticDataAttestation: form?.get("syntheticDataAttestation"),
     });
   const file = form?.get("file");
@@ -60,6 +62,20 @@ export async function POST(request: Request) {
     );
   }
   try {
+    const mappingProfile = parsed.data.mappingProfile
+      ? importMappingProfileSchema.parse(
+          JSON.parse(parsed.data.mappingProfile) as unknown,
+        )
+      : undefined;
+    if (
+      mappingProfile &&
+      mappingProfile.entityType !== parsed.data.importType
+    ) {
+      return NextResponse.json(
+        { message: "The mapping profile does not match the import entity." },
+        { status: 400, headers: noStore },
+      );
+    }
     const session = await requireAppSession(parsed.data.tenantId);
     if (
       !session.presenter &&
@@ -76,6 +92,7 @@ export async function POST(request: Request) {
       sourceSystem: parsed.data.sourceSystem,
       actorId: session.userId,
       file,
+      mappingProfile,
     });
     return NextResponse.json(result, { status: 201, headers: noStore });
   } catch (error) {
@@ -83,7 +100,9 @@ export async function POST(request: Request) {
     const rejected =
       message.startsWith("IMPORT_") ||
       message === "FORMULAS_NOT_ALLOWED" ||
-      message === "PROHIBITED_DATA_HEADER";
+      message === "PROHIBITED_DATA_HEADER" ||
+      error instanceof z.ZodError ||
+      error instanceof SyntaxError;
     return NextResponse.json(
       {
         message: rejected

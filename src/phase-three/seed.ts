@@ -10,12 +10,13 @@ import type {
   GoldenThreadScene,
   PhaseThreeState,
   ReportDefinition,
+  RfqRecord,
   RunbookRecord,
 } from "@/phase-three/model";
 
-export const PHASE_THREE_DATASET_VERSION = "phase3-commercialization-demo-v1";
+export const PHASE_THREE_DATASET_VERSION = "mission-back-on-track-demo-v3";
 export const PHASE_THREE_DATASET_HASH =
-  "50faccb63005c02769277b8b1a9c3136fe1d39d17682daad4f2063dee0146afd";
+  "44f05b06ee913c193f73d125887c6cf068e618fcc0fe84e8b061fe9bc0f6d47a";
 export const PHASE_THREE_RELEASE_BASELINE =
   "0c9ce49ea3e07bc14dc47d3093dc3d5640170cc0";
 
@@ -543,6 +544,101 @@ const goldenThread: GoldenThreadScene[] = [
   status: "ready",
 }));
 
+function createRfqRecords(
+  sessionDate: string,
+  tenantPrefix: string,
+): RfqRecord[] {
+  const responseDeadline = addBusinessDays(sessionDate, 5);
+  return [
+    {
+      id: "rfq-loan-officer-package",
+      rfqNumber: `${tenantPrefix}-RFQ-2026-00031`,
+      requestId: "req-loan-officer-package",
+      title: "Loan officer technology and workspace package",
+      description:
+        "Competitive request for the approved equipment and furniture package supporting three fictional loan-officer hires.",
+      sourcingMethod: "rfq",
+      lifecycleState: "draft",
+      currency: "USD",
+      responseDeadline,
+      sealedUntil: `${responseDeadline}T17:00:00.000Z`,
+      retentionUntil: addCalendarDays(sessionDate, 2555),
+      termsVersion: "synthetic-standard-terms-v1",
+      evaluationVersion: "balanced-evaluation-v1",
+      lines: [
+        [
+          "rfq-line-laptop",
+          "line-laptop",
+          "Approved 14-inch business laptop",
+          3,
+          "14-inch business laptop, encrypted SSD, 3-year warranty",
+        ],
+        [
+          "rfq-line-monitor",
+          "line-monitor",
+          "Approved 24-inch monitor",
+          3,
+          "24-inch IPS monitor with adjustable stand",
+        ],
+        [
+          "rfq-line-dock",
+          "line-dock",
+          "Approved USB-C docking station",
+          3,
+          "Dual display and 100W power delivery",
+        ],
+        [
+          "rfq-line-headset",
+          "line-headset",
+          "Approved unified communications headset",
+          3,
+          "Wired USB headset with noise cancellation",
+        ],
+        [
+          "rfq-line-chair",
+          "line-chair",
+          "Approved ergonomic task chair",
+          3,
+          "Adjustable task chair meeting the approved ergonomic standard",
+        ],
+      ].map(([id, requestLineId, description, quantity, specification]) => ({
+        id: id as string,
+        requestLineId: requestLineId as string,
+        description: description as string,
+        quantity: quantity as number,
+        unitOfMeasure: "each",
+        requiredByDate: addBusinessDays(sessionDate, 12),
+        specification: specification as string,
+      })),
+      suppliers: [
+        {
+          supplierId: "vendor-001",
+          supplierOrganizationId: "supplier-org-volunteer",
+          supplierName: "Volunteer Technology Partners",
+          status: "selected",
+        },
+        {
+          supplierId: "vendor-002",
+          supplierOrganizationId: "supplier-org-ridgeline",
+          supplierName: "Ridgeline Office Systems",
+          status: "selected",
+        },
+        {
+          supplierId: "vendor-003",
+          supplierOrganizationId: "supplier-org-blue-ridge",
+          supplierName: "Blue Ridge Network Solutions",
+          status: "selected",
+        },
+      ],
+      responses: [],
+      evaluations: [],
+      bafoRound: 1,
+      version: 1,
+      correlationId: "31313131-3131-4131-8131-313131313131",
+    },
+  ];
+}
+
 export function createPhaseThreeState(
   sessionDate: string,
   tenantId: string,
@@ -554,16 +650,17 @@ export function createPhaseThreeState(
   const tenantPrefix = tenantId === "org-y12-demo" ? "Y12" : "CCCU";
 
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     dataset: {
       version: PHASE_THREE_DATASET_VERSION,
-      schemaVersion: 1,
+      schemaVersion: 2,
       contentHash: PHASE_THREE_DATASET_HASH,
       demonstrationDate: sessionDate,
       expectedRecordCounts: {
         capabilities: phaseThreeCapabilityRegistry.length,
         canonicalEntities: canonicalEntities.length,
         suppliers: 2,
+        rfqs: 1,
         contractVersions: 1,
         workflowVersions: 2,
         certifiedMeasures: certifiedMeasures.length,
@@ -884,6 +981,7 @@ export function createPhaseThreeState(
         correlationId: "44444444-4444-4444-8444-444444444444",
       },
     ],
+    rfqs: createRfqRecords(sessionDate, tenantPrefix),
     contracts: [
       {
         id: "contract-intelligence-managed-network-v2",

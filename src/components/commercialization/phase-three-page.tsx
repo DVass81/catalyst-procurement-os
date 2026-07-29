@@ -45,6 +45,12 @@ import type {
   CapabilityStatus,
   WorkflowLifecycleState,
 } from "@/phase-three/model";
+import {
+  standaloneExportDatasets,
+  standaloneExportFormats,
+  type StandaloneExportDataset,
+  type StandaloneExportFormat,
+} from "@/phase-two/system-export";
 import { formatCurrency, titleCase } from "@/lib/utils";
 
 interface PhaseThreePageProps {
@@ -66,6 +72,12 @@ const viewCopy: Record<
     title: "Enterprise Access",
     description:
       "Representative Entra, Okta, and SAML configuration with server-derived tenant and persona authority.",
+  },
+  rfqs: {
+    eyebrow: "Competitive sourcing",
+    title: "RFQs & Sourcing",
+    description:
+      "Author, release, receive sealed supplier responses, evaluate, request BAFO, and independently award with retained evidence.",
   },
   "supplier-onboarding": {
     eyebrow: "Supplier governance",
@@ -267,11 +279,18 @@ function IntegrationCenter({
   run: (command: Record<string, unknown>, success: string) => Promise<void>;
   pending: boolean;
 }) {
-  const { state } = useDemo();
+  const { state, durability } = useDemo();
   const phaseThree = state.phaseThree;
+  const [exportDataset, setExportDataset] =
+    useState<StandaloneExportDataset>("purchase_orders");
+  const [exportFormat, setExportFormat] =
+    useState<StandaloneExportFormat>("csv");
   const mismatch = phaseThree.integrationRuns.find(
     (item) => item.id === "integration-run-mismatch",
   );
+  const exportHref = `/api/phase-two/system-exports?tenantId=${encodeURIComponent(
+    state.organization.organizationId,
+  )}&dataset=${encodeURIComponent(exportDataset)}&format=${encodeURIComponent(exportFormat)}`;
   return (
     <>
       <div className="grid gap-4 md:grid-cols-3">
@@ -296,6 +315,98 @@ function IntegrationCenter({
           detail={mismatch?.status === "reconciled" ? "Reconciled after replay." : "Safely stopped in dead letter."}
         />
       </div>
+      <Card>
+        <CardHeader>
+          <div>
+            <h2 className="text-lg font-semibold">
+              Standalone or connected—your choice
+            </h2>
+            <p className="mt-1 text-sm text-[var(--muted-foreground)]">
+              Catalyst can remain the procurement system of record when no ERP
+              exists. A future ERP, accounting platform, SFTP feed, or file
+              export attaches through a versioned adapter without changing the
+              transaction core.
+            </p>
+          </div>
+          <FileSpreadsheet className="size-5 text-[var(--brand-secondary)]" />
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-4 lg:grid-cols-[1fr_1fr_1.2fr]">
+            <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/8 p-4">
+              <Badge tone="success">Functional Demo</Badge>
+              <p className="mt-3 font-semibold">Standalone system of record</p>
+              <p className="mt-2 text-xs leading-5 text-[var(--muted-foreground)]">
+                Requests, sourcing, approvals, POs, receipts, invoices,
+                contracts, evidence, and audit history remain governed inside
+                Catalyst. No ERP is required.
+              </p>
+            </div>
+            <div className="rounded-xl border border-sky-500/25 bg-sky-500/8 p-4">
+              <Badge tone="info">Flexible adapter</Badge>
+              <p className="mt-3 font-semibold">Unknown source accepted</p>
+              <p className="mt-2 text-xs leading-5 text-[var(--muted-foreground)]">
+                CSV/XLSX headers map to canonical records through an approved,
+                versioned profile. The first customer file creates a mapping
+                version—not a source-specific fork.
+              </p>
+            </div>
+            <div className="rounded-xl border p-4">
+              <Badge tone="neutral">Human-initiated export</Badge>
+              <p className="mt-3 font-semibold">Controlled outbound data</p>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                <select
+                  aria-label="Standalone export dataset"
+                  value={exportDataset}
+                  onChange={(event) =>
+                    setExportDataset(
+                      event.target.value as StandaloneExportDataset,
+                    )
+                  }
+                  className="h-10 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-xs"
+                >
+                  {standaloneExportDatasets.map((dataset) => (
+                    <option key={dataset} value={dataset}>
+                      {titleCase(dataset)}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  aria-label="Standalone export format"
+                  value={exportFormat}
+                  onChange={(event) =>
+                    setExportFormat(
+                      event.target.value as StandaloneExportFormat,
+                    )
+                  }
+                  className="h-10 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-xs"
+                >
+                  {standaloneExportFormats.map((format) => (
+                    <option key={format} value={format}>
+                      {format.toUpperCase()}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {durability === "authoritative" ? (
+                <Button asChild className="mt-3" size="sm">
+                  <a href={exportHref}>
+                    <Download className="size-4" /> Export governed snapshot
+                  </a>
+                </Button>
+              ) : (
+                <Button className="mt-3" size="sm" disabled>
+                  <Download className="size-4" /> Authoritative service required
+                </Button>
+              )}
+              <p className="mt-2 text-[11px] leading-5 text-[var(--muted-foreground)]">
+                CSV is exchange-ready; JSON includes schema, as-of date, row
+                count, and a synthetic-data marker. Both responses include a
+                content hash and correlation identifier.
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
       <div className="grid gap-5 xl:grid-cols-[1.1fr_.9fr]">
         <Card>
           <CardHeader>
@@ -458,6 +569,403 @@ function EnterpriseAccess() {
         </Card>
       ))}
     </div>
+  );
+}
+
+function RfqWorkspace({
+  run,
+  pending,
+}: {
+  run: (command: Record<string, unknown>, success: string) => Promise<void>;
+  pending: boolean;
+}) {
+  const { state } = useDemo();
+  const rfq = state.phaseThree.rfqs[0]!;
+  const currentResponses = rfq.responses.filter(
+    (response) => response.round === rfq.bafoRound,
+  );
+  const revealed = currentResponses.filter(
+    (response) => response.status === "revealed",
+  );
+  const evaluations = rfq.evaluations
+    .filter((evaluation) => evaluation.round === rfq.bafoRound)
+    .sort((left, right) => left.rank - right.rank);
+  const responseBySupplier = new Map(
+    currentResponses.map((response) => [response.supplierId, response]),
+  );
+
+  const offersFor = (supplierId: string) => {
+    const prices: Record<string, number[]> = {
+      "vendor-001": [149_800, 34_900, 22_900, 15_900, 46_900],
+      "vendor-002": [145_900, 33_800, 22_100, 16_500, 44_500],
+      "vendor-003": [148_500, 34_500, 22_400, 15_500, 45_900],
+    };
+    const base = prices[supplierId] ?? prices["vendor-001"]!;
+    const bafoFactor = rfq.bafoRound > 1 ? 0.97 : 1;
+    return rfq.lines.map((line, index) => ({
+      rfqLineId: line.id,
+      unitPriceCents: Math.round((base[index] ?? 10_000) * bafoFactor),
+      promisedDate: line.requiredByDate,
+    }));
+  };
+
+  return (
+    <>
+      <div className="grid gap-4 md:grid-cols-4">
+        <MetricCard
+          label="Lifecycle"
+          value={titleCase(rfq.lifecycleState)}
+          detail={`Version ${rfq.version} · round ${rfq.bafoRound}`}
+        />
+        <MetricCard
+          label="Invited suppliers"
+          value={String(rfq.suppliers.length)}
+          detail="A minimum of two responses is required to evaluate."
+        />
+        <MetricCard
+          label="Current responses"
+          value={String(currentResponses.length)}
+          detail={
+            revealed.length > 0
+              ? `${revealed.length} revealed after controlled close.`
+              : "Response contents stay sealed until controlled close."
+          }
+        />
+        <MetricCard
+          label="Retention"
+          value={rfq.retentionUntil.slice(0, 4)}
+          detail="Solicitation, responses, scoring, decisions, and hashes retained."
+        />
+      </div>
+
+      <Card>
+        <CardHeader>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.14em] text-[var(--muted-foreground)]">
+                {rfq.rfqNumber}
+              </p>
+              <h2 className="mt-1 text-xl font-semibold">{rfq.title}</h2>
+              <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--muted-foreground)]">
+                {rfq.description}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <TruthBadge status="Functional Demo" />
+              <Badge tone="info">{rfq.evaluationVersion}</Badge>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-3 text-sm md:grid-cols-3">
+            {[
+              ["Response deadline", rfq.responseDeadline],
+              ["Sealed until", rfq.sealedUntil.replace("T", " ").slice(0, 16)],
+              ["Terms", rfq.termsVersion],
+            ].map(([label, value]) => (
+              <div
+                key={label}
+                className="rounded-xl border border-[var(--border)] bg-[var(--surface-subtle)] p-3"
+              >
+                <p className="text-xs text-[var(--muted-foreground)]">{label}</p>
+                <p className="mt-1 font-semibold">{value}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-5 overflow-x-auto rounded-xl border border-[var(--border)]">
+            <table className="w-full min-w-[760px] text-left text-sm">
+              <caption className="sr-only">RFQ lines and specifications</caption>
+              <thead className="bg-[var(--surface-subtle)] text-xs text-[var(--muted-foreground)]">
+                <tr>
+                  <th className="px-3 py-2">Line</th>
+                  <th className="px-3 py-2">Description</th>
+                  <th className="px-3 py-2">Quantity</th>
+                  <th className="px-3 py-2">Required date</th>
+                  <th className="px-3 py-2">Specification</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rfq.lines.map((line, index) => (
+                  <tr key={line.id} className="border-t border-[var(--border)]">
+                    <td className="px-3 py-3 font-semibold">{index + 1}</td>
+                    <td className="px-3 py-3">{line.description}</td>
+                    <td className="px-3 py-3">
+                      {line.quantity} {line.unitOfMeasure}
+                    </td>
+                    <td className="px-3 py-3">{line.requiredByDate}</td>
+                    <td className="max-w-sm px-3 py-3 text-[var(--muted-foreground)]">
+                      {line.specification}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="mt-5 flex flex-wrap gap-2">
+            {rfq.lifecycleState === "draft" ? (
+              <>
+                <Button
+                  disabled={pending || state.stage !== "standards_reviewed"}
+                  onClick={() =>
+                    void run(
+                      { type: "phase3_rfq_release", rfqId: rfq.id },
+                      "RFQ released. Supplier delivery is explicitly simulated.",
+                    )
+                  }
+                >
+                  <ArrowRight className="size-4" />
+                  Release RFQ
+                </Button>
+                {state.stage !== "standards_reviewed" ? (
+                  <p className="self-center text-xs text-[var(--muted-foreground)]">
+                    Complete Request, Inventory, and Standards first so external
+                    RFQ quantities reconcile to the optimized request.
+                  </p>
+                ) : null}
+              </>
+            ) : null}
+            {["open", "responses_received", "bafo_open"].includes(
+              rfq.lifecycleState,
+            ) && currentResponses.length >= 2 ? (
+              <Button
+                disabled={pending}
+                onClick={() =>
+                  void run(
+                    { type: "phase3_rfq_close", rfqId: rfq.id },
+                    "Response round closed and sealed responses revealed.",
+                  )
+                }
+              >
+                <LockKeyhole className="size-4" />
+                Close and reveal round
+              </Button>
+            ) : null}
+            {rfq.lifecycleState === "closed" ? (
+              <Button
+                disabled={pending}
+                onClick={() =>
+                  void run(
+                    { type: "phase3_rfq_evaluate", rfqId: rfq.id },
+                    "Evidence-linked evaluation completed.",
+                  )
+                }
+              >
+                <ListChecks className="size-4" />
+                Evaluate responses
+              </Button>
+            ) : null}
+            {rfq.lifecycleState === "evaluated" &&
+            rfq.bafoRound === 1 &&
+            evaluations.length >= 2 ? (
+              <Button
+                variant="secondary"
+                disabled={pending}
+                onClick={() =>
+                  void run(
+                    {
+                      type: "phase3_rfq_request_bafo",
+                      rfqId: rfq.id,
+                      supplierIds: evaluations
+                        .slice(0, 2)
+                        .map((evaluation) => evaluation.supplierId),
+                    },
+                    "Best-and-final offers requested from the two highest-ranked suppliers.",
+                  )
+                }
+              >
+                <RefreshCcw className="size-4" />
+                Request BAFO
+              </Button>
+            ) : null}
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="grid gap-4 lg:grid-cols-3">
+        {rfq.suppliers.map((supplier, index) => {
+          const response = responseBySupplier.get(supplier.supplierId);
+          const canRespond =
+            ["open", "responses_received"].includes(rfq.lifecycleState) ||
+            (rfq.lifecycleState === "bafo_open" &&
+              supplier.status === "shortlisted");
+          return (
+            <Card key={supplier.supplierId}>
+              <CardContent>
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs text-[var(--muted-foreground)]">
+                      Supplier {index + 1}
+                    </p>
+                    <h3 className="mt-1 font-semibold">{supplier.supplierName}</h3>
+                  </div>
+                  <Badge tone={supplier.status === "awarded" ? "success" : "info"}>
+                    {titleCase(supplier.status)}
+                  </Badge>
+                </div>
+                {response ? (
+                  <div className="mt-4 rounded-xl border border-[var(--border)] bg-[var(--surface-subtle)] p-3">
+                    <p className="text-xs font-bold">
+                      {response.status === "submitted"
+                        ? "Sealed response"
+                        : formatCurrency(response.totalCents)}
+                    </p>
+                    <p className="mt-1 break-all text-[10px] text-[var(--muted-foreground)]">
+                      SHA-256 {response.responseHash}
+                    </p>
+                  </div>
+                ) : (
+                  <p className="mt-4 text-xs leading-5 text-[var(--muted-foreground)]">
+                    No response is stored for round {rfq.bafoRound}.
+                  </p>
+                )}
+                {canRespond && !response ? (
+                  <Button
+                    className="mt-4 w-full"
+                    variant="secondary"
+                    disabled={pending}
+                    onClick={() =>
+                      void run(
+                        {
+                          type:
+                            rfq.lifecycleState === "bafo_open"
+                              ? "phase3_rfq_submit_bafo"
+                              : "phase3_rfq_submit_response",
+                          rfqId: rfq.id,
+                          supplierId: supplier.supplierId,
+                          freightCents: index * 4_500,
+                          paymentTerms: index === 1 ? "Net 15" : "Net 30",
+                          validityDate: rfq.responseDeadline,
+                          offers: offersFor(supplier.supplierId),
+                          attachments: [
+                            `Synthetic ${supplier.supplierName} response.pdf`,
+                          ],
+                          simulation: true,
+                          truthStatus: "Functional Demo",
+                        },
+                        `Sealed ${rfq.bafoRound > 1 ? "BAFO" : "response"} recorded for ${supplier.supplierName}.`,
+                      )
+                    }
+                  >
+                    <LockKeyhole className="size-4" />
+                    Submit sealed {rfq.bafoRound > 1 ? "BAFO" : "response"}
+                  </Button>
+                ) : null}
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
+
+      {evaluations.length > 0 ? (
+        <Card>
+          <CardHeader>
+            <h2 className="text-lg font-semibold">
+              Governed evaluation · round {rfq.bafoRound}
+            </h2>
+            <p className="text-sm text-[var(--muted-foreground)]">
+              Price 50%, delivery 20%, risk 20%, service 10%. Evaluation and
+              award require different roles.
+            </p>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto rounded-xl border border-[var(--border)]">
+              <table className="w-full min-w-[760px] text-left text-sm">
+                <caption className="sr-only">RFQ response evaluation</caption>
+                <thead className="bg-[var(--surface-subtle)] text-xs text-[var(--muted-foreground)]">
+                  <tr>
+                    <th className="px-3 py-2">Rank</th>
+                    <th className="px-3 py-2">Supplier</th>
+                    <th className="px-3 py-2">Price</th>
+                    <th className="px-3 py-2">Delivery</th>
+                    <th className="px-3 py-2">Risk</th>
+                    <th className="px-3 py-2">Service</th>
+                    <th className="px-3 py-2">Total</th>
+                    <th className="px-3 py-2">Decision</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {evaluations.map((evaluation) => {
+                    const supplier = rfq.suppliers.find(
+                      (candidate) =>
+                        candidate.supplierId === evaluation.supplierId,
+                    )!;
+                    return (
+                      <tr
+                        key={evaluation.id}
+                        className="border-t border-[var(--border)]"
+                      >
+                        <td className="px-3 py-3 font-bold">
+                          {evaluation.rank}
+                        </td>
+                        <td className="px-3 py-3">{supplier.supplierName}</td>
+                        <td className="px-3 py-3">{evaluation.priceScore}</td>
+                        <td className="px-3 py-3">{evaluation.deliveryScore}</td>
+                        <td className="px-3 py-3">{evaluation.riskScore}</td>
+                        <td className="px-3 py-3">{evaluation.serviceScore}</td>
+                        <td className="px-3 py-3 font-bold">
+                          {evaluation.totalScore}
+                        </td>
+                        <td className="px-3 py-3">
+                          {rfq.lifecycleState === "evaluated" ? (
+                            <Button
+                              size="sm"
+                              disabled={pending}
+                              onClick={() =>
+                                void run(
+                                  {
+                                    type: "phase3_rfq_award",
+                                    rfqId: rfq.id,
+                                    supplierId: evaluation.supplierId,
+                                    rationale:
+                                      "Independent award approval based on the governed evaluation, supplier eligibility, response evidence, delivery, and total cost.",
+                                  },
+                                  `Award recorded for ${supplier.supplierName}.`,
+                                )
+                              }
+                            >
+                              Award
+                            </Button>
+                          ) : (
+                            "Retained"
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {rfq.award ? (
+        <Card className="border-emerald-500/30">
+          <CardContent>
+            <div className="flex items-start gap-3">
+              <BadgeCheck className="size-6 text-emerald-600" />
+              <div>
+                <h2 className="font-semibold">Award approved</h2>
+                <p className="mt-1 text-sm text-[var(--muted-foreground)]">
+                  {
+                    rfq.suppliers.find(
+                      (supplier) =>
+                        supplier.supplierId === rfq.award?.supplierId,
+                    )?.supplierName
+                  }{" "}
+                  · {formatCurrency(rfq.award.totalCents)}
+                </p>
+                <p className="mt-2 text-xs leading-5 text-[var(--muted-foreground)]">
+                  {rfq.award.rationale}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+    </>
   );
 }
 
@@ -1438,6 +1946,7 @@ export function PhaseThreePage({ section }: PhaseThreePageProps) {
     dispatch,
     pending,
     persistence,
+    durability,
     activeTenantId,
     error: providerError,
   } = useDemo();
@@ -1448,6 +1957,12 @@ export function PhaseThreePage({ section }: PhaseThreePageProps) {
     () => ({
       "integration-center": ["system_administrator", "operations_manager"],
       "enterprise-access": ["system_administrator", "security_reviewer", "auditor"],
+      rfqs: [
+        "purchasing_specialist",
+        "supplier_user",
+        "purchasing_manager",
+        "auditor",
+      ],
       "supplier-onboarding": ["supplier_user", "purchasing_manager", "compliance_reviewer", "security_reviewer", "finance_reviewer"],
       "contract-intelligence": ["contract_manager", "purchasing_manager", "auditor"],
       "workflow-studio": ["system_administrator", "compliance_reviewer", "auditor"],
@@ -1502,6 +2017,9 @@ export function PhaseThreePage({ section }: PhaseThreePageProps) {
     case "enterprise-access":
       content = <EnterpriseAccess />;
       break;
+    case "rfqs":
+      content = <RfqWorkspace run={run} pending={pending} />;
+      break;
     case "supplier-onboarding":
       content = <SupplierOnboarding run={run} pending={pending} />;
       break;
@@ -1541,10 +2059,16 @@ export function PhaseThreePage({ section }: PhaseThreePageProps) {
         roles={personas[section] ?? personas["golden-thread"]!}
         activeRole={state.activeRole}
         onSwitch={(role) => void switchRole(role)}
-        pending={pending}
+        pending={pending || durability === "read_only"}
       />
       <ActionNotice message={message} error={localError ?? providerError} />
-      {content}
+      <fieldset
+        disabled={durability === "read_only"}
+        aria-disabled={durability === "read_only"}
+        className="contents"
+      >
+        {content}
+      </fieldset>
     </div>
   );
 }

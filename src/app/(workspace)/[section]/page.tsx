@@ -9,6 +9,7 @@ const sections = [
   "dashboard",
   "ai-procurement",
   "purchase-requests",
+  "rfqs",
   "approvals",
   "purchase-orders",
   "receiving",
@@ -32,6 +33,7 @@ const sections = [
   "accessibility-center",
   "operations-center",
   "golden-thread",
+  "rfqs",
 ] as const;
 
 const commercializationSections = [

@@ -1,5 +1,7 @@
 import "server-only";
 
+import { createHash } from "node:crypto";
+
 import type { DemoRole, DemoState } from "@/demo/model";
 import { WorkflowError } from "@/demo/workflow";
 import type { PhaseThreePersistedCommand } from "@/phase-three/commands";
@@ -145,6 +147,20 @@ function reportMeasures(state: DemoState) {
   };
 }
 
+function responseHash(value: unknown) {
+  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
+}
+
+function currentRoundResponses(
+  rfq: DemoState["phaseThree"]["rfqs"][number],
+) {
+  return rfq.responses.filter(
+    (response) =>
+      response.round === rfq.bafoRound &&
+      ["submitted", "revealed"].includes(response.status),
+  );
+}
+
 export function executePhaseThreeCommand(
   current: DemoState,
   command: PhaseThreePersistedCommand,
@@ -153,6 +169,492 @@ export function executePhaseThreeCommand(
   const phaseThree = next.phaseThree;
 
   switch (command.type) {
+    case "phase3_rfq_release": {
+      requirePersona(command, [
+        "purchasing_specialist",
+        "purchasing_manager",
+      ]);
+      const rfq = findById(phaseThree.rfqs, command.rfqId, "RFQ");
+      if (rfq.lifecycleState !== "draft") {
+        throw new WorkflowError("Only a draft RFQ can be released.");
+      }
+      if (next.stage !== "standards_reviewed") {
+        throw new WorkflowError(
+          "Complete inventory and standards optimization before releasing the RFQ.",
+        );
+      }
+      if (rfq.suppliers.length < 2 || rfq.lines.length === 0) {
+        throw new WorkflowError(
+          "The RFQ requires at least two eligible suppliers and one line.",
+        );
+      }
+      const before = rfq.lifecycleState;
+      const releasedAt = timestamp(next);
+      rfq.issueDate = next.sessionDate;
+      rfq.lifecycleState = "open";
+      rfq.suppliers.forEach((supplier) => {
+        supplier.status = "invited";
+        supplier.invitedAt = releasedAt;
+      });
+      rfq.version += 1;
+      appendAudit(next, command, {
+        action: "rfq.released",
+        recordType: "rfq",
+        recordId: rfq.id,
+        before,
+        after: rfq.lifecycleState,
+        source: "workflow",
+      });
+      break;
+    }
+    case "phase3_rfq_submit_response":
+    case "phase3_rfq_submit_bafo": {
+      requirePersona(command, ["supplier_user"]);
+      const rfq = findById(phaseThree.rfqs, command.rfqId, "RFQ");
+      const bafo = command.type === "phase3_rfq_submit_bafo";
+      if (
+        (!bafo &&
+          !["open", "responses_received"].includes(rfq.lifecycleState)) ||
+        (bafo && rfq.lifecycleState !== "bafo_open")
+      ) {
+        throw new WorkflowError(
+          bafo
+            ? "This RFQ is not accepting best-and-final offers."
+            : "This RFQ is not accepting supplier responses.",
+        );
+      }
+      const supplier = rfq.suppliers.find(
+        (candidate) => candidate.supplierId === command.supplierId,
+      );
+      if (
+        !supplier ||
+        (bafo && supplier.status !== "shortlisted") ||
+        (!bafo &&
+          !["invited", "viewed", "responded"].includes(supplier.status))
+      ) {
+        throw new WorkflowError(
+          "The supplier is not invited for this response round.",
+        );
+      }
+      if (
+        rfq.responses.some(
+          (response) =>
+            response.supplierId === command.supplierId &&
+            response.round === rfq.bafoRound &&
+            response.status !== "withdrawn",
+        )
+      ) {
+        throw new WorkflowError(
+          "This supplier already submitted a response for the current round.",
+        );
+      }
+      const offeredIds = command.offers.map((offer) => offer.rfqLineId);
+      if (
+        new Set(offeredIds).size !== offeredIds.length ||
+        offeredIds.length !== rfq.lines.length ||
+        rfq.lines.some((line) => !offeredIds.includes(line.id))
+      ) {
+        throw new WorkflowError(
+          "The response must price every RFQ line exactly once.",
+        );
+      }
+      const lines = rfq.lines.map((line) => {
+        const offer = command.offers.find(
+          (candidate) => candidate.rfqLineId === line.id,
+        )!;
+        return {
+          rfqLineId: line.id,
+          unitPriceCents: offer.unitPriceCents,
+          extendedPriceCents: offer.unitPriceCents * line.quantity,
+          promisedDate: offer.promisedDate,
+          exception: offer.exception,
+        };
+      });
+      const responseBody = {
+        supplierId: supplier.supplierId,
+        supplierOrganizationId: supplier.supplierOrganizationId,
+        round: rfq.bafoRound,
+        freightCents: command.freightCents,
+        paymentTerms: command.paymentTerms,
+        validityDate: command.validityDate,
+        lines,
+        attachments: command.attachments,
+      };
+      const response = {
+        id: `${rfq.id}-response-${supplier.supplierId}-r${rfq.bafoRound}`,
+        ...responseBody,
+        status: "submitted" as const,
+        submittedAt: timestamp(next),
+        totalCents:
+          lines.reduce(
+            (total, line) => total + line.extendedPriceCents,
+            0,
+          ) + command.freightCents,
+        responseHash: responseHash(responseBody),
+      };
+      rfq.responses.push(response);
+      supplier.status = "responded";
+      const expectedSuppliers = rfq.suppliers.filter((candidate) =>
+        bafo
+          ? candidate.status === "shortlisted" ||
+            candidate.supplierId === supplier.supplierId
+          : !["declined", "not_awarded"].includes(candidate.status),
+      );
+      const received = currentRoundResponses(rfq);
+      if (!bafo && received.length >= expectedSuppliers.length) {
+        rfq.lifecycleState = "responses_received";
+      }
+      rfq.version += 1;
+      appendAudit(next, command, {
+        action: bafo ? "rfq.bafo.submitted" : "rfq.response.submitted",
+        recordType: "rfq_response",
+        recordId: response.id,
+        before: "not_submitted",
+        after: "sealed",
+        source: "user",
+      });
+      break;
+    }
+    case "phase3_rfq_close": {
+      requirePersona(command, [
+        "purchasing_specialist",
+        "purchasing_manager",
+      ]);
+      const rfq = findById(phaseThree.rfqs, command.rfqId, "RFQ");
+      if (
+        !["open", "responses_received", "bafo_open"].includes(
+          rfq.lifecycleState,
+        )
+      ) {
+        throw new WorkflowError("This RFQ response round cannot be closed.");
+      }
+      const responses = currentRoundResponses(rfq);
+      if (responses.length < 2) {
+        throw new WorkflowError(
+          "At least two sealed responses are required before closing.",
+        );
+      }
+      const before = rfq.lifecycleState;
+      const revealedAt = timestamp(next);
+      responses.forEach((response) => {
+        response.status = "revealed";
+        response.revealedAt = revealedAt;
+      });
+      rfq.lifecycleState = "closed";
+      rfq.version += 1;
+      appendAudit(next, command, {
+        action: "rfq.responses.revealed",
+        recordType: "rfq",
+        recordId: rfq.id,
+        before,
+        after: rfq.lifecycleState,
+        source: "workflow",
+      });
+      break;
+    }
+    case "phase3_rfq_evaluate": {
+      requirePersona(command, ["purchasing_specialist"]);
+      const rfq = findById(phaseThree.rfqs, command.rfqId, "RFQ");
+      if (rfq.lifecycleState !== "closed") {
+        throw new WorkflowError(
+          "Close and reveal the current response round before evaluation.",
+        );
+      }
+      const responses = currentRoundResponses(rfq).filter(
+        (response) => response.status === "revealed",
+      );
+      if (responses.length < 2) {
+        throw new WorkflowError(
+          "At least two revealed responses are required for evaluation.",
+        );
+      }
+      const lowestTotal = Math.min(
+        ...responses.map((response) => response.totalCents),
+      );
+      const bestDelivery = responses
+        .map((response) =>
+          response.lines
+            .map((line) => line.promisedDate)
+            .sort()
+            .at(-1)!,
+        )
+        .sort()[0]!;
+      const scored = responses.map((response) => {
+        const vendor = next.vendors.find(
+          (candidate) => candidate.id === response.supplierId,
+        );
+        if (!vendor) {
+          throw new WorkflowError(
+            "A supplier master record is missing for evaluation.",
+          );
+        }
+        const latestDelivery = response.lines
+          .map((line) => line.promisedDate)
+          .sort()
+          .at(-1)!;
+        const priceScore = (lowestTotal / response.totalCents) * 50;
+        const deliveryScore = latestDelivery === bestDelivery ? 20 : 16;
+        const riskScore =
+          vendor.complianceHold || vendor.criticalCorrectiveAction
+            ? 0
+            : vendor.riskTier === "low"
+              ? 20
+              : vendor.riskTier === "moderate"
+                ? 14
+                : vendor.riskTier === "high"
+                  ? 6
+                  : 0;
+        const serviceScore = vendor.performanceScore / 10;
+        return {
+          id: `${rfq.id}-evaluation-${response.supplierId}-r${rfq.bafoRound}`,
+          responseId: response.id,
+          supplierId: response.supplierId,
+          round: rfq.bafoRound,
+          priceScore: Number(priceScore.toFixed(2)),
+          deliveryScore,
+          riskScore,
+          serviceScore: Number(serviceScore.toFixed(2)),
+          totalScore: Number(
+            (
+              priceScore +
+              deliveryScore +
+              riskScore +
+              serviceScore
+            ).toFixed(2),
+          ),
+          rank: 0,
+          completedByRole: command.activePersona,
+          evidence: [
+            `response:${response.id}:${response.responseHash}`,
+            `supplier-risk:${vendor.id}:${vendor.riskTier}`,
+            `supplier-performance:${vendor.id}:${vendor.performanceScore}`,
+          ],
+        };
+      });
+      scored
+        .sort(
+          (left, right) =>
+            right.totalScore - left.totalScore ||
+            left.supplierId.localeCompare(right.supplierId),
+        )
+        .forEach((evaluation, index) => {
+          evaluation.rank = index + 1;
+        });
+      rfq.evaluations = [
+        ...rfq.evaluations.filter(
+          (evaluation) => evaluation.round !== rfq.bafoRound,
+        ),
+        ...scored,
+      ];
+      rfq.lifecycleState = "evaluated";
+      rfq.version += 1;
+      appendAudit(next, command, {
+        action: "rfq.evaluation.completed",
+        recordType: "rfq",
+        recordId: rfq.id,
+        before: "closed",
+        after: rfq.lifecycleState,
+        source: "workflow",
+      });
+      break;
+    }
+    case "phase3_rfq_request_bafo": {
+      requirePersona(command, ["purchasing_manager"]);
+      const rfq = findById(phaseThree.rfqs, command.rfqId, "RFQ");
+      if (rfq.lifecycleState !== "evaluated") {
+        throw new WorkflowError(
+          "Complete the governed evaluation before requesting BAFO.",
+        );
+      }
+      const selected = new Set(command.supplierIds);
+      if (
+        selected.size !== command.supplierIds.length ||
+        [...selected].some(
+          (supplierId) =>
+            !rfq.evaluations.some(
+              (evaluation) =>
+                evaluation.round === rfq.bafoRound &&
+                evaluation.supplierId === supplierId,
+            ),
+        )
+      ) {
+        throw new WorkflowError(
+          "BAFO suppliers must come from the evaluated response round.",
+        );
+      }
+      rfq.responses
+        .filter((response) => response.round === rfq.bafoRound)
+        .forEach((response) => {
+          response.status = "superseded";
+        });
+      rfq.suppliers.forEach((supplier) => {
+        supplier.status = selected.has(supplier.supplierId)
+          ? "shortlisted"
+          : "not_awarded";
+      });
+      rfq.bafoRound += 1;
+      rfq.lifecycleState = "bafo_open";
+      rfq.version += 1;
+      appendAudit(next, command, {
+        action: "rfq.bafo.requested",
+        recordType: "rfq",
+        recordId: rfq.id,
+        before: "evaluated",
+        after: rfq.lifecycleState,
+        source: "workflow",
+      });
+      break;
+    }
+    case "phase3_rfq_award": {
+      requirePersona(command, ["purchasing_manager"]);
+      const rfq = findById(phaseThree.rfqs, command.rfqId, "RFQ");
+      if (rfq.lifecycleState !== "evaluated") {
+        throw new WorkflowError(
+          "The current response round must be evaluated before award.",
+        );
+      }
+      const evaluation = rfq.evaluations.find(
+        (candidate) =>
+          candidate.round === rfq.bafoRound &&
+          candidate.supplierId === command.supplierId,
+      );
+      const response = rfq.responses.find(
+        (candidate) =>
+          candidate.round === rfq.bafoRound &&
+          candidate.supplierId === command.supplierId &&
+          candidate.status === "revealed",
+      );
+      if (!evaluation || !response) {
+        throw new WorkflowError(
+          "The selected supplier has no evaluated revealed response.",
+        );
+      }
+      if (evaluation.completedByRole === command.activePersona) {
+        throw new WorkflowError(
+          "The evaluator cannot independently approve the award.",
+        );
+      }
+      const vendor = next.vendors.find(
+        (candidate) => candidate.id === command.supplierId,
+      );
+      const supplierApplication = phaseThree.supplierApplications.find(
+        (candidate) => candidate.supplierId === command.supplierId,
+      );
+      if (
+        !vendor ||
+        vendor.complianceHold ||
+        vendor.criticalCorrectiveAction ||
+        vendor.documentationStatus !== "complete" ||
+        (supplierApplication &&
+          supplierApplication.lifecycleState !== "active")
+      ) {
+        throw new WorkflowError(
+          "Supplier control evidence blocks this award.",
+        );
+      }
+      rfq.award = {
+        supplierId: command.supplierId,
+        responseId: response.id,
+        awardedByRole: command.activePersona,
+        awardedAt: timestamp(next),
+        rationale: command.rationale,
+        totalCents: response.totalCents,
+      };
+      rfq.suppliers.forEach((supplier) => {
+        supplier.status =
+          supplier.supplierId === command.supplierId
+            ? "awarded"
+            : "not_awarded";
+      });
+      rfq.lifecycleState = "awarded";
+      rfq.version += 1;
+      const request = next.requests.find(
+        (candidate) => candidate.id === rfq.requestId,
+      );
+      const quote = next.quotes.find(
+        (candidate) =>
+          candidate.requestId === rfq.requestId &&
+          candidate.vendorId === command.supplierId,
+      );
+      if (!request || !quote) {
+        throw new WorkflowError(
+          "The awarded RFQ is not connected to its request and quote records.",
+        );
+      }
+      for (const responseLine of response.lines) {
+        const rfqLine = rfq.lines.find(
+          (candidate) => candidate.id === responseLine.rfqLineId,
+        );
+        const requestLine = request.lines.find(
+          (candidate) => candidate.id === rfqLine?.requestLineId,
+        );
+        if (!rfqLine || !requestLine) {
+          throw new WorkflowError(
+            "An awarded RFQ line is not connected to its request line.",
+          );
+        }
+        if (requestLine.purchaseQuantity !== rfqLine.quantity) {
+          throw new WorkflowError(
+            "The awarded RFQ quantity does not reconcile to the external purchase quantity.",
+          );
+        }
+        requestLine.unitPriceCents = responseLine.unitPriceCents;
+      }
+      const awardedSubtotal = response.lines.reduce(
+        (total, line) => total + line.extendedPriceCents,
+        0,
+      );
+      quote.subtotalCents = awardedSubtotal;
+      quote.shippingCents = response.totalCents - awardedSubtotal;
+      quote.taxCents = 0;
+      quote.totalCents = response.totalCents;
+      quote.deliveryDate = response.lines
+        .map((line) => line.promisedDate)
+        .sort()
+        .at(-1)!;
+      quote.recommendation = "recommended";
+      next.quotes
+        .filter(
+          (candidate) =>
+            candidate.requestId === rfq.requestId &&
+            candidate.id !== quote.id,
+        )
+        .forEach((candidate) => {
+          candidate.recommendation = "alternative";
+        });
+      request.selectedVendorId = command.supplierId;
+      request.recommendedTotalCents = response.totalCents;
+      request.revision += 1;
+      next.stage = "vendor_selected";
+      appendAudit(next, command, {
+        action: "rfq.award.approved",
+        recordType: "rfq_award",
+        recordId: rfq.id,
+        before: "evaluated",
+        after: `awarded:${command.supplierId}`,
+        source: "user",
+      });
+      break;
+    }
+    case "phase3_rfq_cancel": {
+      requirePersona(command, ["purchasing_manager"]);
+      const rfq = findById(phaseThree.rfqs, command.rfqId, "RFQ");
+      if (["awarded", "cancelled"].includes(rfq.lifecycleState)) {
+        throw new WorkflowError("This RFQ cannot be cancelled.");
+      }
+      const before = rfq.lifecycleState;
+      rfq.lifecycleState = "cancelled";
+      rfq.version += 1;
+      appendAudit(next, command, {
+        action: "rfq.cancelled",
+        recordType: "rfq",
+        recordId: rfq.id,
+        before,
+        after: rfq.lifecycleState,
+        source: "user",
+      });
+      break;
+    }
     case "phase3_test_integration": {
       requirePersona(command, ["system_administrator", "operations_manager"]);
       const connection = phaseThree.integrations.find(

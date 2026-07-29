@@ -19,6 +19,7 @@ import {
   Moon,
   Search,
   Settings,
+  ShieldCheck,
   Sparkles,
   Sun,
   UserRound,
@@ -555,6 +556,11 @@ function NotificationMenu() {
 }
 
 function ProfileMenu() {
+  async function signOut() {
+    await fetch("/api/auth/sign-out", { method: "POST" }).catch(() => null);
+    window.location.assign("/");
+  }
+
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
@@ -594,30 +600,48 @@ function ProfileMenu() {
           </div>
           <DropdownMenu.Separator className="my-1 h-px bg-[var(--border)]" />
           {[
-            { label: "My profile", icon: UserRound },
-            { label: "Settings", icon: Settings },
-            { label: "Help center", icon: HelpCircle },
+            { label: "My profile", icon: UserRound, href: "/settings" },
+            {
+              label: "Multi-factor security",
+              icon: ShieldCheck,
+              href: "/auth/mfa",
+            },
+            { label: "Settings", icon: Settings, href: "/settings" },
+            {
+              label: "Help center",
+              icon: HelpCircle,
+              href: "/operations-center",
+            },
           ].map((item) => {
             const Icon = item.icon;
             return (
               <DropdownMenu.Item
                 key={item.label}
+                asChild
                 className="flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-[var(--muted-foreground)] outline-none hover:bg-[var(--surface-muted)] focus:bg-[var(--surface-muted)] focus:text-[var(--foreground)]"
               >
-                <Icon className="size-4" />
-                {item.label}
+                <Link href={item.href}>
+                  <Icon className="size-4" />
+                  {item.label}
+                </Link>
               </DropdownMenu.Item>
             );
           })}
           <DropdownMenu.Separator className="my-1 h-px bg-[var(--border)]" />
-          <DropdownMenu.Item asChild>
-            <Link
-              href="/"
+          <DropdownMenu.Item
+            asChild
+            onSelect={(event) => {
+              event.preventDefault();
+              void signOut();
+            }}
+          >
+            <button
+              type="button"
               className="flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-rose-600 outline-none hover:bg-rose-500/10 focus:bg-rose-500/10"
             >
               <LogOut className="size-4" />
-              Exit demo
-            </Link>
+              Sign out
+            </button>
           </DropdownMenu.Item>
         </DropdownMenu.Content>
       </DropdownMenu.Portal>

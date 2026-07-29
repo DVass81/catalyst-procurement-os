@@ -24,6 +24,7 @@ import type {
 import type { PhaseThreeCommand } from "@/phase-three/commands";
 
 const ACTIVE_TENANT_KEY = "catalyst-procurement-os-active-tenant-v1";
+const HYDRATION_SAFE_SESSION_DATE = "2026-07-29";
 
 interface DemoContextValue {
   state: DemoState;
@@ -34,6 +35,7 @@ interface DemoContextValue {
   pending: boolean;
   persistence: "supabase" | "preview" | "unavailable";
   durability: "authoritative" | "temporary" | "read_only";
+  operationalReadiness: PhaseTwoStateEnvelope["operationalReadiness"];
   revision: number;
   error: string | null;
 }
@@ -62,7 +64,10 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
   const [activeTenantId, setActiveTenantId] =
     useState<TenantId>("org-y12-demo");
   const [state, setState] = useState<DemoState>(() =>
-    createDemoState(tenantThemes["org-y12-demo"]),
+    createDemoState(
+      tenantThemes["org-y12-demo"],
+      HYDRATION_SAFE_SESSION_DATE,
+    ),
   );
   const [revision, setRevision] = useState(0);
   const [hydrated, setHydrated] = useState(false);
@@ -72,6 +77,14 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
   const [durability, setDurability] =
     useState<DemoContextValue["durability"]>("read_only");
   const [error, setError] = useState<string | null>(null);
+  const [operationalReadiness, setOperationalReadiness] = useState<
+    PhaseTwoStateEnvelope["operationalReadiness"]
+  >({
+    ready: false,
+    mode: "blocked",
+    checkedAt: new Date(0).toISOString(),
+    reasons: ["authoritative_state_not_loaded"],
+  });
   const tenantRef = useRef<TenantId>("org-y12-demo");
   const revisionRef = useRef(0);
 
@@ -91,7 +104,16 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
       setRevision(envelope.revision);
       setPersistence(envelope.persistence);
       setDurability(envelope.durability);
-      setError(null);
+      setOperationalReadiness(envelope.operationalReadiness);
+      setError(
+        envelope.operationalReadiness.ready
+          ? null
+          : `Controlled actions are blocked: ${
+              envelope.operationalReadiness.reasons
+                .map((reason) => reason.replaceAll("_", " "))
+                .join(", ") || "authoritative transaction checks did not pass"
+            }.`,
+      );
     },
     [],
   );
@@ -121,6 +143,12 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
         });
         setPersistence("unavailable");
         setDurability("read_only");
+        setOperationalReadiness({
+          ready: false,
+          mode: "blocked",
+          checkedAt: new Date().toISOString(),
+          reasons: ["authoritative_state_unavailable"],
+        });
         setError(
           loadError instanceof Error
             ? loadError.message
@@ -224,6 +252,7 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
       pending,
       persistence,
       durability,
+      operationalReadiness,
       revision,
       error,
     }),
@@ -235,6 +264,7 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
       hydrated,
       pending,
       persistence,
+      operationalReadiness,
       revision,
       state,
       switchTenant,

@@ -1,4 +1,5 @@
 import type { PhaseThreeState } from "@/phase-three/model";
+import type { ImportEntityType } from "@/phase-two/import-mapping";
 
 export type Money = number;
 
@@ -486,7 +487,7 @@ export interface GovernedConfiguration {
 
 export interface DemoImportBatch {
   id: string;
-  importType: "vendor_master" | "catalog" | "opening_inventory";
+  importType: ImportEntityType;
   lifecycleState:
     | "uploaded"
     | "staged"

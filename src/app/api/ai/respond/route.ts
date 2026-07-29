@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { aiRunRequestSchema } from "@/ai/types";
 import { describeAiHttpFailure } from "@/server/ai/http-errors";
 import { runProcurementAi } from "@/server/ai/orchestrator";
+import { authorizeCateActor } from "@/server/auth/authority";
 import { requireAppSession } from "@/server/auth/session";
 import { isCapabilityInFallback } from "@/server/presenter/fallback";
 import {
@@ -36,11 +37,18 @@ export async function POST(request: Request) {
   }
   try {
     const session = await requireAppSession(parsed.data.tenantId);
+    const authority = session.authorities[parsed.data.tenantId];
+    const actor = authorizeCateActor({
+      authority: authority!,
+      presenter: session.presenter,
+      syntheticOnly: process.env.CATALYST_SYNTHETIC_ONLY !== "0",
+      requestedRole: parsed.data.role,
+    });
     const mode = isCapabilityInFallback(parsed.data.capability)
       ? "deterministic"
       : parsed.data.mode;
     const result = await runProcurementAi(
-      { ...parsed.data, mode },
+      { ...parsed.data, role: actor.activeRole, mode },
       request.headers.get("x-catalyst-session") ??
         `${session.userId}:${parsed.data.tenantId}`,
     );

@@ -11,6 +11,11 @@ import {
 } from "@/ai/types";
 import { runProcurementAi, estimateOpenAiCost } from "@/server/ai/orchestrator";
 import { recordCateEvaluation } from "@/server/ai/evaluation-ledger";
+import {
+  assessCateIntent,
+  calibrateCateConfidence,
+  validateCateAnswer,
+} from "@/server/ai/intent";
 import { MODEL_IDS, routeModel } from "@/server/ai/router";
 import {
   canStartPaidRun,
@@ -91,6 +96,39 @@ export async function analyzeFictionalDocument(input: {
     if (!response.output_parsed) {
       throw new Error("No structured document result was returned.");
     }
+    const intent = assessCateIntent(
+      input.request.prompt,
+      input.request.capability,
+    );
+    const groundedOutput = {
+      ...response.output_parsed,
+      citations: response.output_parsed.citations.filter(
+        (citation) =>
+          citation.sourceType === "uploaded_document" &&
+          citation.locator === input.file.name,
+      ),
+      proposedActions: [],
+    };
+    const answerAssessment = validateCateAnswer({
+      intent,
+      output: groundedOutput,
+      outputClass: "generative_interpretation",
+    });
+    if (!answerAssessment.questionAnswered) {
+      return runProcurementAi(
+        {
+          ...input.request,
+          prompt: `${input.request.prompt} The fictional attachment is named ${input.file.name}. The live document answer did not pass the question-answered and citation gate, so use only the authoritative tenant evidence and disclose that limitation.`,
+          capability: intent.resolvedCapability,
+          mode: "deterministic",
+        },
+        input.sessionId,
+      );
+    }
+    const calibratedOutput = calibrateCateConfidence(
+      groundedOutput,
+      answerAssessment,
+    );
     const inputTokens = response.usage?.input_tokens ?? 0;
     const outputTokens = response.usage?.output_tokens ?? 0;
     const usage = createUsageEvent({
@@ -111,8 +149,19 @@ export async function analyzeFictionalDocument(input: {
       route: routed.route,
       model,
       providerMode: "live",
-      ...response.output_parsed,
-      proposedActions: [],
+      ...calibratedOutput,
+      intentAssessment: intent,
+      answerAssessment,
+      claims: [
+        {
+          id: `document-claim-${intent.intentId}`,
+          text: calibratedOutput.displayText,
+          classification: "inference",
+          sourceCitationIds: calibratedOutput.citations.map(
+            (citation) => citation.id,
+          ),
+        },
+      ],
       usage,
       tourStepToResume: input.request.tourStepToResume,
     };

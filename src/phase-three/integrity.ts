@@ -32,6 +32,9 @@ export function verifyPhaseThreeIntegrity(
   if (!unique(state.supplierApplications.map((item) => item.id))) {
     errors.push("Supplier application identifiers are not unique.");
   }
+  if (!unique(state.rfqs.map((item) => item.id))) {
+    errors.push("RFQ identifiers are not unique.");
+  }
   if (!unique(state.contracts.map((item) => item.id))) {
     errors.push("Contract-intelligence record identifiers are not unique.");
   }
@@ -72,6 +75,55 @@ export function verifyPhaseThreeIntegrity(
           supplier.bankingChange.approvedBy)
     ) {
       errors.push(`${supplier.id} violates banking-change dual control.`);
+    }
+  }
+  for (const rfq of state.rfqs) {
+    if (!unique(rfq.responses.map((response) => response.id))) {
+      errors.push(`${rfq.id} contains duplicate response identifiers.`);
+    }
+    for (const response of rfq.responses) {
+      const calculatedTotal =
+        response.lines.reduce(
+          (total, line) => total + line.extendedPriceCents,
+          0,
+        ) + response.freightCents;
+      if (calculatedTotal !== response.totalCents) {
+        errors.push(`${response.id} does not reconcile its response total.`);
+      }
+      if (
+        response.lines.some((line) => {
+          const rfqLine = rfq.lines.find(
+            (candidate) => candidate.id === line.rfqLineId,
+          );
+          return (
+            !rfqLine ||
+            line.extendedPriceCents !==
+              line.unitPriceCents * rfqLine.quantity
+          );
+        })
+      ) {
+        errors.push(`${response.id} contains an invalid line extension.`);
+      }
+      if (
+        response.status === "submitted" &&
+        response.revealedAt !== undefined
+      ) {
+        errors.push(`${response.id} was revealed before the sealed round closed.`);
+      }
+    }
+    if (rfq.award) {
+      const evaluation = rfq.evaluations.find(
+        (candidate) => candidate.responseId === rfq.award?.responseId,
+      );
+      if (
+        !evaluation ||
+        evaluation.completedByRole === rfq.award.awardedByRole
+      ) {
+        errors.push(`${rfq.id} violates RFQ evaluation/award dual control.`);
+      }
+      if (rfq.lifecycleState !== "awarded") {
+        errors.push(`${rfq.id} has an award outside the awarded lifecycle state.`);
+      }
     }
   }
   for (const workflow of state.workflowVersions) {

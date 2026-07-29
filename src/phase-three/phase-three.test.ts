@@ -1,6 +1,21 @@
 import { describe, expect, it } from "vitest";
 
 import { createDemoState } from "@/demo/seed";
+import {
+  acceptInventoryRecommendation,
+  acceptStandardsSubstitution,
+  analyzeFeaturedRequest,
+  confirmBudgetAndCoding,
+  createFeaturedPurchaseOrder,
+  decideApproval,
+  issueFeaturedPurchaseOrder,
+  receiveFeaturedOrder,
+  recordVendorAcknowledgment,
+  resolveInvoiceException,
+  runThreeWayMatch,
+  submitRequest,
+  switchRole,
+} from "@/demo/workflow";
 import type { PhaseThreePersistedCommand } from "@/phase-three/commands";
 import { verifyPhaseThreeIntegrity } from "@/phase-three/integrity";
 import {
@@ -29,6 +44,14 @@ function execute(
     ...typeSpecific,
     activePersona,
   } as PhaseThreePersistedCommand);
+}
+
+function sourcingReadyState() {
+  let state = analyzeFeaturedRequest(
+    createDemoState(undefined, "2026-07-24"),
+  );
+  state = acceptInventoryRecommendation(state);
+  return acceptStandardsSubstitution(state);
 }
 
 describe("commercialization foundation", () => {
@@ -69,6 +92,150 @@ describe("commercialization foundation", () => {
     expect(run.rejectedCount).toBe(0);
     expect(run.postedTotalCents).toBe(run.sourceTotalCents);
     expect(run.validationFindings).toEqual([]);
+  });
+
+  it("completes a sealed RFQ, BAFO, independent evaluation, and award", () => {
+    const submit = (
+      state: ReturnType<typeof createDemoState>,
+      supplierId: string,
+      bafo = false,
+    ) => {
+      const rfq = state.phaseThree.rfqs[0]!;
+      const priceOffset =
+        supplierId === "vendor-002"
+          ? -2_000
+          : supplierId === "vendor-003"
+            ? -1_000
+            : 0;
+      return execute(
+        {
+          type: bafo
+            ? "phase3_rfq_submit_bafo"
+            : "phase3_rfq_submit_response",
+          rfqId: rfq.id,
+          supplierId,
+          freightCents: supplierId === "vendor-002" ? 4_500 : 0,
+          paymentTerms: "Net 30",
+          validityDate: rfq.responseDeadline,
+          offers: rfq.lines.map((line, index) => ({
+            rfqLineId: line.id,
+            unitPriceCents:
+              25_000 + index * 10_000 + priceOffset - (bafo ? 1_500 : 0),
+            promisedDate: line.requiredByDate,
+          })),
+          attachments: [`Synthetic ${supplierId} response.pdf`],
+          simulation: true,
+        },
+        "supplier_user",
+        state,
+      );
+    };
+
+    let state = execute(
+      { type: "phase3_rfq_release", rfqId: "rfq-loan-officer-package" },
+      "purchasing_specialist",
+      sourcingReadyState(),
+    );
+    state = submit(state, "vendor-001");
+    state = submit(state, "vendor-002");
+    state = submit(state, "vendor-003");
+    expect(state.phaseThree.rfqs[0]?.responses).toHaveLength(3);
+    expect(
+      state.phaseThree.rfqs[0]?.responses.every(
+        (response) =>
+          response.status === "submitted" && !response.revealedAt,
+      ),
+    ).toBe(true);
+
+    state = execute(
+      { type: "phase3_rfq_close", rfqId: "rfq-loan-officer-package" },
+      "purchasing_specialist",
+      state,
+    );
+    state = execute(
+      { type: "phase3_rfq_evaluate", rfqId: "rfq-loan-officer-package" },
+      "purchasing_specialist",
+      state,
+    );
+    state = execute(
+      {
+        type: "phase3_rfq_request_bafo",
+        rfqId: "rfq-loan-officer-package",
+        supplierIds: ["vendor-001", "vendor-003"],
+      },
+      "purchasing_manager",
+      state,
+    );
+    state = submit(state, "vendor-001", true);
+    state = submit(state, "vendor-003", true);
+    state = execute(
+      { type: "phase3_rfq_close", rfqId: "rfq-loan-officer-package" },
+      "purchasing_specialist",
+      state,
+    );
+    state = execute(
+      { type: "phase3_rfq_evaluate", rfqId: "rfq-loan-officer-package" },
+      "purchasing_specialist",
+      state,
+    );
+    state = execute(
+      {
+        type: "phase3_rfq_award",
+        rfqId: "rfq-loan-officer-package",
+        supplierId: "vendor-003",
+        rationale:
+          "Independent award approval based on the governed score, eligible supplier evidence, delivery, response hash, and total cost.",
+      },
+      "purchasing_manager",
+      state,
+    );
+
+    const rfq = state.phaseThree.rfqs[0]!;
+    expect(rfq.lifecycleState).toBe("awarded");
+    expect(rfq.award?.supplierId).toBe("vendor-003");
+    expect(rfq.award?.awardedByRole).toBe("purchasing_manager");
+    expect(state.stage).toBe("vendor_selected");
+    expect(state.requests[0]?.selectedVendorId).toBe("vendor-003");
+    expect(state.requests[0]?.recommendedTotalCents).toBe(
+      rfq.award?.totalCents,
+    );
+    expect(
+      rfq.evaluations.find(
+        (evaluation) => evaluation.responseId === rfq.award?.responseId,
+      )?.completedByRole,
+    ).toBe("purchasing_specialist");
+    expect(verifyPhaseThreeIntegrity(state.phaseThree).valid).toBe(true);
+
+    state = confirmBudgetAndCoding(state);
+    state = submitRequest(state);
+    for (const role of [
+      "department_manager",
+      "it_reviewer",
+      "purchasing_manager",
+      "finance_reviewer",
+    ] as const) {
+      state = switchRole(state, role);
+      state = decideApproval(
+        state,
+        "approve",
+        "Independent award and request evidence reviewed.",
+      );
+    }
+    state = switchRole(state, "purchasing_specialist");
+    state = createFeaturedPurchaseOrder(state);
+    expect(state.phaseThree.rfqs[0]?.award?.purchaseOrderId).toBe(
+      "po-featured",
+    );
+    expect(state.purchaseOrders[0]?.totalCents).toBe(rfq.award?.totalCents);
+    state = issueFeaturedPurchaseOrder(state);
+    state = recordVendorAcknowledgment(state);
+    state = switchRole(state, "receiving_clerk");
+    state = receiveFeaturedOrder(state);
+    state = switchRole(state, "accounts_payable");
+    state = runThreeWayMatch(state);
+    state = resolveInvoiceException(state, "corrected_invoice");
+    expect(state.stage).toBe("correction_requested");
+    expect(state.invoices[0]?.paymentStatus).toBe("on_hold");
   });
 
   it("blocks supplier approval with expired or missing evidence", () => {

@@ -38,5 +38,16 @@ export async function GET(request: Request) {
     );
   }
 
+  const assurance =
+    await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+  if (
+    !assurance.error &&
+    assurance.data.currentLevel !== "aal2" &&
+    assurance.data.nextLevel === "aal2"
+  ) {
+    const mfaUrl = new URL("/auth/mfa", publicOrigin);
+    return NextResponse.redirect(mfaUrl);
+  }
+
   return NextResponse.redirect(new URL(next, publicOrigin));
 }

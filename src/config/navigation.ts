@@ -14,6 +14,7 @@ import {
   Network,
   PackageCheck,
   ReceiptText,
+  Send,
   Settings,
   ShieldCheck,
   ShoppingCart,
@@ -70,6 +71,12 @@ export const navigationSections = [
         href: "/purchase-requests",
         icon: ShoppingCart,
         description: "Requests and intake",
+      },
+      {
+        label: "RFQs & Sourcing",
+        href: "/rfqs",
+        icon: Send,
+        description: "Solicitations, sealed responses, evaluation, and award",
       },
       {
         label: "Approvals",

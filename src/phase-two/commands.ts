@@ -162,7 +162,15 @@ export interface PhaseTwoStateEnvelope {
   state: import("@/demo/model").DemoState;
   revision: number;
   persistence: "supabase" | "preview";
-  durability: "authoritative" | "temporary";
+  durability: "authoritative" | "temporary" | "read_only";
+  operationalReadiness: {
+    ready: boolean;
+    mode: "normalized_kernel" | "preview" | "blocked";
+    checkedAt: string;
+    reasons: string[];
+    snapshotRevision?: number;
+    ledgerRevision?: number;
+  };
   presenter?: boolean;
   lastCommandId?: string;
 }
