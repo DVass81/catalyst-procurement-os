@@ -1,15 +1,15 @@
-name: catalyst-procurement-os-demo
+name: catalyst-phase3-staging
 region: nyc
 services:
   - name: web
     github:
       repo: DVass81/catalyst-procurement-os
-      branch: codex/phase-4-live-ai-concierge
+      branch: codex/phase3-commercialization-demo
       deploy_on_push: true
     dockerfile_path: Dockerfile
     http_port: 3000
     instance_count: 1
-    instance_size_slug: basic-xxs
+    instance_size_slug: apps-s-1vcpu-1gb-fixed
     health_check:
       http_path: /api/health
       initial_delay_seconds: 20
@@ -21,14 +21,23 @@ services:
       - key: NODE_ENV
         value: production
         scope: RUN_TIME
-      - key: OPENAI_API_KEY
-        type: SECRET
-        scope: RUN_TIME
       - key: APP_BASE_URL
-        value: https://catalyst-procurement-os-demo-6jouh.ondigitalocean.app
+        value: ${APP_URL}
+        scope: RUN_TIME
+      - key: DEMO_AUTH_BYPASS
+        value: "0"
+        scope: RUN_TIME
+      - key: CATALYST_SYNTHETIC_ONLY
+        value: "1"
+        scope: RUN_TIME
+      - key: CATALYST_RELEASE_CHANNEL
+        value: commercialization-staging
+        scope: RUN_TIME
+      - key: CATALYST_RELEASE_COMMIT
+        value: ${_self.COMMIT_HASH}
         scope: RUN_TIME
       - key: CATALYST_AI_MODE
-        value: auto
+        value: deterministic
         scope: RUN_TIME
       - key: NEXT_PUBLIC_SUPABASE_URL
         type: SECRET
@@ -40,33 +49,6 @@ services:
         type: SECRET
         scope: RUN_TIME
       - key: ACTION_CONFIRMATION_SECRET
-        type: SECRET
-        scope: RUN_TIME
-      - key: ELEVENLABS_API_KEY
-        type: SECRET
-        scope: RUN_TIME
-      - key: ELEVENLABS_AGENT_ID
-        type: SECRET
-        scope: RUN_TIME
-      - key: ELEVENLABS_VOICE_ID
-        type: SECRET
-        scope: RUN_TIME
-      - key: ELEVENLABS_TOOL_SECRET
-        type: SECRET
-        scope: RUN_TIME
-      - key: ELEVENLABS_WEBHOOK_SECRET
-        type: SECRET
-        scope: RUN_TIME
-      - key: GOOGLE_CLIENT_ID
-        type: SECRET
-        scope: RUN_TIME
-      - key: GOOGLE_CLIENT_SECRET
-        type: SECRET
-        scope: RUN_TIME
-      - key: GOOGLE_OAUTH_STATE_SECRET
-        type: SECRET
-        scope: RUN_TIME
-      - key: TOKEN_ENCRYPTION_KEY
         type: SECRET
         scope: RUN_TIME
 ingress:

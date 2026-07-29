@@ -112,7 +112,10 @@ export async function POST(request: Request) {
     const current = await loadPhaseTwoState(parsed.data.tenantId);
     if (current.revision !== parsed.data.expectedRevision) {
       if (current.lastCommandId === parsed.data.idempotencyKey) {
-        return NextResponse.json(current, { headers: noStore });
+        return NextResponse.json(
+          { ...current, presenter: session.presenter },
+          { headers: noStore },
+        );
       }
       throw new Error("REVISION_CONFLICT");
     }
@@ -155,6 +158,7 @@ export async function POST(request: Request) {
         revision: committed.revision,
         persistence: committed.persistence,
         durability: committed.durability,
+        presenter: session.presenter,
         lastCommandId: committed.last_command_id,
       };
       return NextResponse.json(response, {

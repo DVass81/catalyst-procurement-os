@@ -26,6 +26,10 @@ import {
 } from "recharts";
 
 import { useDemo } from "@/components/demo/demo-provider";
+import {
+  WorkflowRail,
+  workflowStageRank,
+} from "@/components/demo/workflow-rail";
 import { AiWorkspace } from "@/components/ai/ai-workspace";
 import { CertifiedKpiDashboard } from "@/components/analytics/certified-kpi-dashboard";
 import {
@@ -35,7 +39,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import type { DemoRole, DemoState, WorkflowStage } from "@/demo/model";
+import type { DemoRole, DemoState } from "@/demo/model";
 import {
   dashboardProjection,
   featuredApprovalsFor,
@@ -51,41 +55,6 @@ type ExecuteCommand = (
   command: PhaseTwoCommand | PhaseTwoCommand[],
   success: string,
 ) => Promise<void>;
-
-const workflowSteps: Array<[string, WorkflowStage]> = [
-  ["Request", "draft"],
-  ["Inventory", "inventory_reviewed"],
-  ["Standards", "standards_reviewed"],
-  ["Vendor", "vendor_selected"],
-  ["Budget", "budget_confirmed"],
-  ["Approvals", "submitted"],
-  ["PO", "po_draft"],
-  ["Receipt", "fully_received"],
-  ["Invoice & Audit", "invoice_exception"],
-];
-
-const stageRanks: Record<WorkflowStage, number> = {
-  draft: 0,
-  analyzed: 0,
-  inventory_reviewed: 1,
-  standards_reviewed: 2,
-  vendor_selected: 3,
-  budget_confirmed: 4,
-  submitted: 5,
-  manager_approved: 5,
-  it_approved: 5,
-  purchasing_approved: 5,
-  approved: 5,
-  po_draft: 6,
-  po_issued: 6,
-  acknowledged: 6,
-  fully_received: 7,
-  invoice_exception: 8,
-  exception_routed: 8,
-  correction_requested: 8,
-  variance_accepted: 8,
-  resolved: 8,
-};
 
 function money(cents: number) {
   return formatCurrency(cents / 100, {
@@ -114,29 +83,6 @@ function SectionHeader({
       <p className="mt-2 max-w-4xl text-sm leading-6 text-[var(--muted-foreground)]">
         {description}
       </p>
-    </div>
-  );
-}
-
-function WorkflowRail({ stage }: { stage: WorkflowStage }) {
-  const active = stageRanks[stage];
-  return (
-    <div className="scrollbar-none flex gap-2 overflow-x-auto pb-1" aria-label="Featured workflow progress">
-      {workflowSteps.map(([label], index) => (
-        <div
-          key={label}
-          data-tour-id={`workflow-${label.toLowerCase().replaceAll(" ", "-")}`}
-          className={`min-w-28 rounded-xl border px-3 py-2 text-center text-[10px] font-extrabold ${
-            index === active
-              ? "border-[var(--brand-primary)] bg-[var(--brand-primary)] text-white"
-              : index < active
-                ? "border-sky-200 bg-sky-50 text-[var(--brand-primary)] dark:border-sky-900 dark:bg-sky-950/30"
-                : "border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)]"
-          }`}
-        >
-          {index + 1}. {label}
-        </div>
-      ))}
     </div>
   );
 }
@@ -618,7 +564,7 @@ function RequestView({
             </p>
             <Button
               className="mt-4"
-              disabled={stageRanks[state.stage] > 0 || request.fieldsLocked}
+              disabled={workflowStageRank(state.stage) > 0 || request.fieldsLocked}
               onClick={() =>
                 void execute(
                   state.stage === "draft"
@@ -1004,8 +950,6 @@ function PurchaseOrderView({ state, execute }: { state: DemoState; execute: Exec
           <div className="flex flex-wrap gap-2">
             <Button disabled={state.stage !== "po_draft" || !canManagePo} title={!canManagePo ? "Switch to a purchasing role" : undefined} onClick={() => void execute({ type: "issue_purchase_order" }, "PO issued")}>Issue PO</Button>
             <Button variant="secondary" disabled={state.stage !== "po_issued" || !canManagePo} title={!canManagePo ? "Switch to a purchasing role" : undefined} onClick={() => void execute({ type: "record_vendor_acknowledgment" }, "Acknowledgment recorded")}>Record acknowledgment</Button>
-            <Button variant="ghost">Preview PO</Button>
-            <Button variant="ghost">Download placeholder</Button>
           </div>
           {["issued", "acknowledged"].includes(po.status) && (
             <Card className="mt-4 border-amber-200 bg-amber-50/50">
@@ -1684,6 +1628,7 @@ function PrivateDocumentUpload({
     form.append("tenantId", tenantId);
     form.append("parentEntityType", "request");
     form.append("parentEntityId", parentEntityId);
+    form.append("syntheticDataAttestation", "true");
     form.append("file", file);
     try {
       const response = await fetch("/api/phase-two/documents", {
@@ -1816,6 +1761,7 @@ function PrivateDocumentUpload({
 
 function ControlledImportUpload({ tenantId }: { tenantId: string }) {
   const [file, setFile] = useState<File | null>(null);
+  const [acknowledged, setAcknowledged] = useState(false);
   const [importType, setImportType] = useState<
     "vendor_master" | "catalog" | "opening_inventory"
   >("vendor_master");
@@ -1823,13 +1769,14 @@ function ControlledImportUpload({ tenantId }: { tenantId: string }) {
   const [working, setWorking] = useState(false);
 
   async function stage() {
-    if (!file) return;
+    if (!file || !acknowledged) return;
     setWorking(true);
     setStatus("");
     const form = new FormData();
     form.append("tenantId", tenantId);
     form.append("importType", importType);
     form.append("sourceSystem", "Synthetic controlled upload");
+    form.append("syntheticDataAttestation", "true");
     form.append("file", file);
     try {
       const response = await fetch("/api/phase-two/imports", {
@@ -1850,6 +1797,7 @@ function ControlledImportUpload({ tenantId }: { tenantId: string }) {
         `Batch ${result.batchId} · ${result.lifecycleState} · ${result.validRowCount}/${result.rowCount} valid rows · ${result.errorRowCount} errors · SHA-256 ${result.sha256}`,
       );
       setFile(null);
+      setAcknowledged(false);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Import staging failed.");
     } finally {
@@ -1890,10 +1838,19 @@ function ControlledImportUpload({ tenantId }: { tenantId: string }) {
           className="text-xs"
         />
       </div>
+      <label className="mt-3 flex min-h-6 items-center gap-2 text-[11px] font-bold">
+        <input
+          type="checkbox"
+          checked={acknowledged}
+          onChange={(event) => setAcknowledged(event.target.checked)}
+          className="size-4"
+        />
+        I confirm this import contains synthetic demonstration data only.
+      </label>
       <Button
         className="mt-3"
         size="sm"
-        disabled={!file || working}
+        disabled={!file || !acknowledged || working}
         onClick={() => void stage()}
       >
         {working ? "Quarantining and validating…" : "Stage and validate"}
@@ -1939,7 +1896,7 @@ function GenericView({ section, state }: { section: string; state: DemoState }) 
     contracts: ["Obligation intelligence", "Renewal timing, notice dates, owner context, and fictional agreement values.", ["Contract", "Name", "Vendor", "Value", "Notice deadline", "End date", "Status"], state.contracts.map((contract) => [contract.id, contract.name, state.vendors.find((vendor) => vendor.id === contract.vendorId)?.displayName ?? contract.vendorId, money(contract.valueCents), contract.noticeDeadline, contract.endDate, contract.status])],
     analytics: ["Spend and savings", `Calendar-year ${state.sessionDate.slice(0, 4)} posted invoice actuals, open commitments, available budget, and utilization.`, ["Department", "Budget", "Posted actual", "Open commitments", "Available", "Utilization"], state.budgets.map((budget) => { const department = state.departments.find((candidate) => candidate.id === budget.departmentId)!; const available = budget.revisedBudgetCents - budget.actualSpendCents - budget.committedCents; return [department.name, money(budget.revisedBudgetCents), money(budget.actualSpendCents), money(budget.committedCents), money(available), `${(((budget.actualSpendCents + budget.committedCents) / budget.revisedBudgetCents) * 100).toFixed(1)}%`]; })],
     administration: ["Organization governance", "Fictional users, roles, approval authority, departments, and locations.", ["User", "Title", "Role", "Department", "Location", "Authority"], state.users.map((user) => [user.name, user.jobTitle, titleCase(user.role), state.departments.find((department) => department.id === user.departmentId)?.name ?? user.departmentId, state.locations.find((location) => location.id === user.locationId)?.name ?? user.locationId, money(user.approvalAuthorityCents)])],
-    settings: ["Demo configuration", "Central organization theme, terminology, accessibility, and tutorial preparation.", ["Setting", "Value", "Scope"], [["Organization", state.organization.organizationName, "White-label"], ["Primary color", state.organization.primaryColor, "Theme"], ["Support", state.organization.supportContact, "Organization"], ["Tutorial mode", "Preview only", "Future phase"], ["Locale", state.organization.locale, "Formatting"], ["Timezone", state.organization.timezone, "Formatting"]]],
+    settings: ["Demo configuration", "Central organization theme, terminology, accessibility, and tutorial preparation.", ["Setting", "Value", "Scope"], [["Organization", state.organization.organizationName, "White-label"], ["Primary color", state.organization.primaryColor, "Theme"], ["Support", state.organization.supportContact, "Organization"], ["Tutorial mode", "Preview only", "Future Activation"], ["Locale", state.organization.locale, "Formatting"], ["Timezone", state.organization.timezone, "Formatting"]]],
   };
   const [title, description, columns, rows] = config[section] ?? ["Connected workspace", "Controlled fictional records for the product demonstration.", ["Record", "Status"], [["Featured workflow", state.stage]]];
   return <><SectionHeader eyebrow={title} title={titleCase(section)} description={description} /><DataTable columns={columns} rows={rows} /></>;
@@ -2046,15 +2003,20 @@ export function PhaseTwoPage({ section }: { section: string }) {
           <select id="demo-role" value={state.activeRole} disabled={pending || durability === "read_only"} onChange={(event) => void execute({ type: "switch_role", role: event.target.value as DemoRole }, "Active role changed")} className="h-9 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-xs font-bold">
             {roles.map((role) => <option key={role} value={role}>{titleCase(role)}</option>)}
           </select>
-          <select aria-label="Jump to workflow stage" defaultValue="" disabled={pending || durability === "read_only"} onChange={(event) => { if (event.target.value) { void execute({ type: "jump_to_stage", stage: event.target.value as WorkflowStage }, `Loaded ${titleCase(event.target.value)}`); } }} className="h-9 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-xs font-bold">
-            <option value="">Jump to stage…</option>
-            {["draft", "submitted", "approved", "po_draft", "acknowledged", "fully_received", "invoice_exception", "exception_routed"].map((stage) => <option key={stage} value={stage}>{titleCase(stage)}</option>)}
-          </select>
           <Button variant="secondary" size="sm" disabled={pending || durability === "read_only"} onClick={() => void execute({ type: "reset_demo" }, "Demo baseline restored")}><RefreshCw className="size-3.5" />Reset</Button>
         </div>
       </div>
       )}
-      <WorkflowRail stage={state.stage} />
+      <WorkflowRail
+        stage={state.stage}
+        presenter={state.presenterMode}
+        pending={pending}
+        readOnly={durability === "read_only"}
+        error={persistenceError}
+        onJump={(stage, label) =>
+          void execute({ type: "jump_to_stage", stage }, `Loaded ${label}`)
+        }
+      />
       <DecisionGuide section={section} />
       {section === "dashboard" ? <DashboardView state={state} /> : section === "purchase-requests" ? <RequestView state={state} execute={execute} /> : section === "approvals" ? <ApprovalView state={state} execute={execute} /> : section === "purchase-orders" ? <PurchaseOrderView state={state} execute={execute} /> : section === "receiving" ? <ReceivingView state={state} execute={execute} /> : section === "invoices" ? <InvoiceView state={state} execute={execute} /> : section === "analytics" ? <CertifiedKpiDashboard state={state} /> : section === "audit-center" ? <AuditView state={state} execute={execute} activeTenantId={activeTenantId} durableArtifacts={durability === "authoritative"} /> : section === "administration" ? <GovernanceView state={state} execute={execute} /> : section === "ai-procurement" ? <AiWorkspace /> : <GenericView section={section} state={state} />}
       {message && (

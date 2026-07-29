@@ -74,6 +74,10 @@ export const phaseTwoCommandSchema = z.discriminatedUnion("type", [
       "accounts_payable",
       "executive",
       "auditor",
+      "supplier_user",
+      "contract_manager",
+      "security_reviewer",
+      "operations_manager",
       "system_administrator",
     ] satisfies [DemoRole, ...DemoRole[]]),
   }),
@@ -159,5 +163,6 @@ export interface PhaseTwoStateEnvelope {
   revision: number;
   persistence: "supabase" | "preview";
   durability: "authoritative" | "temporary";
+  presenter?: boolean;
   lastCommandId?: string;
 }

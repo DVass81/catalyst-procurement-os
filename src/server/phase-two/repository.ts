@@ -7,10 +7,13 @@ import type {
   PhaseTwoCommand,
   PhaseTwoStateEnvelope,
 } from "@/phase-two/commands";
+import type { PhaseThreePersistedCommand } from "@/phase-three/commands";
+import { createPhaseThreeState } from "@/phase-three/seed";
 import { createDemoState } from "@/demo/seed";
 import { tenantThemes, type TenantId } from "@/config/organizations";
 import type { DemoState } from "@/demo/model";
 import { createSupabaseServiceClient } from "@/server/supabase/admin";
+import { syncPhaseThreeProjection } from "@/server/phase-three/projection";
 
 interface StoredSnapshot {
   tenant_id: string;
@@ -42,6 +45,22 @@ function seedFor(tenantId: string, sessionDate?: string) {
   const theme =
     tenantThemes[tenantId as TenantId] ?? tenantThemes["org-y12-demo"];
   return createDemoState(theme, sessionDate);
+}
+
+function normalizeState(state: DemoState): DemoState {
+  const candidate = state as DemoState & {
+    phaseThree?: DemoState["phaseThree"];
+    schemaVersion: number;
+  };
+  if (candidate.schemaVersion >= 6 && candidate.phaseThree) return candidate;
+  return {
+    ...candidate,
+    schemaVersion: 6,
+    phaseThree: createPhaseThreeState(
+      candidate.sessionDate,
+      candidate.organization.organizationId,
+    ),
+  };
 }
 
 function previewSnapshot(tenantId: string) {
@@ -80,7 +99,7 @@ export async function loadPhaseTwoState(
   if (error) throw new Error(`STATE_LOAD_FAILED:${error.code}`);
   if (data) {
     return {
-      state: data.state,
+      state: normalizeState(data.state),
       revision: data.revision,
       persistence: "supabase",
       durability: "authoritative",
@@ -110,7 +129,7 @@ export async function commitPhaseTwoState(input: {
   actorRole: string;
   expectedRevision: number;
   idempotencyKey: string;
-  command: PhaseTwoCommand;
+  command: PhaseTwoCommand | PhaseThreePersistedCommand;
   nextState: DemoState;
 }): Promise<CommitResult & Pick<PhaseTwoStateEnvelope, "persistence" | "durability">> {
   if (!hasDurableStore()) {
@@ -167,6 +186,9 @@ export async function commitPhaseTwoState(input: {
   }
   const result = (Array.isArray(data) ? data[0] : data) as CommitResult | null;
   if (!result) throw new Error("STATE_COMMIT_FAILED:NO_RESULT");
+  if (input.command.type.startsWith("phase3_")) {
+    await syncPhaseThreeProjection(input.tenantId, result.state);
+  }
   return {
     ...result,
     persistence: "supabase",

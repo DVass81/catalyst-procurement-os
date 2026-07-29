@@ -21,12 +21,13 @@ import type {
   PhaseTwoCommand,
   PhaseTwoStateEnvelope,
 } from "@/phase-two/commands";
+import type { PhaseThreeCommand } from "@/phase-three/commands";
 
 const ACTIVE_TENANT_KEY = "catalyst-procurement-os-active-tenant-v1";
 
 interface DemoContextValue {
   state: DemoState;
-  dispatch: (command: PhaseTwoCommand) => Promise<DemoState>;
+  dispatch: (command: PhaseTwoCommand | PhaseThreeCommand) => Promise<DemoState>;
   switchTenant: (tenantId: TenantId) => Promise<void>;
   activeTenantId: TenantId;
   hydrated: boolean;
@@ -38,10 +39,6 @@ interface DemoContextValue {
 }
 
 const DemoContext = createContext<DemoContextValue | null>(null);
-
-function presenterMode() {
-  return new URLSearchParams(window.location.search).get("presenter") === "1";
-}
 
 async function requestState(tenantId: TenantId) {
   const response = await fetch(
@@ -82,7 +79,7 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
     (tenantId: TenantId, envelope: PhaseTwoStateEnvelope) => {
       const next = {
         ...envelope.state,
-        presenterMode: presenterMode(),
+        presenterMode: envelope.presenter === true,
       };
       if (next.organization.organizationId !== tenantId) {
         throw new Error("The server returned state for a different tenant.");
@@ -103,18 +100,24 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
     let cancelled = false;
     const load = async () => {
       const storedTenant = window.localStorage.getItem(ACTIVE_TENANT_KEY);
-      const tenantId =
-        presenterMode() && storedTenant && isTenantId(storedTenant)
-          ? storedTenant
-          : "org-y12-demo";
+      let tenantId: TenantId = "org-y12-demo";
       try {
-        const envelope = await requestState(tenantId);
+        let envelope = await requestState(tenantId);
+        if (
+          envelope.presenter === true &&
+          storedTenant &&
+          isTenantId(storedTenant) &&
+          storedTenant !== tenantId
+        ) {
+          tenantId = storedTenant;
+          envelope = await requestState(tenantId);
+        }
         if (!cancelled) acceptEnvelope(tenantId, envelope);
       } catch (loadError) {
         if (cancelled) return;
         setState({
           ...createDemoState(tenantThemes[tenantId]),
-          presenterMode: presenterMode(),
+          presenterMode: false,
         });
         setPersistence("unavailable");
         setDurability("read_only");
@@ -134,7 +137,7 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
   }, [acceptEnvelope]);
 
   const dispatch = useCallback(
-    async (command: PhaseTwoCommand) => {
+    async (command: PhaseTwoCommand | PhaseThreeCommand) => {
       if (durability === "read_only") {
         throw new Error(
           "The workspace is in read-only fallback because authoritative state is unavailable.",
@@ -144,8 +147,9 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
       setPending(true);
       setError(null);
       try {
-        const endpoint =
-          command.type === "generate_audit_package"
+        const endpoint = command.type.startsWith("phase3_")
+          ? "/api/phase-three/state"
+          : command.type === "generate_audit_package"
             ? "/api/phase-two/audit-packages"
             : "/api/phase-two/state";
         const response = await fetch(endpoint, {

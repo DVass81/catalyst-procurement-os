@@ -169,14 +169,14 @@ function Sidebar({ pathname }: { pathname: string }) {
               <Sparkles className="size-3.5" aria-hidden="true" />
             </span>
             <span className="text-xs font-bold text-white">
-              Catalyst Guide Live
+              CATE Guide
             </span>
             <Badge className="ml-auto border-white/10 bg-white/10 px-1.5 py-0.5 text-[9px] text-[#f0cb7c]">
-              Phase 4
+              AI
             </Badge>
           </div>
           <p className="mt-2 text-[11px] leading-4.5 text-white/55">
-            CATE Live, grounded procurement answers, captions, and a
+            Evidence-grounded procurement answers, captions, and a
             presenter-controlled fallback.
           </p>
           <button
@@ -465,9 +465,13 @@ function OrganizationMenu() {
             );
           })}
           <DropdownMenu.Separator className="my-1 h-px bg-[var(--border)]" />
-          <DropdownMenu.Item className="flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-[var(--muted-foreground)] outline-none hover:bg-[var(--surface-muted)] focus:bg-[var(--surface-muted)]">
+          <DropdownMenu.Item
+            disabled
+            className="flex cursor-not-allowed items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-[var(--muted-foreground)] opacity-70 outline-none"
+          >
             <Building2 className="size-4" />
-            Manage organizations
+            Organization administration
+            <Badge className="ml-auto">Future Activation</Badge>
           </DropdownMenu.Item>
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
@@ -537,9 +541,12 @@ function NotificationMenu() {
             ))}
           </div>
           <div className="border-t border-[var(--border)] p-2">
-            <button className="w-full rounded-xl py-2 text-xs font-bold text-[var(--brand-primary)] hover:bg-[var(--surface-muted)]">
+            <Link
+              href="/operations-center"
+              className="block w-full rounded-xl py-2 text-center text-xs font-bold text-[var(--brand-primary)] hover:bg-[var(--surface-muted)]"
+            >
               View all notifications
-            </button>
+            </Link>
           </div>
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
@@ -801,7 +808,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       <button
         onClick={() => guide.setOpen(true)}
-        aria-label="Open Catalyst Guide Live"
+        aria-label="Open CATE Guide"
         className="fixed bottom-5 right-5 z-20 flex size-14 items-center justify-center rounded-2xl bg-gradient-to-br from-[#ebbf5d] to-[#cf4427] text-[#041a6c] shadow-[0_18px_42px_rgba(4,26,108,.28)] transition-transform hover:-translate-y-1 lg:bottom-7 lg:right-7"
       >
         <Sparkles className="size-5" />

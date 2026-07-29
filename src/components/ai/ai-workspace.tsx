@@ -240,7 +240,7 @@ export function AiWorkspace() {
                   CATE · Catalyst AI for Trusted Evaluation
                 </h1>
                 <Badge className="border-white/15 bg-white/10 text-white">
-                  Phase 4
+                  Advisory AI
                 </Badge>
               </div>
               <p className="mt-1 text-sm text-white/65">

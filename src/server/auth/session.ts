@@ -14,33 +14,51 @@ export interface AppSession {
   mode: "supabase" | "preview";
 }
 
-function fromUser(
-  user: User,
-  assignments: Array<{ tenant_id: string; role: string }>,
-): AppSession {
-  const tenantIds = assignments.map((assignment) => assignment.tenant_id);
-  const role =
+type TenantAssignment = { tenant_id: string; role: string };
+
+export function deriveSessionAuthority(
+  appMetadata: Record<string, unknown>,
+  assignments: TenantAssignment[],
+) {
+  const assignedRole =
     assignments.find((assignment) => assignment.role === "administrator")
       ?.role ??
     assignments.find((assignment) => assignment.role === "presenter")?.role ??
     assignments[0]?.role ??
     "viewer";
+  const metadataRole =
+    typeof appMetadata.role === "string" ? appMetadata.role : undefined;
+  const metadataPresenter =
+    appMetadata.presenter === true || metadataRole === "administrator";
+  const assignedPresenter = ["presenter", "administrator"].includes(
+    assignedRole,
+  );
+
+  return {
+    role: assignedRole,
+    presenter: metadataPresenter && assignedPresenter,
+  };
+}
+
+function fromUser(
+  user: User,
+  assignments: TenantAssignment[],
+): AppSession {
+  const tenantIds = assignments.map((assignment) => assignment.tenant_id);
+  const authority = deriveSessionAuthority(user.app_metadata, assignments);
   return {
     userId: user.id,
     email: user.email ?? "",
-    role,
+    role: authority.role,
     tenantIds,
-    presenter: role === "presenter" || role === "administrator",
+    presenter: authority.presenter,
     mode: "supabase",
   };
 }
 
 export async function getAppSession(): Promise<AppSession | null> {
   if (!isSupabaseConfigured()) {
-    if (
-      process.env.NODE_ENV !== "production" ||
-      process.env.DEMO_AUTH_BYPASS === "1"
-    ) {
+    if (process.env.NODE_ENV !== "production") {
       return {
         userId: "preview-presenter",
         email: "preview@catalystinnovations.example",

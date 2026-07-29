@@ -1,3 +1,5 @@
+import type { PhaseThreeState } from "@/phase-three/model";
+
 export type Money = number;
 
 export type DemoRole =
@@ -12,6 +14,10 @@ export type DemoRole =
   | "accounts_payable"
   | "executive"
   | "auditor"
+  | "supplier_user"
+  | "contract_manager"
+  | "security_reviewer"
+  | "operations_manager"
   | "system_administrator";
 
 export type WorkflowStage =
@@ -583,7 +589,7 @@ export interface TutorialStep {
 }
 
 export interface DemoState {
-  schemaVersion: 5;
+  schemaVersion: 6;
   organization: OrganizationTheme;
   sessionDate: string;
   presenterMode: boolean;
@@ -622,4 +628,5 @@ export interface DemoState {
   monthlySpendCents: Money[];
   aiRecommendations: AiRecommendation[];
   tutorialSteps: TutorialStep[];
+  phaseThree: PhaseThreeState;
 }
