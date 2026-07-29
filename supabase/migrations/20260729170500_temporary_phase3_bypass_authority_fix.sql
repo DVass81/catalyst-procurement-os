@@ -208,4 +208,3 @@ revoke all on function private.commit_demo_command(
 grant execute on function private.commit_demo_command(
   text, uuid, text, bigint, uuid, text, jsonb, jsonb, text
 ) to service_role;
-
