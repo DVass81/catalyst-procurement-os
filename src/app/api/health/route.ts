@@ -11,6 +11,7 @@ export function GET() {
       service: "catalyst-procurement-os",
       releaseProgram: releaseChannel,
       releaseChannel,
+      releaseCommit: process.env.CATALYST_RELEASE_COMMIT ?? "unknown",
       dataClassification: syntheticOnly ? "synthetic-only" : "unspecified",
       capabilities: {
         authoritativeWorkflow:

@@ -33,6 +33,9 @@ services:
       - key: CATALYST_RELEASE_CHANNEL
         value: commercialization-staging
         scope: RUN_TIME
+      - key: CATALYST_RELEASE_COMMIT
+        value: ${_self.COMMIT_HASH}
+        scope: RUN_TIME
       - key: CATALYST_AI_MODE
         value: deterministic
         scope: RUN_TIME
