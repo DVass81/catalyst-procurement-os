@@ -459,6 +459,9 @@ create index if not exists phase3_supplier_applications_tenant_state_idx
   on public.phase3_supplier_applications (tenant_id, lifecycle_state);
 create index if not exists phase3_contract_intelligence_tenant_contract_idx
   on public.phase3_contract_intelligence (tenant_id, contract_id, document_version desc);
+create index if not exists phase3_contract_intelligence_validated_by_idx
+  on public.phase3_contract_intelligence (validated_by)
+  where validated_by is not null;
 create index if not exists phase3_workflow_versions_tenant_key_idx
   on public.phase3_workflow_versions (tenant_id, workflow_key, version desc);
 create index if not exists phase3_report_snapshots_tenant_time_idx
@@ -467,6 +470,11 @@ create index if not exists phase3_assurance_findings_tenant_status_idx
   on public.phase3_assurance_findings (tenant_id, domain, status, severity);
 create index if not exists phase3_operations_records_tenant_type_idx
   on public.phase3_operations_records (tenant_id, record_type, status);
+create index if not exists phase3_rehearsal_records_tenant_id_idx
+  on public.phase3_rehearsal_records (tenant_id);
+create index if not exists phase3_supplier_applications_supplier_user_id_idx
+  on public.phase3_supplier_applications (supplier_user_id)
+  where supplier_user_id is not null;
 
 create or replace function private.prevent_phase3_evidence_mutation()
 returns trigger
