@@ -213,6 +213,7 @@ export function AiWorkspace() {
           headers: {
             ...(attachment ? {} : { "Content-Type": "application/json" }),
             "X-Catalyst-Session": sessionId,
+            "X-Catalyst-Active-Role": state.activeRole,
           },
           body: requestBody,
         },

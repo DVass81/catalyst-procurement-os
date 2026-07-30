@@ -4,7 +4,7 @@ services:
   - name: web
     github:
       repo: DVass81/catalyst-procurement-os
-      branch: codex/mission-back-on-track
+      branch: codex/pilot-readiness-95
       deploy_on_push: true
     dockerfile_path: Dockerfile
     http_port: 3000

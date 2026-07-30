@@ -1,13 +1,15 @@
+import eslint from "@eslint/js";
+import next from "@next/eslint-plugin-next";
 import { defineConfig, globalIgnores } from "eslint/config";
-import nextVitals from "eslint-config-next/core-web-vitals";
-import nextTs from "eslint-config-next/typescript";
+import reactHooks from "eslint-plugin-react-hooks";
+import typescriptEslint from "typescript-eslint";
 
 const eslintConfig = defineConfig([
-  ...nextVitals,
-  ...nextTs,
-  // Override default ignores of eslint-config-next.
+  eslint.configs.recommended,
+  ...typescriptEslint.configs.recommended,
+  next.configs["core-web-vitals"],
+  reactHooks.configs.flat["recommended-latest"],
   globalIgnores([
-    // Default ignores of eslint-config-next:
     ".next/**",
     "dist/**",
     "out/**",
@@ -17,6 +19,25 @@ const eslintConfig = defineConfig([
     ".codex-spreadsheet/**",
     "outputs/**",
   ]),
+  {
+    files: ["scripts/**/*.mjs"],
+    languageOptions: {
+      globals: {
+        Buffer: "readonly",
+        console: "readonly",
+        fetch: "readonly",
+        process: "readonly",
+      },
+    },
+  },
+  {
+    rules: {
+      "@typescript-eslint/no-unused-vars": [
+        "warn",
+        { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
+      ],
+    },
+  },
 ]);
 
 export default eslintConfig;

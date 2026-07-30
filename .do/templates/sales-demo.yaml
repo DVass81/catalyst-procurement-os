@@ -1,0 +1,93 @@
+name: catalyst-sales-demo
+region: nyc
+services:
+  - name: web
+    image:
+      registry_type: DOCR
+      registry: ""
+      repository: catalyst-procurement-os
+      digest: __QUALIFIED_IMAGE_DIGEST__
+    http_port: 3000
+    instance_count: 2
+    instance_size_slug: apps-s-1vcpu-1gb-fixed
+    health_check:
+      http_path: /api/health
+      initial_delay_seconds: 20
+      period_seconds: 30
+      timeout_seconds: 5
+      success_threshold: 1
+      failure_threshold: 3
+    envs:
+      - key: NODE_ENV
+        value: production
+        scope: RUN_TIME
+      - key: APP_BASE_URL
+        value: ${APP_URL}
+        scope: RUN_TIME
+      - key: CATALYST_ENVIRONMENT_KIND
+        value: sales_demo
+        scope: RUN_TIME
+      - key: CATALYST_RELEASE_CHANNEL
+        value: sales-demo
+        scope: RUN_TIME
+      - key: CATALYST_SYNTHETIC_ONLY
+        value: "1"
+        scope: RUN_TIME
+      - key: CATALYST_PRESENTER_SIMULATION
+        value: "1"
+        scope: RUN_TIME
+      - key: CATALYST_RESET_ENABLED
+        value: "1"
+        scope: RUN_TIME
+      - key: DEMO_AUTH_BYPASS
+        value: "0"
+        scope: RUN_TIME
+      - key: CATALYST_SSO_ENABLED
+        value: "0"
+        scope: RUN_TIME
+      - key: CATALYST_AI_MODE
+        value: deterministic
+        scope: RUN_TIME
+      - key: CATALYST_RELEASE_COMMIT
+        value: __QUALIFIED_GIT_COMMIT__
+        scope: RUN_TIME
+      - key: CATALYST_IMAGE_DIGEST
+        value: __QUALIFIED_IMAGE_DIGEST__
+        scope: RUN_TIME
+      - key: CATALYST_MIGRATION_LEDGER_SHA256
+        value: __MIGRATION_LEDGER_SHA256__
+        scope: RUN_TIME
+      - key: CATALYST_ENVIRONMENT_FINGERPRINT_SHA256
+        value: __ENVIRONMENT_FINGERPRINT_SHA256__
+        scope: RUN_TIME
+      - key: CATALYST_APPROVED_CONFIGURATION_SHA256
+        value: __APPROVED_CONFIGURATION_SHA256__
+        scope: RUN_TIME
+      - key: CATALYST_RUBRIC_VERSION
+        value: p95-pilot-readiness-v1
+        scope: RUN_TIME
+      - key: CATALYST_DATASET_VERSION
+        value: p95-synthetic-qualification-v1
+        scope: RUN_TIME
+      - key: SUPABASE_URL
+        type: SECRET
+        scope: RUN_TIME
+      - key: SUPABASE_PUBLISHABLE_KEY
+        type: SECRET
+        scope: RUN_TIME
+      - key: SUPABASE_SECRET_KEY
+        type: SECRET
+        scope: RUN_TIME
+      - key: ACTION_CONFIRMATION_SECRET
+        type: SECRET
+        scope: RUN_TIME
+      - key: CATALYST_OPERATIONS_PROBE_SECRET
+        type: SECRET
+        scope: RUN_TIME
+ingress:
+  rules:
+    - component:
+        name: web
+      match:
+        path:
+          prefix: /

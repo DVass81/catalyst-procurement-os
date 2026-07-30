@@ -9,6 +9,13 @@ import {
   confirmBudgetAndCoding,
   createFeaturedPurchaseOrder,
   decideApproval,
+  delegateApproval,
+  escalateApproval,
+  bulkApproveLowRisk,
+  cancelFeaturedPurchaseOrder,
+  closeFeaturedPurchaseOrder,
+  evaluateBulkApprovalCandidates,
+  exportPaymentReadiness,
   featuredFinancials,
   issueFeaturedPurchaseOrder,
   jumpToStage,
@@ -18,6 +25,7 @@ import {
   resolveInvoiceException,
   runThreeWayMatch,
   selectVendor,
+  sendApprovalReminder,
   submitRequest,
   switchRole,
   WorkflowError,
@@ -153,6 +161,100 @@ describe("Catalyst Phase 2 connected workflow", () => {
     expect(() => decideApproval(state, "approve")).toThrow(WorkflowError);
   });
 
+  it("routes a bounded out-of-office approval to a qualified delegate", () => {
+    let state = submitRequest(prepared());
+    state = switchRole(state, "department_manager");
+    state = delegateApproval(state, {
+      approvalId: "approval-manager",
+      delegateRole: "finance_reviewer",
+      delegationType: "out_of_office",
+      startsOn: state.sessionDate,
+      expiresOn: "2026-07-31",
+      reason:
+        "The assigned manager is unavailable and requires a bounded alternate approver.",
+    });
+    expect(state.approvalDelegations[0]).toMatchObject({
+      status: "active",
+      delegateRole: "finance_reviewer",
+      delegationType: "out_of_office",
+    });
+    state = switchRole(state, "finance_reviewer");
+    state = decideApproval(state, "approve", "Delegated evidence reviewed.");
+    expect(state.approvals[0]!.status).toBe("approved");
+    expect(state.approvalDelegations[0]!.status).toBe("expired");
+  });
+
+  it("retains reminders and operational SLA escalation evidence", () => {
+    let state = submitRequest(prepared());
+    state = sendApprovalReminder(state, "approval-manager");
+    expect(
+      state.notifications.some(
+        (notification) =>
+          notification.eventType === "approval.reminder" &&
+          notification.deliveryState === "delivered",
+      ),
+    ).toBe(true);
+    state = switchRole(state, "operations_manager");
+    state = escalateApproval(
+      state,
+      "approval-manager",
+      "The synthetic SLA threshold was exceeded and requires management attention.",
+    );
+    expect(state.approvals[0]!.escalationStatus).toBe("overdue");
+    expect(
+      state.workQueueItems.find(
+        (item) => item.entityId === state.featuredRequestId,
+      )?.priority,
+    ).toBe("critical");
+    expect(state.auditEvents.at(-1)?.action).toBe("approval.escalated");
+  });
+
+  it("bulk approves only homogeneous low-risk directly assigned records", () => {
+    let state = switchRole(
+      createDemoState(undefined, "2026-07-24"),
+      "department_manager",
+    );
+    const pendingIds = state.approvals
+      .filter((approval) => approval.status === "pending")
+      .map((approval) => approval.id);
+    const candidates = evaluateBulkApprovalCandidates(state, pendingIds);
+    const eligibleIds = candidates
+      .filter((candidate) => candidate.eligible)
+      .map((candidate) => candidate.approvalId);
+
+    expect(eligibleIds.length).toBeGreaterThan(0);
+    state = bulkApproveLowRisk(
+      state,
+      eligibleIds,
+      "Reviewed the homogeneous low-risk preview and confirmed every control.",
+    );
+    expect(
+      state.auditEvents.filter(
+        (event) => event.action === "approval.bulk_record_approved",
+      ),
+    ).toHaveLength(eligibleIds.length);
+    expect(
+      state.approvals
+        .filter((approval) => eligibleIds.includes(approval.id))
+        .every((approval) => approval.status === "approved"),
+    ).toBe(true);
+  });
+
+  it("blocks mixed or ineligible records from bulk approval", () => {
+    const state = switchRole(
+      createDemoState(undefined, "2026-07-24"),
+      "department_manager",
+    );
+
+    expect(() =>
+      bulkApproveLowRisk(
+        state,
+        ["approval-manager"],
+        "Attempted bulk action for a high-risk multi-step request.",
+      ),
+    ).toThrow(/bulk approval blocked/i);
+  });
+
   it("supports return and reject branches without deleting prior evidence", () => {
     let returned = submitRequest(prepared());
     returned = switchRole(returned, "department_manager");
@@ -200,6 +302,25 @@ describe("Catalyst Phase 2 connected workflow", () => {
     ).toThrow(WorkflowError);
   });
 
+  it("cancels only an unfulfilled purchase order and retains the reason", () => {
+    let state = approved();
+    state = switchRole(state, "purchasing_specialist");
+    state = createFeaturedPurchaseOrder(state);
+    state = issueFeaturedPurchaseOrder(state);
+    state = recordVendorAcknowledgment(state);
+    state = switchRole(state, "purchasing_manager");
+    state = cancelFeaturedPurchaseOrder(
+      state,
+      "The documented business need was withdrawn before any fulfillment occurred.",
+    );
+
+    expect(
+      state.purchaseOrders.find((purchaseOrder) => purchaseOrder.id === "po-featured")
+        ?.status,
+    ).toBe("cancelled");
+    expect(state.auditEvents.at(-1)?.action).toBe("po.cancelled");
+  });
+
   it("records receipt, accepted monitor packaging damage, and a separate internal transfer", () => {
     const state = received();
     const receipt = state.receipts[0]!;
@@ -239,6 +360,32 @@ describe("Catalyst Phase 2 connected workflow", () => {
     state = switchRole(state, "finance_reviewer");
     state = resolveInvoiceException(state, "accept", "Carrier evidence reviewed.");
     expect(state.invoices[0]!.exceptionStatus).toBe("accepted_with_justification");
+  });
+
+  it("closes a purchase order only after the full financial chain reconciles", () => {
+    let state = received();
+    state = switchRole(state, "accounts_payable");
+    state = runThreeWayMatch(state);
+    state = resolveInvoiceException(state, "route");
+    state = switchRole(state, "finance_reviewer");
+    state = resolveInvoiceException(
+      state,
+      "accept",
+      "Carrier evidence reviewed and the documented exception was approved.",
+    );
+    state = switchRole(state, "accounts_payable");
+    state = exportPaymentReadiness(state);
+    state = switchRole(state, "purchasing_manager");
+    state = closeFeaturedPurchaseOrder(
+      state,
+      "Receiving, matching, and payment-readiness export reconcile completely.",
+    );
+
+    expect(
+      state.purchaseOrders.find((purchaseOrder) => purchaseOrder.id === "po-featured")
+        ?.status,
+    ).toBe("closed");
+    expect(state.auditEvents.at(-1)?.action).toBe("po.closed");
   });
 
   it("can request a corrected invoice and retain the payment hold", () => {

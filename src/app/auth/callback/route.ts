@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { normalizeAssuranceLevel } from "@/server/auth/authority";
+import { deriveVerifiedAuthenticationContext } from "@/server/auth/authentication-assurance";
+import { recordJitIdentityRequest } from "@/server/auth/jit";
 import { resolvePublicOrigin } from "@/server/http/public-origin";
 
 function safeNextPath(value: string | null) {
@@ -31,7 +34,7 @@ export async function GET(request: Request) {
         .eq("user_id", data.user.id)
     : { data: null };
 
-  if (error || !data.user || !assignments?.length) {
+  if (error || !data.user) {
     await supabase.auth.signOut();
     return NextResponse.redirect(
       new URL("/?authError=invitation-required", publicOrigin),
@@ -40,6 +43,36 @@ export async function GET(request: Request) {
 
   const assurance =
     await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+  if (!assignments?.length) {
+    const claims = await supabase.auth.getClaims();
+    try {
+      if (assurance.error || claims.error || !claims.data || !data.user.email) {
+        throw new Error("JIT_CONTEXT_UNAVAILABLE");
+      }
+      const assuranceLevel = normalizeAssuranceLevel(
+        assurance.data.currentLevel,
+      );
+      await recordJitIdentityRequest({
+        userId: data.user.id,
+        email: data.user.email,
+        authentication: deriveVerifiedAuthenticationContext({
+          assuranceLevel,
+          claims: claims.data.claims as Record<string, unknown>,
+        }),
+        correlationId: crypto.randomUUID(),
+      });
+      await supabase.auth.signOut();
+      return NextResponse.redirect(
+        new URL("/?authError=access-review-pending", publicOrigin),
+      );
+    } catch {
+      await supabase.auth.signOut();
+      return NextResponse.redirect(
+        new URL("/?authError=invitation-required", publicOrigin),
+      );
+    }
+  }
+
   if (
     !assurance.error &&
     assurance.data.currentLevel !== "aal2" &&

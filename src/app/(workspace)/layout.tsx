@@ -16,6 +16,7 @@ export default async function WorkspaceLayout({
   return (
     <AppShell
       accessMode={session.mode}
+      sessionEmail={session.email}
       bypassExpiresAt={
         session.mode === "staging_bypass"
           ? DEVELOPMENT_BYPASS_EXPIRES_AT

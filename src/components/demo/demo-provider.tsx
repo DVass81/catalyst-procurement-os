@@ -15,6 +15,7 @@ import {
   tenantThemes,
   type TenantId,
 } from "@/config/organizations";
+import type { CatalystEnvironmentKind } from "@/config/runtime-environment";
 import type { DemoState } from "@/demo/model";
 import { createDemoState } from "@/demo/seed";
 import type {
@@ -24,7 +25,39 @@ import type {
 import type { PhaseThreeCommand } from "@/phase-three/commands";
 
 const ACTIVE_TENANT_KEY = "catalyst-procurement-os-active-tenant-v1";
+const ACTIVE_ROLE_KEY_PREFIX = "catalyst-procurement-os-active-role-v1:";
 const HYDRATION_SAFE_SESSION_DATE = "2026-07-29";
+
+class ActiveRoleRequiredError extends Error {
+  availableRoles: DemoState["activeRole"][];
+
+  constructor(availableRoles: DemoState["activeRole"][]) {
+    super("ACTIVE_ROLE_REQUIRED");
+    this.availableRoles = availableRoles;
+  }
+}
+
+function commandRationale(command: PhaseTwoCommand | PhaseThreeCommand) {
+  if ("reason" in command && typeof command.reason === "string") {
+    return command.reason;
+  }
+  if ("rationale" in command && typeof command.rationale === "string") {
+    return command.rationale;
+  }
+  if ("justification" in command && typeof command.justification === "string") {
+    return (
+      command.justification ||
+      `Authorized ${command.type.replaceAll("_", " ")} workflow action.`
+    );
+  }
+  if ("comments" in command && typeof command.comments === "string") {
+    return (
+      command.comments ||
+      `Authorized ${command.type.replaceAll("_", " ")} workflow action.`
+    );
+  }
+  return `Authorized ${command.type.replaceAll("_", " ")} workflow action.`;
+}
 
 interface DemoContextValue {
   state: DemoState;
@@ -38,24 +71,61 @@ interface DemoContextValue {
   operationalReadiness: PhaseTwoStateEnvelope["operationalReadiness"];
   revision: number;
   error: string | null;
+  availableRoles: DemoState["activeRole"][];
+  selectActiveRole: (role: DemoState["activeRole"]) => Promise<void>;
+  environmentKind: CatalystEnvironmentKind;
 }
 
 const DemoContext = createContext<DemoContextValue | null>(null);
 
-async function requestState(tenantId: TenantId) {
+async function requestState(
+  tenantId: TenantId,
+  activeRole?: DemoState["activeRole"],
+) {
   const response = await fetch(
     `/api/phase-two/state?tenantId=${encodeURIComponent(tenantId)}`,
     {
       method: "GET",
-      headers: { Accept: "application/json" },
+      headers: {
+        Accept: "application/json",
+        ...(activeRole
+          ? { "x-catalyst-active-role": activeRole }
+          : {}),
+      },
       cache: "no-store",
     },
   );
   const result = (await response.json()) as PhaseTwoStateEnvelope & {
     message?: string;
+    code?: string;
+    availableRoles?: DemoState["activeRole"][];
   };
   if (!response.ok) {
+    if (
+      response.status === 409 &&
+      result.code === "ACTIVE_ROLE_REQUIRED" &&
+      Array.isArray(result.availableRoles)
+    ) {
+      throw new ActiveRoleRequiredError(result.availableRoles);
+    }
     throw new Error(result.message ?? "The authoritative demo state is unavailable.");
+  }
+  return result;
+}
+
+async function requestWorkspaceContext() {
+  const response = await fetch("/api/auth/workspace-context", {
+    headers: { Accept: "application/json" },
+    cache: "no-store",
+  });
+  const result = (await response.json()) as {
+    message?: string;
+    tenantIds?: string[];
+    defaultTenantId?: string | null;
+    environmentKind?: CatalystEnvironmentKind;
+  };
+  if (!response.ok) {
+    throw new Error(result.message ?? "Workspace access is unavailable.");
   }
   return result;
 }
@@ -77,6 +147,12 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
   const [durability, setDurability] =
     useState<DemoContextValue["durability"]>("read_only");
   const [error, setError] = useState<string | null>(null);
+  const [availableRoles, setAvailableRoles] = useState<
+    DemoState["activeRole"][]
+  >([]);
+  const [roleSelectionRequired, setRoleSelectionRequired] = useState(false);
+  const [environmentKind, setEnvironmentKind] =
+    useState<CatalystEnvironmentKind>("development_preview");
   const [operationalReadiness, setOperationalReadiness] = useState<
     PhaseTwoStateEnvelope["operationalReadiness"]
   >({
@@ -87,6 +163,7 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
   });
   const tenantRef = useRef<TenantId>("org-y12-demo");
   const revisionRef = useRef(0);
+  const activeRoleRef = useRef<DemoState["activeRole"]>("requester");
 
   const acceptEnvelope = useCallback(
     (tenantId: TenantId, envelope: PhaseTwoStateEnvelope) => {
@@ -99,12 +176,18 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
       }
       tenantRef.current = tenantId;
       revisionRef.current = envelope.revision;
+      activeRoleRef.current = next.activeRole;
       setActiveTenantId(tenantId);
       setState(next);
       setRevision(envelope.revision);
       setPersistence(envelope.persistence);
       setDurability(envelope.durability);
       setOperationalReadiness(envelope.operationalReadiness);
+      setAvailableRoles((current) =>
+        envelope.availableRoles ??
+        (current.length > 0 ? current : [next.activeRole]),
+      );
+      setRoleSelectionRequired(false);
       setError(
         envelope.operationalReadiness.ready
           ? null
@@ -124,19 +207,47 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
       const storedTenant = window.localStorage.getItem(ACTIVE_TENANT_KEY);
       let tenantId: TenantId = "org-y12-demo";
       try {
-        let envelope = await requestState(tenantId);
-        if (
-          envelope.presenter === true &&
+        const workspace = await requestWorkspaceContext();
+        const selectedTenant =
           storedTenant &&
           isTenantId(storedTenant) &&
-          storedTenant !== tenantId
-        ) {
-          tenantId = storedTenant;
-          envelope = await requestState(tenantId);
+          workspace.tenantIds?.includes(storedTenant)
+            ? storedTenant
+            : workspace.defaultTenantId;
+        if (!selectedTenant || !isTenantId(selectedTenant)) {
+          throw new Error(
+            "No configured Catalyst workspace is assigned to this account.",
+          );
         }
+        if (workspace.environmentKind) {
+          setEnvironmentKind(workspace.environmentKind);
+        }
+        tenantId = selectedTenant;
+        tenantRef.current = tenantId;
+        const storedRole = window.localStorage.getItem(
+          `${ACTIVE_ROLE_KEY_PREFIX}${tenantId}`,
+        ) as DemoState["activeRole"] | null;
+        const envelope = await requestState(
+          tenantId,
+          storedRole ?? undefined,
+        );
         if (!cancelled) acceptEnvelope(tenantId, envelope);
       } catch (loadError) {
         if (cancelled) return;
+        if (loadError instanceof ActiveRoleRequiredError) {
+          setAvailableRoles(loadError.availableRoles);
+          setRoleSelectionRequired(true);
+          setPersistence("unavailable");
+          setDurability("read_only");
+          setOperationalReadiness({
+            ready: false,
+            mode: "blocked",
+            checkedAt: new Date().toISOString(),
+            reasons: ["active_role_selection_required"],
+          });
+          setError(null);
+          return;
+        }
         setState({
           ...createDemoState(tenantThemes[tenantId]),
           presenterMode: false,
@@ -175,6 +286,12 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
       setPending(true);
       setError(null);
       try {
+        const idempotencyKey = crypto.randomUUID();
+        const correlationId =
+          "correlationId" in command
+            ? command.correlationId
+            : crypto.randomUUID();
+        const requestedAt = new Date().toISOString();
         const endpoint = command.type.startsWith("phase3_")
           ? "/api/phase-three/state"
           : command.type === "generate_audit_package"
@@ -185,11 +302,15 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
           headers: {
             "Content-Type": "application/json",
             Accept: "application/json",
+            "x-catalyst-active-role": activeRoleRef.current,
           },
           body: JSON.stringify({
             tenantId,
             expectedRevision: revisionRef.current,
-            idempotencyKey: crypto.randomUUID(),
+            idempotencyKey,
+            correlationId,
+            requestedAt,
+            rationale: commandRationale(command),
             command,
           }),
         });
@@ -198,7 +319,10 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
         };
         if (!response.ok) {
           if (response.status === 409) {
-            const latest = await requestState(tenantId);
+            const latest = await requestState(
+              tenantId,
+              activeRoleRef.current,
+            );
             acceptEnvelope(tenantId, latest);
           }
           throw new Error(result.message ?? "The workflow command failed.");
@@ -225,7 +349,13 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
       setPending(true);
       setError(null);
       try {
-        const envelope = await requestState(tenantId);
+        const storedRole = window.localStorage.getItem(
+          `${ACTIVE_ROLE_KEY_PREFIX}${tenantId}`,
+        ) as DemoState["activeRole"] | null;
+        const envelope = await requestState(
+          tenantId,
+          storedRole ?? undefined,
+        );
         acceptEnvelope(tenantId, envelope);
         window.localStorage.setItem(ACTIVE_TENANT_KEY, tenantId);
       } catch (tenantError) {
@@ -242,6 +372,33 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
     [acceptEnvelope, state.presenterMode],
   );
 
+  const selectActiveRole = useCallback(
+    async (role: DemoState["activeRole"]) => {
+      if (!availableRoles.includes(role)) return;
+      const tenantId = tenantRef.current;
+      setPending(true);
+      setError(null);
+      try {
+        const envelope = await requestState(tenantId, role);
+        window.localStorage.setItem(
+          `${ACTIVE_ROLE_KEY_PREFIX}${tenantId}`,
+          role,
+        );
+        acceptEnvelope(tenantId, envelope);
+        window.location.assign("/dashboard");
+      } catch (selectionError) {
+        setError(
+          selectionError instanceof Error
+            ? selectionError.message
+            : "The selected role could not be activated.",
+        );
+      } finally {
+        setPending(false);
+      }
+    },
+    [acceptEnvelope, availableRoles],
+  );
+
   const value = useMemo(
     () => ({
       state,
@@ -255,23 +412,68 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
       operationalReadiness,
       revision,
       error,
+      availableRoles,
+      selectActiveRole,
+      environmentKind,
     }),
     [
       activeTenantId,
+      availableRoles,
       dispatch,
       durability,
       error,
+      environmentKind,
       hydrated,
       pending,
       persistence,
       operationalReadiness,
       revision,
       state,
+      selectActiveRole,
       switchTenant,
     ],
   );
 
-  return <DemoContext.Provider value={value}>{children}</DemoContext.Provider>;
+  return (
+    <DemoContext.Provider value={value}>
+      {roleSelectionRequired ? (
+        <main className="flex min-h-screen items-center justify-center bg-[var(--background)] p-6">
+          <section className="w-full max-w-xl rounded-3xl border border-[var(--border)] bg-[var(--surface)] p-6 shadow-xl">
+            <p className="text-xs font-black uppercase tracking-[0.14em] text-[var(--brand-secondary-text)]">
+              Active role required
+            </p>
+            <h1 className="mt-2 text-2xl font-black">
+              Choose how you are working
+            </h1>
+            <p className="mt-2 text-sm leading-6 text-[var(--muted-foreground)]">
+              Catalyst will load only the records and actions assigned to the
+              selected role. Choosing a role does not grant new authority.
+            </p>
+            <div className="mt-5 grid gap-2 sm:grid-cols-2">
+              {availableRoles.map((role) => (
+                <button
+                  key={role}
+                  type="button"
+                  disabled={pending}
+                  onClick={() => void selectActiveRole(role)}
+                  className="min-h-12 rounded-xl border border-[var(--border)] bg-[var(--surface-subtle)] px-4 text-left text-sm font-bold outline-none transition hover:border-[var(--brand-primary)] focus-visible:ring-2 focus-visible:ring-[var(--focus)] disabled:opacity-50"
+                >
+                  {role.replaceAll("_", " ")}
+                </button>
+              ))}
+            </div>
+            {error ? (
+              <p className="mt-4 text-sm text-rose-700" role="alert">
+                {error}
+              </p>
+            ) : null}
+          </section>
+        </main>
+      ) : (
+        children
+      )}
+    </DemoContext.Provider>
+  );
 }
 
 export function useDemo() {

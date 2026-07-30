@@ -17,12 +17,14 @@ describe("standalone system exports", () => {
         tenantId: "org-y12-demo",
         dataset,
         format: "csv",
+        dataClassification: "synthetic_demo",
       });
       const json = buildStandaloneExport({
         state,
         tenantId: "org-y12-demo",
         dataset,
         format: "json",
+        dataClassification: "synthetic_demo",
       });
       expect(csv.synthetic).toBe(true);
       expect(csv.body.length).toBeGreaterThan(0);
@@ -31,6 +33,7 @@ describe("standalone system exports", () => {
         schema: "catalyst-standalone-export-v1",
         tenantId: "org-y12-demo",
         dataset,
+        dataClassification: "synthetic_demo",
         synthetic: true,
         rowCount: json.rowCount,
       });
@@ -46,6 +49,7 @@ describe("standalone system exports", () => {
       tenantId: "org-y12-demo",
       dataset: "supplier_master",
       format: "csv",
+      dataClassification: "synthetic_demo",
     });
     expect(artifact.body).toContain(
       "\"'=HYPERLINK(\"\"unsafe\"\")\"",

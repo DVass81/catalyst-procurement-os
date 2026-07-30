@@ -159,6 +159,18 @@ describe("commercialization foundation", () => {
     );
     state = execute(
       {
+        type: "phase3_rfq_record_negotiation",
+        rfqId: "rfq-loan-officer-package",
+        supplierId: "vendor-003",
+        summary:
+          "Recorded a governed commercial clarification without changing the sealed response or evaluation evidence.",
+        negotiationEvidence: ["meeting-note:synthetic-negotiation-001"],
+      },
+      "purchasing_manager",
+      state,
+    );
+    state = execute(
+      {
         type: "phase3_rfq_request_bafo",
         rfqId: "rfq-loan-officer-package",
         supplierIds: ["vendor-001", "vendor-003"],
@@ -194,6 +206,13 @@ describe("commercialization foundation", () => {
     expect(rfq.lifecycleState).toBe("awarded");
     expect(rfq.award?.supplierId).toBe("vendor-003");
     expect(rfq.award?.awardedByRole).toBe("purchasing_manager");
+    expect(rfq.negotiations).toHaveLength(1);
+    expect(rfq.decisionNotices).toHaveLength(rfq.suppliers.length);
+    expect(
+      rfq.decisionNotices.filter(
+        (notice) => notice.noticeType === "non_award",
+      ),
+    ).toHaveLength(2);
     expect(state.stage).toBe("vendor_selected");
     expect(state.requests[0]?.selectedVendorId).toBe("vendor-003");
     expect(state.requests[0]?.recommendedTotalCents).toBe(
@@ -238,6 +257,178 @@ describe("commercialization foundation", () => {
     expect(state.invoices[0]?.paymentStatus).toBe("on_hold");
   });
 
+  it("authors and edits a governed RFQ draft against reconciled request lines", () => {
+    const base = sourcingReadyState();
+    const request = base.requests[0]!;
+    let state = execute(
+      {
+        type: "phase3_rfq_create",
+        rfqId: "rfq-secondary-package",
+        rfqNumber: "Y12-RFQ-2026-00032",
+        requestId: request.id,
+        title: "Secondary competitive sourcing package",
+        description:
+          "A governed secondary solicitation used to verify authoring, supplier selection, and request-line reconciliation.",
+        sourcingMethod: "rfq",
+        responseDeadline: "2026-08-07",
+        sealedUntil: "2026-08-07T21:00:00.000Z",
+        retentionUntil: "2033-08-07",
+        termsVersion: "synthetic-standard-terms-v1",
+        evaluationVersion: "balanced-evaluation-v1",
+        lines: request.lines
+          .filter((line) => line.purchaseQuantity > 0)
+          .map((line) => ({
+            id: `secondary-${line.id}`,
+            requestLineId: line.id,
+            description: line.description,
+            quantity: line.purchaseQuantity,
+            unitOfMeasure: "each",
+            requiredByDate: "2026-08-14",
+            specification: `Approved specification for ${line.description}.`,
+          })),
+        supplierIds: ["vendor-001", "vendor-002"],
+      },
+      "purchasing_specialist",
+      base,
+    );
+    state = execute(
+      {
+        type: "phase3_rfq_update_draft",
+        rfqId: "rfq-secondary-package",
+        title: "Secondary competitive sourcing package — revised",
+        description:
+          "A governed revised solicitation used to verify controlled draft editing before any supplier invitation is released.",
+        responseDeadline: "2026-08-10",
+        sealedUntil: "2026-08-10T21:00:00.000Z",
+        termsVersion: "synthetic-standard-terms-v2",
+        evaluationVersion: "balanced-evaluation-v2",
+      },
+      "purchasing_manager",
+      state,
+    );
+
+    const rfq = state.phaseThree.rfqs.find(
+      (candidate) => candidate.id === "rfq-secondary-package",
+    )!;
+    expect(rfq.lifecycleState).toBe("draft");
+    expect(rfq.version).toBe(2);
+    expect(rfq.suppliers).toHaveLength(2);
+    expect(rfq.lines).toHaveLength(
+      request.lines.filter((line) => line.purchaseQuantity > 0).length,
+    );
+  });
+
+  it("governs supplier questions, public addenda, amendments, withdrawal, and conflicts", () => {
+    let state = execute(
+      { type: "phase3_rfq_release", rfqId: "rfq-loan-officer-package" },
+      "purchasing_specialist",
+      sourcingReadyState(),
+    );
+    state = execute(
+      {
+        type: "phase3_rfq_submit_question",
+        rfqId: "rfq-loan-officer-package",
+        supplierId: "vendor-001",
+        question:
+          "Please clarify whether equivalent encrypted storage is acceptable.",
+      },
+      "supplier_user",
+      state,
+    );
+    const questionId = state.phaseThree.rfqs[0]!.questions[0]!.id;
+    state = execute(
+      {
+        type: "phase3_rfq_answer_question",
+        rfqId: "rfq-loan-officer-package",
+        questionId,
+        answer:
+          "Equivalent encrypted storage is acceptable when the approved security and warranty requirements remain satisfied.",
+        addendumTitle: "Storage equivalency clarification",
+      },
+      "purchasing_specialist",
+      state,
+    );
+    const rfq = state.phaseThree.rfqs[0]!;
+    state = execute(
+      {
+        type: "phase3_rfq_submit_response",
+        rfqId: rfq.id,
+        supplierId: "vendor-001",
+        freightCents: 0,
+        paymentTerms: "Net 30",
+        validityDate: rfq.responseDeadline,
+        offers: rfq.lines.map((line) => ({
+          rfqLineId: line.id,
+          unitPriceCents: 50_000,
+          promisedDate: line.requiredByDate,
+        })),
+        attachments: ["Synthetic response.pdf"],
+        simulation: true,
+      },
+      "supplier_user",
+      state,
+    );
+    state = execute(
+      {
+        type: "phase3_rfq_withdraw_response",
+        rfqId: rfq.id,
+        supplierId: "vendor-001",
+        rationale:
+          "The supplier is withdrawing the sealed response to correct an identified clerical error.",
+      },
+      "supplier_user",
+      state,
+    );
+    state = execute(
+      {
+        type: "phase3_rfq_amend",
+        rfqId: rfq.id,
+        changes: [
+          "Clarified equivalent encrypted storage requirements.",
+          "Extended the response deadline.",
+        ],
+        responseDeadline: "2026-08-10",
+        sealedUntil: "2026-08-10T21:00:00.000Z",
+        rationale:
+          "The controlled amendment publishes the clarification equally and gives all invited suppliers sufficient response time.",
+      },
+      "purchasing_manager",
+      state,
+    );
+    state = execute(
+      {
+        type: "phase3_rfq_disclose_conflict",
+        rfqId: rfq.id,
+        supplierId: "vendor-002",
+        description:
+          "The evaluator disclosed a prior professional relationship that requires independent conflict disposition.",
+      },
+      "purchasing_specialist",
+      state,
+    );
+    const conflictId = state.phaseThree.rfqs[0]!.conflicts[0]!.id;
+    state = execute(
+      {
+        type: "phase3_rfq_resolve_conflict",
+        rfqId: rfq.id,
+        conflictId,
+        disposition: "recused",
+        resolution:
+          "The disclosed evaluator is recused from this sourcing event and an independent evaluator is assigned.",
+      },
+      "compliance_reviewer",
+      state,
+    );
+
+    const governed = state.phaseThree.rfqs[0]!;
+    expect(governed.questions[0]?.status).toBe("answered");
+    expect(governed.addenda).toHaveLength(1);
+    expect(governed.amendments).toHaveLength(1);
+    expect(governed.responses[0]?.status).toBe("withdrawn");
+    expect(governed.conflicts[0]?.status).toBe("recused");
+    expect(verifyPhaseThreeIntegrity(state.phaseThree).valid).toBe(true);
+  });
+
   it("blocks supplier approval with expired or missing evidence", () => {
     expect(() =>
       execute(
@@ -280,6 +471,33 @@ describe("commercialization foundation", () => {
     expect(change.independentlyVerifiedBy).toBe("compliance_reviewer");
     expect(change.approvedBy).toBe("finance_reviewer");
     expect(change.paymentInitiated).toBe(false);
+  });
+
+  it("records only masked banking metadata in workflow state", () => {
+    const proposed = execute(
+      {
+        type: "phase3_bank_propose",
+        applicationId: "supplier-application-blue-ridge",
+        accountLastFour: "6789",
+        routingLastFour: "0021",
+        reason:
+          "Supplier submitted a new encrypted payment instruction for independent out-of-band verification.",
+      },
+      "supplier_user",
+    );
+    const application = proposed.phaseThree.supplierApplications[0]!;
+    expect(application.bankingChange).toMatchObject({
+      proposedLastFour: "6789",
+      proposedBy: "supplier_user",
+      status: "verification_pending",
+      paymentInitiated: false,
+    });
+    const bankingEvidence = JSON.stringify({
+      application,
+      auditEvent: proposed.phaseThree.auditEvents.at(-1),
+    });
+    expect(bankingEvidence).not.toContain("908172635");
+    expect(bankingEvidence).not.toContain("021000021");
   });
 
   it("requires contract-manager validation and preserves exact citations", () => {
@@ -389,6 +607,53 @@ describe("commercialization foundation", () => {
     expect(pdf.sha256).toHaveLength(64);
     expect(xlsx.sha256).toHaveLength(64);
     expect(csv.sha256).toHaveLength(64);
+    expect(snapshot.exportHashes).toEqual({
+      PDF: pdf.sha256,
+      XLSX: xlsx.sha256,
+      CSV: csv.sha256,
+    });
+  });
+
+  it("creates and reconciles a retained role-scoped report delivery", () => {
+    let state = execute(
+      { type: "phase3_generate_report", reportId: "report-executive" },
+      "executive",
+    );
+    const snapshot = state.phaseThree.reportSnapshots[0]!;
+    state = execute(
+      {
+        type: "phase3_create_report_schedule",
+        reportId: "report-executive",
+        cadence: "monthly",
+        exportFormat: "PDF",
+        recipientRoles: ["executive", "finance_reviewer"],
+        secureLinkExpiresHours: 72,
+        retentionDays: 2_555,
+      },
+      "executive",
+      state,
+    );
+    const schedule = state.phaseThree.reportSchedules[0]!;
+    state = execute(
+      {
+        type: "phase3_deliver_report",
+        scheduleId: schedule.id,
+        snapshotId: snapshot.id,
+      },
+      "executive",
+      state,
+    );
+    const delivery = state.phaseThree.reportDeliveries[0]!;
+
+    expect(delivery.contentHash).toBe(snapshot.exportHashes.PDF);
+    expect(delivery.recipientRoles).toEqual([
+      "executive",
+      "finance_reviewer",
+    ]);
+    expect(new Date(delivery.retentionUntil).getTime()).toBeGreaterThan(
+      new Date(delivery.expiresAt).getTime(),
+    );
+    expect(verifyPhaseThreeIntegrity(state.phaseThree).valid).toBe(true);
   });
 
   it("makes provider failure visible and activates deterministic fallback", () => {

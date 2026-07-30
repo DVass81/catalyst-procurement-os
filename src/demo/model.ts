@@ -195,6 +195,21 @@ export interface PurchaseRequest {
   requiredDate: string;
   businessJustification: string;
   requestType: string;
+  requestChannel?:
+    | "catalog_goods"
+    | "non_catalog_goods"
+    | "service"
+    | "recurring"
+    | "emergency";
+  emergencyJustification?: string;
+  recurringSchedule?: {
+    cadence: "monthly" | "quarterly" | "annually";
+    startsOn: string;
+    endsOn?: string;
+    nextOccurrence: string;
+    status: "active" | "paused" | "completed";
+  };
+  createdByActorId?: string;
   status:
     | "draft"
     | "submitted"
@@ -222,6 +237,8 @@ export interface Approval {
   id: string;
   requestId: string;
   sequence: number;
+  routingMode?: "sequential" | "parallel";
+  routingGroup?: number;
   approverId: string;
   role: DemoRole;
   status: "not_started" | "pending" | "approved" | "returned" | "rejected";
@@ -233,6 +250,20 @@ export interface Approval {
   delegation?: string;
   escalationStatus: "none" | "approaching_due" | "overdue";
   aiRecommendation: string;
+}
+
+export interface ApprovalDelegation {
+  id: string;
+  approvalId: string;
+  delegatorUserId: string;
+  delegatorRole: DemoRole;
+  delegateRole: DemoRole;
+  delegationType: "manual" | "out_of_office";
+  startsOn: string;
+  expiresOn: string;
+  status: "active" | "revoked" | "expired";
+  reason: string;
+  createdAt: string;
 }
 
 export interface VendorQuote {
@@ -296,6 +327,10 @@ export interface ReceiptLine {
   rejectedQuantity: number;
   returnedQuantity: number;
   conditionNote?: string;
+  serialNumbers?: string[];
+  lotNumbers?: string[];
+  serviceAccepted?: boolean;
+  serviceAcceptanceEvidence?: string;
 }
 
 export interface Receipt {
@@ -344,6 +379,8 @@ export interface Invoice {
   exceptionStatus:
     | "none"
     | "freight_variance"
+    | "price_or_quantity_variance"
+    | "duplicate_invoice"
     | "routed"
     | "correction_requested"
     | "accepted_with_justification";
@@ -352,6 +389,10 @@ export interface Invoice {
   uploadedDocument: string;
   varianceCents: Money;
   varianceReason?: string;
+  matchMode?: "two_way" | "three_way";
+  matchEvidence?: string[];
+  invoiceType?: "standard" | "credit";
+  originalInvoiceId?: string;
 }
 
 export interface InventoryTransaction {
@@ -609,6 +650,7 @@ export interface DemoState {
   budgets: Budget[];
   requests: PurchaseRequest[];
   approvals: Approval[];
+  approvalDelegations: ApprovalDelegation[];
   quotes: VendorQuote[];
   purchaseOrders: PurchaseOrder[];
   purchaseOrderRevisions: PurchaseOrderRevision[];

@@ -14,6 +14,9 @@
 
 # testing
 /coverage
+/outputs/
+/.codex-spreadsheet/
+/pytest-cache-files-*/
 
 # next.js
 /.next/

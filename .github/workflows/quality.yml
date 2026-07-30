@@ -1,4 +1,4 @@
-name: Audit Phase 2 quality
+name: Catalyst release quality
 
 on:
   pull_request:
@@ -27,6 +27,15 @@ jobs:
       - name: Install exact dependencies
         run: npm ci
 
+      - name: Scan tracked source for committed credentials
+        run: npm run secret:scan
+
+      - name: Validate pilot-readiness migrations
+        run: npm run migration:validate
+
+      - name: Validate same-image deployment templates
+        run: npm run deployment:validate
+
       - name: Lint
         run: npm run lint
 
@@ -39,8 +48,11 @@ jobs:
       - name: Build production application
         run: npm run build
 
-      - name: Audit production dependencies
-        run: npm audit --omit=dev --audit-level=high
+      - name: Audit all dependencies
+        run: npm audit --audit-level=moderate
+
+      - name: Confirm production dependency boundary
+        run: npm audit --omit=dev --audit-level=moderate
 
       - name: Generate CycloneDX software bill of materials
         run: npm sbom --sbom-format cyclonedx > sbom.cdx.json

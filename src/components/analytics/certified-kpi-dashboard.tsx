@@ -102,7 +102,12 @@ export function CertifiedKpiDashboard({ state }: { state: DemoState }) {
               <div><dt className="font-black">Denominator</dt><dd className="text-[var(--muted-foreground)]">{selected.definition.denominator}</dd></div>
               <div><dt className="font-black">Owner and target owner</dt><dd className="text-[var(--muted-foreground)]">{selected.definition.owner} · {selected.definition.targetOwner}</dd></div>
               <div><dt className="font-black">Lineage</dt><dd className="text-[var(--muted-foreground)]">{selected.definition.sourceLineage.join(" → ")}</dd></div>
-              <div><dt className="font-black">Freshness and coverage</dt><dd className="text-[var(--muted-foreground)]">{selected.freshness}<br />{selected.coverage}</dd></div>
+              <div><dt className="font-black">Freshness and coverage</dt><dd className="text-[var(--muted-foreground)]">{selected.freshness} · {titleCase(selected.freshnessStatus)}<br />{selected.coverage}</dd></div>
+              <div><dt className="font-black">Certified snapshot</dt><dd className="text-[var(--muted-foreground)]">{selected.sourceSnapshotVersion} · {selected.recordCount.toLocaleString("en-US")} records<br />As of {selected.asOf}</dd></div>
+              <div><dt className="font-black">Filter context</dt><dd className="text-[var(--muted-foreground)]">{Object.entries(selected.filters).map(([key, value]) => `${titleCase(key)}: ${value}`).join(" · ")}</dd></div>
+              <div><dt className="font-black">Reconciliation</dt><dd className="text-[var(--muted-foreground)]">{titleCase(selected.reconciliationStatus)} · {selected.reconciliationMessage}</dd></div>
+              <div><dt className="font-black">Target basis</dt><dd className="text-[var(--muted-foreground)]">{selected.definition.targetBasis}</dd></div>
+              <div><dt className="font-black">Decision contract</dt><dd className="text-[var(--muted-foreground)]">{selected.definition.decisionCadence} · {selected.definition.accountableDecision}</dd></div>
               <div><dt className="font-black">Trend and forecast</dt><dd className="text-[var(--muted-foreground)]">{selected.trend}{selected.forecast === undefined ? "" : ` · Forecast ${formatValue(selected.forecast, selected.definition.targetUnit)}`}</dd></div>
               <div><dt className="font-black">Primary drivers</dt><dd className="text-[var(--muted-foreground)]">{selected.primaryDrivers.join(" · ")}</dd></div>
               <div><dt className="font-black">Paired guardrail</dt><dd className="text-[var(--muted-foreground)]">{titleCase(selected.definition.pairedGuardrail)}</dd></div>

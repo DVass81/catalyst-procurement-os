@@ -1,3 +1,5 @@
+import type { DemoRole } from "@/demo/model";
+
 export const capabilityStatuses = [
   "Live",
   "Functional Demo",
@@ -326,7 +328,7 @@ export interface ReportDefinition {
   measureIds: string[];
   dimensions: string[];
   supportedExports: Array<"PDF" | "XLSX" | "CSV">;
-  scheduledDistributionStatus: "Simulated Integration";
+  scheduledDistributionStatus: "Functional Demo";
   accessibleTable: true;
   version: number;
 }
@@ -341,6 +343,35 @@ export interface ReportSnapshot {
   sourceHash: string;
   exportHashes: Partial<Record<"PDF" | "XLSX" | "CSV", string>>;
   annotation: string;
+  correlationId: string;
+}
+
+export interface ReportSchedule {
+  id: string;
+  reportId: string;
+  cadence: "weekly" | "monthly";
+  exportFormat: "PDF" | "XLSX" | "CSV";
+  recipientRoles: DemoRole[];
+  secureLinkExpiresHours: number;
+  retentionDays: number;
+  status: "active" | "paused";
+  createdByRole: DemoRole;
+  createdAt: string;
+  nextRunAt: string;
+  correlationId: string;
+}
+
+export interface ReportDelivery {
+  id: string;
+  scheduleId: string;
+  snapshotId: string;
+  recipientRoles: DemoRole[];
+  exportFormat: "PDF" | "XLSX" | "CSV";
+  contentHash: string;
+  status: "delivered" | "expired" | "revoked";
+  deliveredAt: string;
+  expiresAt: string;
+  retentionUntil: string;
   correlationId: string;
 }
 
@@ -597,6 +628,72 @@ export interface RfqAward {
   purchaseOrderId?: string;
 }
 
+export interface RfqAmendment {
+  id: string;
+  version: number;
+  issuedAt: string;
+  issuedByRole: string;
+  rationale: string;
+  changes: string[];
+  responseDeadline: string;
+  supersededResponseIds: string[];
+}
+
+export interface RfqQuestion {
+  id: string;
+  supplierId: string;
+  supplierOrganizationId: string;
+  question: string;
+  submittedAt: string;
+  status: "open" | "answered";
+  answer?: string;
+  answeredAt?: string;
+  answeredByRole?: string;
+  addendumId?: string;
+}
+
+export interface RfqAddendum {
+  id: string;
+  version: number;
+  issuedAt: string;
+  issuedByRole: string;
+  title: string;
+  content: string;
+  sourceQuestionId?: string;
+}
+
+export interface RfqConflictDisclosure {
+  id: string;
+  disclosedByRole: string;
+  supplierId?: string;
+  description: string;
+  status: "open" | "mitigated" | "recused";
+  disclosedAt: string;
+  resolvedAt?: string;
+  resolvedByRole?: string;
+  resolution?: string;
+}
+
+export interface RfqNegotiationRecord {
+  id: string;
+  supplierId: string;
+  round: number;
+  recordedAt: string;
+  recordedByRole: string;
+  summary: string;
+  evidence: string[];
+}
+
+export interface RfqDecisionNotice {
+  id: string;
+  supplierId: string;
+  noticeType: "award" | "non_award" | "cancellation";
+  issuedAt: string;
+  issuedByRole: string;
+  summary: string;
+  evidence: string[];
+}
+
 export interface RfqRecord {
   id: string;
   rfqNumber: string;
@@ -624,6 +721,12 @@ export interface RfqRecord {
   suppliers: RfqSupplierInvitation[];
   responses: RfqResponse[];
   evaluations: RfqEvaluation[];
+  amendments: RfqAmendment[];
+  questions: RfqQuestion[];
+  addenda: RfqAddendum[];
+  conflicts: RfqConflictDisclosure[];
+  negotiations: RfqNegotiationRecord[];
+  decisionNotices: RfqDecisionNotice[];
   bafoRound: number;
   award?: RfqAward;
   version: number;
@@ -646,6 +749,8 @@ export interface PhaseThreeState {
   certifiedMeasures: CertifiedMeasure[];
   reportDefinitions: ReportDefinition[];
   reportSnapshots: ReportSnapshot[];
+  reportSchedules: ReportSchedule[];
+  reportDeliveries: ReportDelivery[];
   cateNarratives: CateNarrative[];
   assuranceControls: AssuranceControl[];
   assuranceFindings: AssuranceFinding[];

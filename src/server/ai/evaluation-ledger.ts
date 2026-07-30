@@ -3,13 +3,11 @@ import "server-only";
 import { z } from "zod";
 
 import type { AiRunResult } from "@/ai/types";
+import { isSupabaseConfigured } from "@/lib/supabase/env";
 import { createSupabaseServiceClient } from "@/server/supabase/admin";
 
 export async function recordCateEvaluation(result: AiRunResult) {
-  if (
-    !process.env.NEXT_PUBLIC_SUPABASE_URL ||
-    !process.env.SUPABASE_SECRET_KEY
-  ) {
+  if (!isSupabaseConfigured() || !process.env.SUPABASE_SECRET_KEY) {
     return;
   }
   const client = createSupabaseServiceClient();

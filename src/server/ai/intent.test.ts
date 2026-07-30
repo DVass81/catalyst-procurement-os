@@ -7,8 +7,13 @@ import { deterministicAiOutput } from "@/server/ai/deterministic";
 import {
   assessCateIntent,
   calibrateCateConfidence,
+  validateCitationGraph,
   validateCateAnswer,
 } from "@/server/ai/intent";
+import {
+  cateIntentEvaluationCases,
+  evaluateCateIntentAccuracy,
+} from "@/server/ai/intent-evaluation";
 
 const classificationCases: Array<[string, AiCapability]> = [
   [
@@ -33,6 +38,15 @@ const classificationCases: Array<[string, AiCapability]> = [
 ];
 
 describe("CATE intent and answer gates", () => {
+  it("meets the fixed 98% intent-accuracy gate", () => {
+    const result = evaluateCateIntentAccuracy();
+
+    expect(cateIntentEvaluationCases).toHaveLength(120);
+    expect(result.accuracy, JSON.stringify(result.failures, null, 2)).toBeGreaterThanOrEqual(
+      0.98,
+    );
+  });
+
   it.each(classificationCases)("classifies %s as %s", (prompt, expected) => {
     expect(assessCateIntent(prompt).resolvedCapability).toBe(expected);
   });
@@ -118,5 +132,27 @@ describe("CATE intent and answer gates", () => {
     expect(calibrated.evidenceGaps).toContain(
       "The response did not pass the question-answered validation gate.",
     );
+  });
+
+  it("rejects broken evidence-card citation references", () => {
+    const state = createDemoState(
+      tenantThemes["org-y12-demo"],
+      "2026-07-29",
+    );
+    const result = deterministicAiOutput(
+      {
+        tenantId: "org-y12-demo",
+        prompt: "Explain the invoice freight mismatch.",
+        currentRoute: "/ai-procurement",
+        role: "accounts_payable",
+        workflowStage: "invoice",
+      },
+      state,
+    );
+    result.output.evidenceCards[0]!.sourceCitationIds.push("missing-source");
+
+    expect(validateCitationGraph(result.output)).toMatchObject({
+      valid: false,
+    });
   });
 });

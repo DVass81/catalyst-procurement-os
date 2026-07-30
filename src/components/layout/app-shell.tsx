@@ -38,6 +38,7 @@ import {
 } from "react";
 
 import { navigationItems, navigationSections } from "@/config/navigation";
+import { canAccessWorkspacePath } from "@/config/module-access";
 import { CatalystGuide } from "@/components/guide/catalyst-guide";
 import { useCatalystGuide } from "@/components/guide/catalyst-guide-provider";
 import { useDemo } from "@/components/demo/demo-provider";
@@ -85,9 +86,20 @@ function Navigation({
   pathname: string;
   onNavigate?: () => void;
 }) {
+  const { state } = useDemo();
+  const sections = navigationSections
+    .map((section) => ({
+      ...section,
+      items: section.items.filter(
+        (item) =>
+          state.presenterMode ||
+          canAccessWorkspacePath(state.activeRole, item.href),
+      ),
+    }))
+    .filter((section) => section.items.length > 0);
   return (
     <nav aria-label="Primary navigation" className="flex-1 space-y-5">
-      {navigationSections.map((section) => (
+      {sections.map((section) => (
         <div key={section.label}>
           <p className="mb-1.5 px-3 text-[9px] font-bold uppercase tracking-[0.16em] text-[var(--subtle-foreground)]">
             {section.label}
@@ -204,13 +216,19 @@ function SearchPalette({
   onOpenChange: (open: boolean) => void;
 }) {
   const router = useRouter();
+  const { state } = useDemo();
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const filtered = useMemo(() => {
     const normalized = query.trim().toLowerCase();
-    if (!normalized) return searchRecords.slice(0, 8);
-    return searchRecords
+    const authorized = searchRecords.filter(
+      (record) =>
+        state.presenterMode ||
+        canAccessWorkspacePath(state.activeRole, record.href),
+    );
+    if (!normalized) return authorized.slice(0, 8);
+    return authorized
       .filter((record) =>
         [record.title, record.subtitle, ...record.keywords]
           .join(" ")
@@ -218,7 +236,7 @@ function SearchPalette({
           .includes(normalized),
       )
       .slice(0, 10);
-  }, [query]);
+  }, [query, state.activeRole, state.presenterMode]);
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
@@ -393,27 +411,41 @@ function ThemeMenu({
 function OrganizationMenu() {
   const { state, switchTenant, activeTenantId } = useDemo();
   const organization = state.organization;
+  const trigger = (
+    <button
+      type="button"
+      className="hidden h-10 items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-left shadow-sm sm:flex"
+      aria-label={
+        state.presenterMode
+          ? `Switch organization. Current organization: ${organization.organizationName}`
+          : `Current organization: ${organization.organizationName}`
+      }
+    >
+      <span
+        className="flex h-7 w-14 items-center justify-center rounded-lg px-1"
+        style={{ backgroundColor: organization.sidebarColor }}
+      >
+        <Image
+          src={organization.logoPath}
+          alt={organization.organizationName}
+          width={56}
+          height={28}
+          className="h-auto w-full"
+        />
+      </span>
+      <span className="max-w-36 truncate text-xs font-bold text-[var(--foreground)]">
+        {organization.organizationName}
+      </span>
+      {state.presenterMode && (
+        <ChevronDown className="size-3.5 text-[var(--muted-foreground)]" />
+      )}
+    </button>
+  );
+  if (!state.presenterMode) return trigger;
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
-        <button className="hidden h-10 items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-left shadow-sm transition-colors hover:bg-[var(--surface-muted)] sm:flex">
-          <span
-            className="flex h-7 w-14 items-center justify-center rounded-lg px-1"
-            style={{ backgroundColor: organization.sidebarColor }}
-          >
-            <Image
-              src={organization.logoPath}
-              alt={organization.organizationName}
-              width={56}
-              height={28}
-              className="h-auto w-full"
-            />
-          </span>
-          <span className="max-w-36 truncate text-xs font-bold text-[var(--foreground)]">
-            {organization.organizationName}
-          </span>
-          <ChevronDown className="size-3.5 text-[var(--muted-foreground)]" />
-        </button>
+        {trigger}
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
         <DropdownMenu.Content
@@ -482,6 +514,19 @@ function OrganizationMenu() {
 }
 
 function NotificationMenu() {
+  const { state } = useDemo();
+  if (!state.presenterMode) {
+    return (
+      <Button
+        variant="ghost"
+        size="icon"
+        disabled
+        aria-label="No authorized notifications available"
+      >
+        <Bell className="size-[18px]" />
+      </Button>
+    );
+  }
   const unread = notifications.filter((notification) => !notification.read).length;
   return (
     <DropdownMenu.Root>
@@ -556,7 +601,22 @@ function NotificationMenu() {
   );
 }
 
-function ProfileMenu({ stagingBypass }: { stagingBypass: boolean }) {
+function ProfileMenu({
+  stagingBypass,
+  sessionEmail,
+}: {
+  stagingBypass: boolean;
+  sessionEmail: string;
+}) {
+  const { state, availableRoles, selectActiveRole, pending } = useDemo();
+  const profileName = state.presenterMode
+    ? (currentUser?.name ?? "Synthetic presenter")
+    : "Signed-in user";
+  const profileEmail =
+    sessionEmail || currentUser?.email || "authenticated-user";
+  const profileInitials = state.presenterMode
+    ? (currentUser?.initials ?? "SP")
+    : profileEmail.slice(0, 2).toUpperCase();
   async function signOut() {
     await fetch("/api/auth/sign-out", { method: "POST" }).catch(() => null);
     window.location.assign("/");
@@ -571,15 +631,15 @@ function ProfileMenu({ stagingBypass }: { stagingBypass: boolean }) {
         >
           <Avatar.Root className="flex size-8 items-center justify-center overflow-hidden rounded-full bg-[var(--brand-soft)]">
             <Avatar.Fallback className="text-[10px] font-black text-[var(--brand-primary)]">
-              {currentUser?.initials ?? "MC"}
+              {profileInitials}
             </Avatar.Fallback>
           </Avatar.Root>
           <div className="hidden max-w-28 text-left xl:block">
             <p className="truncate text-xs font-bold text-[var(--foreground)]">
-              {currentUser?.name ?? "Maya Chen"}
+              {profileName}
             </p>
             <p className="truncate text-[9px] text-[var(--muted-foreground)]">
-              Strategic Sourcing
+              {titleCase(state.activeRole)}
             </p>
           </div>
           <ChevronDown className="hidden size-3.5 text-[var(--muted-foreground)] xl:block" />
@@ -593,13 +653,40 @@ function ProfileMenu({ stagingBypass }: { stagingBypass: boolean }) {
         >
           <div className="px-3 py-2">
             <p className="text-xs font-bold text-[var(--foreground)]">
-              {currentUser?.name ?? "Maya Chen"}
+              {profileName}
             </p>
             <p className="mt-0.5 truncate text-[10px] text-[var(--muted-foreground)]">
-              {currentUser?.email ?? "maya.chen@y12cu.example"}
+              {profileEmail}
             </p>
           </div>
           <DropdownMenu.Separator className="my-1 h-px bg-[var(--border)]" />
+          {!state.presenterMode && availableRoles.length > 1 ? (
+            <>
+              <p className="px-3 py-1 text-[9px] font-black uppercase tracking-[0.12em] text-[var(--subtle-foreground)]">
+                Active role
+              </p>
+              {availableRoles.map((role) => (
+                <DropdownMenu.Item
+                  key={role}
+                  asChild
+                  onSelect={(event) => event.preventDefault()}
+                >
+                  <button
+                    type="button"
+                    disabled={pending || role === state.activeRole}
+                    onClick={() => void selectActiveRole(role)}
+                    className="flex w-full cursor-pointer items-center justify-between rounded-lg px-3 py-2 text-left text-xs font-semibold text-[var(--muted-foreground)] outline-none hover:bg-[var(--surface-muted)] focus:bg-[var(--surface-muted)] disabled:cursor-default disabled:text-[var(--foreground)]"
+                  >
+                    <span>{titleCase(role)}</span>
+                    {role === state.activeRole ? (
+                      <Check className="size-3.5" aria-hidden="true" />
+                    ) : null}
+                  </button>
+                </DropdownMenu.Item>
+              ))}
+              <DropdownMenu.Separator className="my-1 h-px bg-[var(--border)]" />
+            </>
+          ) : null}
           {[
             { label: "My profile", icon: UserRound, href: "/settings" },
             {
@@ -608,11 +695,19 @@ function ProfileMenu({ stagingBypass }: { stagingBypass: boolean }) {
               href: "/auth/mfa",
             },
             { label: "Settings", icon: Settings, href: "/settings" },
-            {
-              label: "Help center",
-              icon: HelpCircle,
-              href: "/operations-center",
-            },
+            ...(state.presenterMode ||
+            canAccessWorkspacePath(
+              state.activeRole,
+              "/operations-center",
+            )
+              ? [
+                  {
+                    label: "Help center",
+                    icon: HelpCircle,
+                    href: "/operations-center",
+                  },
+                ]
+              : []),
           ].map((item) => {
             const Icon = item.icon;
             return (
@@ -666,10 +761,12 @@ export function AppShell({
   children,
   accessMode,
   bypassExpiresAt,
+  sessionEmail,
 }: {
   children: React.ReactNode;
   accessMode: "supabase" | "preview" | "staging_bypass";
   bypassExpiresAt?: string;
+  sessionEmail: string;
 }) {
   const pathname = usePathname();
   const guide = useCatalystGuide();
@@ -852,7 +949,10 @@ export function AppShell({
             <ThemeMenu theme={theme} setTheme={setTheme} />
             <NotificationMenu />
             <div className="mx-1 hidden h-6 w-px bg-[var(--border)] sm:block" />
-            <ProfileMenu stagingBypass={stagingBypass} />
+            <ProfileMenu
+              stagingBypass={stagingBypass}
+              sessionEmail={sessionEmail}
+            />
           </div>
         </header>
 

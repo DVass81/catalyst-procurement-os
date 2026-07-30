@@ -56,10 +56,6 @@ export function workflowStepState(
   return "upcoming";
 }
 
-export function isWorkflowActivationKey(key: string) {
-  return key === "Enter" || key === " ";
-}
-
 const stepStyles: Record<WorkflowStepState, string> = {
   current:
     "border-[var(--brand-primary)] bg-[var(--brand-primary)] text-white shadow-sm",
@@ -102,11 +98,16 @@ export function WorkflowRail({
       <p id="workflow-rail-status" className="sr-only" aria-live="polite">
         {status}
       </p>
-      <ol
-        className="scrollbar-none flex gap-2 overflow-x-auto pb-1"
-        aria-busy={pending}
-      >
-        {workflowSteps.map(({ label, stage: targetStage }, index) => {
+      <p className="mb-2 text-[10px] text-[var(--muted-foreground)] sm:hidden">
+        Swipe horizontally to review all nine workflow steps.
+      </p>
+      <div className="relative">
+        <ol
+          className="flex gap-2 overflow-x-auto pb-3 pr-8"
+          aria-busy={pending}
+          aria-label="Nine-step procurement workflow"
+        >
+          {workflowSteps.map(({ label, stage: targetStage }, index) => {
           const state = workflowStepState(stage, index);
           const className = `min-w-28 rounded-xl border px-3 py-2 text-center text-[10px] font-extrabold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-primary)] focus-visible:ring-offset-2 ${stepStyles[state]} ${
             presenter && state !== "current" && !unavailable && !pending
@@ -138,12 +139,6 @@ export function WorkflowRail({
                   aria-label={`Jump to workflow step ${index + 1}: ${label}`}
                   disabled={pending || unavailable || state === "current"}
                   onClick={() => onJump(targetStage, label)}
-                  onKeyDown={(event) => {
-                    if (isWorkflowActivationKey(event.key)) {
-                      event.preventDefault();
-                      onJump(targetStage, label);
-                    }
-                  }}
                 >
                   {content}
                 </button>
@@ -157,8 +152,13 @@ export function WorkflowRail({
               )}
             </li>
           );
-        })}
-      </ol>
+          })}
+        </ol>
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-[var(--surface)] to-transparent sm:hidden"
+        />
+      </div>
     </section>
   );
 }

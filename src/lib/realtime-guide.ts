@@ -22,7 +22,12 @@ export const PROHIBITED_GUIDE_ACTIONS = [
 
 function clean(value: unknown, fallback: string) {
   if (typeof value !== "string") return fallback;
-  return value.replaceAll(/[\u0000-\u001f]/g, " ").trim().slice(0, 120);
+  return Array.from(value, (character) =>
+    character.charCodeAt(0) <= 31 ? " " : character,
+  )
+    .join("")
+    .trim()
+    .slice(0, 120);
 }
 
 export function sanitizeGuideContext(

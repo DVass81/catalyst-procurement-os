@@ -19,6 +19,10 @@ import {
   type TenantAuthority,
   type TenantIdentityPolicy,
 } from "@/server/auth/authority";
+import {
+  deriveVerifiedAuthenticationContext,
+  type VerifiedAuthenticationContext,
+} from "@/server/auth/authentication-assurance";
 import { createSupabaseServiceClient } from "@/server/supabase/admin";
 
 export interface AppSession {
@@ -29,6 +33,9 @@ export interface AppSession {
   presenter: boolean;
   assuranceLevel: AssuranceLevel;
   nextAssuranceLevel: AssuranceLevel;
+  authenticationMethods: string[];
+  identityProvider?: "entra" | "saml";
+  phishingResistant: boolean;
   authorities: Record<string, TenantAuthority>;
   mode: "supabase" | "preview" | "staging_bypass";
 }
@@ -176,6 +183,7 @@ function fromUser(
   assuranceLevel: AssuranceLevel,
   nextAssuranceLevel: AssuranceLevel,
   authorities: Record<string, TenantAuthority>,
+  authentication: VerifiedAuthenticationContext,
   mode: AppSession["mode"] = "supabase",
 ): AppSession {
   const tenantIds = assignments.map((assignment) => assignment.tenant_id);
@@ -188,6 +196,9 @@ function fromUser(
     presenter: authority.presenter,
     assuranceLevel,
     nextAssuranceLevel,
+    authenticationMethods: authentication.methods,
+    identityProvider: authentication.identityProvider,
+    phishingResistant: authentication.phishingResistant,
     authorities,
     mode,
   };
@@ -198,6 +209,7 @@ async function loadSessionForUser(input: {
   user: User;
   assuranceLevel: AssuranceLevel;
   nextAssuranceLevel: AssuranceLevel;
+  authentication: VerifiedAuthenticationContext;
   mode: AppSession["mode"];
 }) {
   const { client, user } = input;
@@ -248,6 +260,7 @@ async function loadSessionForUser(input: {
     input.assuranceLevel,
     input.nextAssuranceLevel,
     authorities,
+    input.authentication,
     input.mode,
   );
 }
@@ -291,6 +304,8 @@ function createLocalPreviewSession(): AppSession {
     presenter: true,
     assuranceLevel: "aal1",
     nextAssuranceLevel: "aal1",
+    authenticationMethods: ["development_preview"],
+    phishingResistant: false,
     authorities,
     mode: "preview",
   };
@@ -317,6 +332,10 @@ async function getStagingBypassSession(actorId: string) {
       user,
       assuranceLevel: "aal1",
       nextAssuranceLevel: "aal1",
+      authentication: {
+        methods: ["staging_bypass"],
+        phishingResistant: false,
+      },
       mode: "staging_bypass",
     });
     if (!session || !session.presenter) return null;
@@ -363,18 +382,27 @@ export async function getAppSession(): Promise<AppSession | null> {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return null;
-  const assuranceResult =
-    await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
-  if (assuranceResult.error) return null;
+  const [assuranceResult, claimsResult] = await Promise.all([
+    supabase.auth.mfa.getAuthenticatorAssuranceLevel(),
+    supabase.auth.getClaims(),
+  ]);
+  if (assuranceResult.error || claimsResult.error || !claimsResult.data) {
+    return null;
+  }
+  const assuranceLevel = normalizeAssuranceLevel(
+    assuranceResult.data.currentLevel,
+  );
   return loadSessionForUser({
     client: supabase,
     user,
-    assuranceLevel: normalizeAssuranceLevel(
-      assuranceResult.data.currentLevel,
-    ),
+    assuranceLevel,
     nextAssuranceLevel: normalizeAssuranceLevel(
       assuranceResult.data.nextLevel,
     ),
+    authentication: deriveVerifiedAuthenticationContext({
+      assuranceLevel,
+      claims: claimsResult.data.claims as Record<string, unknown>,
+    }),
     mode: "supabase",
   });
 }

@@ -3,6 +3,7 @@ import "server-only";
 import { createHash } from "node:crypto";
 
 import {
+  assertNoProhibitedImportCell,
   controlledImportCellValue,
   loadControlledImportRows,
 } from "@/phase-two/import-parser";
@@ -14,11 +15,12 @@ import {
   type ImportEntityType,
   type ImportMappingProfile,
 } from "@/phase-two/import-mapping";
+import type { DataIntakeDecision } from "@/security/data-intake-policy";
 import { sanitizeDocumentFilename } from "@/server/phase-two/documents";
 import { createSupabaseServiceClient } from "@/server/supabase/admin";
 
 const prohibitedHeaders =
-  /(^|_)(ssn|social_security|member_number|account_number|routing_number|card_number|date_of_birth|consumer)($|_)/i;
+  /(^|_)(ssn|social_security|member|consumer|customer_account|bank_account|account_number|routing|aba|iban|swift|card|date_of_birth|dob|tax_id|tin)($|_)/i;
 
 export async function stageControlledImport(input: {
   tenantId: string;
@@ -27,6 +29,7 @@ export async function stageControlledImport(input: {
   sourceSystem: string;
   file: File;
   mappingProfile?: ImportMappingProfile;
+  intake: DataIntakeDecision;
 }) {
   if (!input.file.size || input.file.size > 10 * 1024 * 1024) {
     throw new Error("IMPORT_SIZE_REJECTED");
@@ -69,7 +72,11 @@ export async function stageControlledImport(input: {
     const row = rows[rowNumber - 1]!;
     const source: Record<string, string> = {};
     headers.forEach((header, index) => {
-      if (header) source[header] = controlledImportCellValue(row[index]);
+      if (header) {
+        const value = controlledImportCellValue(row[index]);
+        assertNoProhibitedImportCell(value);
+        source[header] = value;
+      }
     });
     if (Object.values(source).every((value) => !value)) continue;
     sourceRows.push({ rowNumber, source });
@@ -118,6 +125,11 @@ export async function stageControlledImport(input: {
       preview: records.slice(0, 5).map((record) => record.normalized),
     },
     source_system: input.sourceSystem,
+    data_classification: input.intake.classification,
+    data_approval_reference: input.intake.approvalReference ?? null,
+    data_attestation_type: input.intake.attestationType,
+    data_attested_at: new Date().toISOString(),
+    data_attested_by: input.actorId,
     row_count: records.length,
     valid_row_count: records.length - errorRows.length,
     error_row_count: errorRows.length,
@@ -203,6 +215,8 @@ export async function stageControlledImport(input: {
       entityType: profile.entityType,
     },
     mappingPreview: records.slice(0, 5).map((record) => record.normalized),
+    dataClassification: input.intake.classification,
+    approvalReference: input.intake.approvalReference,
     errors: errorRows.slice(0, 20).map((record) => ({
       row: record.rowNumber,
       errors: record.errors,

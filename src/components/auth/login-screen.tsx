@@ -17,14 +17,20 @@ import { Button } from "@/components/ui/button";
 import { BrandMark } from "@/components/layout/brand-mark";
 import { organization } from "@/data/mock-data";
 
-export function LoginScreen() {
+export function LoginScreen({
+  initialMessage,
+  ssoEnabled = false,
+}: {
+  initialMessage?: string;
+  ssoEnabled?: boolean;
+}) {
   const [loading, setLoading] = useState(false);
   const [email, setEmail] = useState("");
   const [sent, setSent] = useState(false);
   const [message, setMessage] = useState(
-    "Access is limited to pre-invited demonstration users.",
+    initialMessage ??
+      "Access is limited to pre-invited demonstration users.",
   );
-
   async function enterDemo(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setLoading(true);
@@ -50,6 +56,34 @@ export function LoginScreen() {
       setMessage(
         "Secure sign-in could not be reached. Check the connection and try again.",
       );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function enterSso() {
+    if (!email.trim()) {
+      setMessage("Enter your approved work email before continuing with SSO.");
+      return;
+    }
+    setLoading(true);
+    try {
+      const response = await fetch("/api/auth/sso", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      const result = (await response.json()) as {
+        message?: string;
+        url?: string;
+      };
+      if (!response.ok || !result.url) {
+        setMessage(result.message ?? "Enterprise SSO is unavailable.");
+        return;
+      }
+      window.location.assign(result.url);
+    } catch {
+      setMessage("Enterprise SSO could not be reached.");
     } finally {
       setLoading(false);
     }
@@ -253,7 +287,7 @@ export function LoginScreen() {
               </div>
               <div className="relative flex justify-center text-[10px] uppercase tracking-wider">
                 <span className="bg-[var(--background)] px-3 text-[var(--muted-foreground)]">
-                  Future enterprise access
+                  {ssoEnabled ? "Enterprise access" : "Future enterprise access"}
                 </span>
               </div>
             </div>
@@ -263,11 +297,14 @@ export function LoginScreen() {
               variant="secondary"
               size="lg"
               className="w-full"
-              disabled
+              disabled={!ssoEnabled || loading}
+              onClick={() => void enterSso()}
             >
               <LockKeyhole className="size-4" />
               Continue with SSO
-              <Badge className="ml-auto">Future Activation</Badge>
+              <Badge className="ml-auto">
+                {ssoEnabled ? "Configured" : "Future Activation"}
+              </Badge>
             </Button>
           </form>
 

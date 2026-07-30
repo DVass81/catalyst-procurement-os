@@ -140,13 +140,53 @@ export function estimateOpenAiCost(
   );
 }
 
-function groundedTenantContext(request: AiRunRequest, state: DemoState) {
+export function buildGroundedTenantContext(
+  request: AiRunRequest,
+  state: DemoState,
+) {
   const config =
     tenantDemoConfigs[request.tenantId as keyof typeof tenantDemoConfigs] ??
     tenantDemoConfigs["org-y12-demo"];
   const featured = state.requests.find(
     (candidate) => candidate.id === state.featuredRequestId,
   );
+  const capability =
+    request.capability ??
+    assessCateIntent(request.prompt, request.capability).resolvedCapability;
+  const includeRequest = [
+    "requisition",
+    "policy",
+    "inventory",
+    "gl_budget",
+    "quote_comparison",
+    "negotiation",
+  ].includes(capability);
+  const includeAnalytics = [
+    "gl_budget",
+    "posted_spend",
+    "spend_intelligence",
+    "audit_summary",
+  ].includes(capability);
+  const includeQuotes = [
+    "quote_comparison",
+    "negotiation",
+    "requisition",
+  ].includes(capability);
+  const includeVendors = [
+    "quote_comparison",
+    "negotiation",
+    "vendor_risk",
+    "market_research",
+  ].includes(capability);
+  const includeBudget = [
+    "gl_budget",
+    "requisition",
+    "posted_spend",
+    "spend_intelligence",
+  ].includes(capability);
+  const includeContracts = capability === "contract_review";
+  const includeInvoices = capability === "invoice_match";
+  const includeAudit = capability === "audit_summary";
   return {
     tenant: config,
     currentContext: {
@@ -156,25 +196,38 @@ function groundedTenantContext(request: AiRunRequest, state: DemoState) {
       tourStepToResume: request.tourStepToResume,
     },
     classifiedIntent: assessCateIntent(request.prompt, request.capability),
-    certifiedAnalytics: dashboardProjection(state),
-    featuredRequest: featured,
-    quotes: state.quotes,
-    budgets: state.budgets.filter(
-      (budget) => budget.departmentId === featured?.departmentId,
-    ),
-    vendors: state.vendors.map((vendor) => ({
-      id: vendor.id,
-      name: vendor.displayName,
-      preferred: vendor.preferred,
-      riskTier: vendor.riskTier,
-      performanceScore: vendor.performanceScore,
-      documentationStatus: vendor.documentationStatus,
-    })),
-    contracts: state.contracts,
-    invoices: state.invoices,
-    auditEvents: state.auditEvents.filter(
-      (event) => event.entityId === featured?.id,
-    ),
+    certifiedAnalytics: includeAnalytics
+      ? dashboardProjection(state)
+      : undefined,
+    featuredRequest: includeRequest ? featured : undefined,
+    quotes: includeQuotes
+      ? state.quotes.filter(
+          (quote) => quote.requestId === featured?.id,
+        )
+      : [],
+    budgets:
+      includeBudget && featured
+        ? state.budgets.filter(
+            (budget) => budget.departmentId === featured.departmentId,
+          )
+        : [],
+    vendors: includeVendors
+      ? state.vendors.map((vendor) => ({
+          id: vendor.id,
+          name: vendor.displayName,
+          preferred: vendor.preferred,
+          riskTier: vendor.riskTier,
+          performanceScore: vendor.performanceScore,
+          documentationStatus: vendor.documentationStatus,
+        }))
+      : [],
+    contracts: includeContracts ? state.contracts : [],
+    invoices: includeInvoices ? state.invoices : [],
+    auditEvents: includeAudit
+      ? state.auditEvents.filter(
+          (event) => event.entityId === featured?.id,
+        )
+      : [],
     dataBoundary:
       "All data is fictional. Use only this tenant context. Do not infer real Y-12 records.",
   };
@@ -280,9 +333,68 @@ function permissionLimitedResult(
   };
 }
 
+function hasAccessibleEvidence(
+  capability: AiCapability,
+  state: DemoState,
+) {
+  const featured = state.requests.some(
+    (candidate) => candidate.id === state.featuredRequestId,
+  );
+  switch (capability) {
+    case "application_help":
+    case "email_triage":
+    case "market_research":
+      return true;
+    case "requisition":
+    case "policy":
+    case "inventory":
+      return featured;
+    case "gl_budget":
+      return (
+        featured &&
+        state.budgets.some(
+          (budget) =>
+            budget.departmentId ===
+            state.requests.find(
+              (candidate) => candidate.id === state.featuredRequestId,
+            )?.departmentId,
+        )
+      );
+    case "quote_comparison":
+    case "negotiation":
+      return (
+        featured &&
+        state.quotes.some(
+          (quote) =>
+            quote.requestId === state.featuredRequestId &&
+            quote.recommendation === "recommended" &&
+            state.vendors.some((vendor) => vendor.id === quote.vendorId),
+        )
+      );
+    case "vendor_risk":
+      return state.vendors.length > 0;
+    case "contract_review":
+      return state.contracts.length > 0;
+    case "invoice_match":
+      return (
+        state.invoices.length > 0 &&
+        state.purchaseOrders.length > 0 &&
+        state.receipts.length > 0
+      );
+    case "posted_spend":
+    case "spend_intelligence":
+      return state.invoices.length > 0;
+    case "audit_summary":
+      return state.auditEvents.length > 0;
+    default:
+      return false;
+  }
+}
+
 export async function runProcurementAi(
   request: AiRunRequest,
   sessionId = "demo-session",
+  scopedState?: DemoState,
 ): Promise<AiRunResult> {
   const intent = assessCateIntent(request.prompt, request.capability);
   const governedRequest = {
@@ -295,16 +407,33 @@ export async function runProcurementAi(
     await recordCateEvaluation(denied).catch(() => undefined);
     return denied;
   }
-  const authoritative = await loadPhaseTwoState(request.tenantId);
+  const authoritative = scopedState
+    ? undefined
+    : await loadPhaseTwoState(request.tenantId);
   if (
-    authoritative.persistence === "supabase" &&
+    authoritative?.persistence === "supabase" &&
     authoritative.durability !== "authoritative"
   ) {
     throw new Error("CATE_EVIDENCE_UNAVAILABLE");
   }
+  const evidenceState = scopedState ?? authoritative!.state;
+  if (
+    evidenceState.featuredRequestId &&
+    !evidenceState.requests.some(
+      (candidate) => candidate.id === evidenceState.featuredRequestId,
+    )
+  ) {
+    evidenceState.featuredRequestId = evidenceState.requests[0]?.id ?? "";
+  }
+  if (!hasAccessibleEvidence(intent.resolvedCapability, evidenceState)) {
+    const denied = permissionLimitedResult(governedRequest, sessionId);
+    await recordUsage(denied.usage);
+    await recordCateEvaluation(denied).catch(() => undefined);
+    return denied;
+  }
   const fallback = deterministicAiOutput(
     governedRequest,
-    authoritative.state,
+    evidenceState,
   );
   const fallbackAssessment = validateCateAnswer({
     intent: fallback.intent,
@@ -370,9 +499,9 @@ export async function runProcurementAi(
                 userQuestion: request.prompt,
                 requestedCapability: routed.capability,
                 separatelyClassifiedIntent: intent,
-                fictionalTenantContext: groundedTenantContext(
+                fictionalTenantContext: buildGroundedTenantContext(
                   governedRequest,
-                  authoritative.state,
+                  evidenceState,
                 ),
               }),
             },

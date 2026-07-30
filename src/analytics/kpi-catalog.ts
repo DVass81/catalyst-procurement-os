@@ -2,6 +2,7 @@ import type { DemoRole, DemoState } from "@/demo/model";
 import { dashboardProjection } from "@/demo/workflow";
 
 export type KpiClassification = "outcome" | "driver" | "guardrail";
+export type KpiTargetStatus = "synthetic_reference" | "customer_approved";
 
 export interface KpiDefinition {
   id: string;
@@ -23,7 +24,12 @@ export interface KpiDefinition {
   targetDirection: "at_least" | "at_most";
   targetOwner: string;
   targetLabel: "Synthetic demo target";
+  targetStatus: KpiTargetStatus;
+  targetBasis: string;
   effectiveDate: "2026-07-01";
+  decisionCadence: string;
+  accountableDecision: string;
+  minimumSampleSize: number;
   actionThreshold: string;
   pairedGuardrail: string;
   drilldownPath: string;
@@ -37,7 +43,12 @@ type DefinitionInput = Omit<
   | "exclusions"
   | "refreshCadence"
   | "targetLabel"
+  | "targetStatus"
+  | "targetBasis"
   | "effectiveDate"
+  | "decisionCadence"
+  | "accountableDecision"
+  | "minimumSampleSize"
 >;
 
 function define(input: DefinitionInput): KpiDefinition {
@@ -48,7 +59,14 @@ function define(input: DefinitionInput): KpiDefinition {
     exclusions: ["Cancelled, reversed, superseded, test-control, and out-of-period records"],
     refreshCadence: "On every authoritative workflow command",
     targetLabel: "Synthetic demo target",
+    targetStatus: "synthetic_reference",
+    targetBasis:
+      "Synthetic acceptance reference for demonstration and test evaluation; it is not a customer benchmark, commitment, or realized outcome.",
     effectiveDate: "2026-07-01",
+    decisionCadence: "Review on each certified snapshot and at the monthly operating review",
+    accountableDecision:
+      "The named owner investigates an adverse result, verifies the contributing records, and records any corrective action.",
+    minimumSampleSize: 1,
     ...input,
   };
 }
@@ -96,8 +114,15 @@ export interface KpiResult {
   trend: string;
   forecast?: number;
   primaryDrivers: string[];
+  asOf: string;
   freshness: string;
+  freshnessStatus: "current" | "stale" | "unknown";
   coverage: string;
+  recordCount: number;
+  filters: Readonly<Record<string, string>>;
+  sourceSnapshotVersion: string;
+  reconciliationStatus: "reconciled" | "blocked";
+  reconciliationMessage: string;
   dataQualityWarning?: string;
   actionPlaybook: string;
   contributingRecords: Array<{ type: string; id: string; value: number }>;
@@ -159,12 +184,27 @@ export function calculateCertifiedKpis(state: DemoState): KpiResult[] {
       ) / openApprovals.length
     : 0;
   const common = {
+    asOf: `${state.sessionDate}T12:00:00.000Z`,
     freshness: `As of ${state.sessionDate} · refreshed on the latest authoritative command`,
+    freshnessStatus: "current" as const,
     coverage: "100% of eligible synthetic records in this tenant and filter context",
+    filters: {
+      tenant: state.organization.organizationId,
+      businessDate: state.sessionDate,
+      department: "all-authorized",
+      location: "all-authorized",
+      category: "all-authorized",
+      vendor: "all-authorized",
+    },
+    sourceSnapshotVersion: `demo-state-v${state.schemaVersion}`,
+    reconciliationStatus: "reconciled" as const,
+    reconciliationMessage:
+      "The displayed value was recomputed from the listed contributing records in the current authoritative projection.",
   };
   return [
     result("contract-covered-spend-rate", postedSpend ? (contractSpend / postedSpend) * 100 : 0, {
       ...common,
+      recordCount: postedInvoices.length,
       trend: "Stable across the current twelve-month synthetic window",
       forecast: postedSpend ? (contractSpend / postedSpend) * 100 : 0,
       primaryDrivers: ["Contract references on posted purchase orders", "Off-contract posted invoice value"],
@@ -173,6 +213,7 @@ export function calculateCertifiedKpis(state: DemoState): KpiResult[] {
     }),
     result("accepted-savings", projection.acceptedSavingsCents, {
       ...common,
+      recordCount: state.requests.filter((request) => request.identifiedSavingsCents > 0).length,
       trend: "Featured inventory reuse and standards substitution are the current drivers",
       forecast: projection.acceptedSavingsCents,
       primaryDrivers: ["Inventory reuse", "Approved standards substitutions", "Human-accepted recommendations"],
@@ -181,6 +222,7 @@ export function calculateCertifiedKpis(state: DemoState): KpiResult[] {
     }),
     result("first-pass-invoice-match-rate", state.invoices.length ? (matchedCount / state.invoices.length) * 100 : 0, {
       ...common,
+      recordCount: state.invoices.length,
       trend: "The featured freight variance is intentionally reducing the current rate",
       forecast: state.invoices.length ? (matchedCount / state.invoices.length) * 100 : 0,
       primaryDrivers: ["Freight variance", "Exact quantity and price agreement", "Accepted receipt coverage"],
@@ -189,6 +231,7 @@ export function calculateCertifiedKpis(state: DemoState): KpiResult[] {
     }),
     result("exception-value-at-risk", exceptionInvoices.reduce((total, invoice) => total + invoice.varianceCents, 0), {
       ...common,
+      recordCount: exceptionInvoices.length,
       trend: "One controlled featured freight exception is visible in the primary story",
       primaryDrivers: ["Unapproved freight", "Open match exceptions"],
       actionPlaybook: "Assign an owner, verify evidence, maintain payment hold, and resolve by correction or authorized disposition.",
@@ -196,6 +239,7 @@ export function calculateCertifiedKpis(state: DemoState): KpiResult[] {
     }),
     result("approval-queue-age", approvalAgeHours, {
       ...common,
+      recordCount: openApprovals.length,
       trend: "Current as-of queue age; business-day escalation remains authoritative",
       primaryDrivers: ["Pending assigned approvals", "Due-date proximity", "Sequential routing"],
       actionPlaybook: "Open the oldest assigned approval, verify delegation and blockers, then escalate through the configured chain.",
@@ -203,6 +247,7 @@ export function calculateCertifiedKpis(state: DemoState): KpiResult[] {
     }),
     result("high-risk-supplier-exposure", postedSpend ? (highRiskSpend / postedSpend) * 100 : 0, {
       ...common,
+      recordCount: postedInvoices.filter((invoice) => vendorById.get(invoice.vendorId)?.riskTier === "high").length,
       trend: "Risk is recalculated from current supplier indicators and posted spend",
       forecast: postedSpend ? (highRiskSpend / postedSpend) * 100 : 0,
       primaryDrivers: ["High-risk supplier status", "Posted spend concentration", "Documentation and review gaps"],

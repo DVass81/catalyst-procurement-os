@@ -38,8 +38,113 @@ export const phaseThreeCommandSchema = z.discriminatedUnion("type", [
     ...common,
   }),
   z.object({
+    type: z.literal("phase3_rfq_create"),
+    rfqId: z.string().min(1).max(160),
+    rfqNumber: z.string().trim().min(3).max(80),
+    requestId: z.string().min(1).max(160),
+    title: z.string().trim().min(5).max(240),
+    description: z.string().trim().min(20).max(2_000),
+    sourcingMethod: z.enum(["rfq", "rfp"]),
+    responseDeadline: z.string().date(),
+    sealedUntil: z.string().datetime(),
+    retentionUntil: z.string().date(),
+    termsVersion: z.string().trim().min(1).max(120),
+    evaluationVersion: z.string().trim().min(1).max(120),
+    lines: z
+      .array(
+        z.object({
+          id: z.string().min(1).max(160),
+          requestLineId: z.string().min(1).max(160),
+          description: z.string().trim().min(1).max(500),
+          quantity: z.number().positive(),
+          unitOfMeasure: z.string().trim().min(1).max(80),
+          requiredByDate: z.string().date(),
+          specification: z.string().trim().min(5).max(2_000),
+        }),
+      )
+      .min(1)
+      .max(100),
+    supplierIds: z.array(z.string().min(1).max(160)).min(2).max(25),
+    ...common,
+  }),
+  z.object({
+    type: z.literal("phase3_rfq_update_draft"),
+    rfqId: z.string().min(1).max(160),
+    title: z.string().trim().min(5).max(240),
+    description: z.string().trim().min(20).max(2_000),
+    responseDeadline: z.string().date(),
+    sealedUntil: z.string().datetime(),
+    termsVersion: z.string().trim().min(1).max(120),
+    evaluationVersion: z.string().trim().min(1).max(120),
+    ...common,
+  }),
+  z.object({
     type: z.literal("phase3_rfq_release"),
     rfqId: z.string().min(1).max(160),
+    ...common,
+  }),
+  z.object({
+    type: z.literal("phase3_rfq_amend"),
+    rfqId: z.string().min(1).max(160),
+    changes: z.array(z.string().trim().min(3).max(500)).min(1).max(30),
+    responseDeadline: z.string().date(),
+    sealedUntil: z.string().datetime(),
+    rationale: z.string().trim().min(20).max(2_000),
+    ...common,
+  }),
+  z.object({
+    type: z.literal("phase3_rfq_submit_question"),
+    rfqId: z.string().min(1).max(160),
+    supplierId: z.string().min(1).max(160),
+    question: z.string().trim().min(10).max(2_000),
+    ...common,
+  }),
+  z.object({
+    type: z.literal("phase3_rfq_answer_question"),
+    rfqId: z.string().min(1).max(160),
+    questionId: z.string().min(1).max(200),
+    answer: z.string().trim().min(10).max(4_000),
+    addendumTitle: z.string().trim().min(5).max(240),
+    ...common,
+  }),
+  z.object({
+    type: z.literal("phase3_rfq_decline"),
+    rfqId: z.string().min(1).max(160),
+    supplierId: z.string().min(1).max(160),
+    rationale: z.string().trim().min(10).max(2_000),
+    ...common,
+  }),
+  z.object({
+    type: z.literal("phase3_rfq_withdraw_response"),
+    rfqId: z.string().min(1).max(160),
+    supplierId: z.string().min(1).max(160),
+    rationale: z.string().trim().min(10).max(2_000),
+    ...common,
+  }),
+  z.object({
+    type: z.literal("phase3_rfq_disclose_conflict"),
+    rfqId: z.string().min(1).max(160),
+    supplierId: z.string().min(1).max(160).optional(),
+    description: z.string().trim().min(20).max(2_000),
+    ...common,
+  }),
+  z.object({
+    type: z.literal("phase3_rfq_resolve_conflict"),
+    rfqId: z.string().min(1).max(160),
+    conflictId: z.string().min(1).max(200),
+    disposition: z.enum(["mitigated", "recused"]),
+    resolution: z.string().trim().min(20).max(2_000),
+    ...common,
+  }),
+  z.object({
+    type: z.literal("phase3_rfq_record_negotiation"),
+    rfqId: z.string().min(1).max(160),
+    supplierId: z.string().min(1).max(160),
+    summary: z.string().trim().min(20).max(2_000),
+    negotiationEvidence: z
+      .array(z.string().trim().min(1).max(500))
+      .min(1)
+      .max(30),
     ...common,
   }),
   z.object({
@@ -111,6 +216,13 @@ export const phaseThreeCommandSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("phase3_bank_verify"),
     applicationId: z.string().min(1).max(120),
+    ...common,
+  }),
+  z.object({
+    type: z.literal("phase3_bank_propose"),
+    applicationId: z.string().min(1).max(120),
+    accountLastFour: z.string().regex(/^[0-9]{4}$/),
+    routingLastFour: z.string().regex(/^[0-9]{4}$/),
     ...common,
   }),
   z.object({
@@ -187,6 +299,33 @@ export const phaseThreeCommandSchema = z.discriminatedUnion("type", [
     ...common,
   }),
   z.object({
+    type: z.literal("phase3_create_report_schedule"),
+    reportId: z.string().min(1).max(160),
+    cadence: z.enum(["weekly", "monthly"]),
+    exportFormat: z.enum(["PDF", "XLSX", "CSV"]),
+    recipientRoles: z
+      .array(
+        z.enum([
+          "purchasing_manager",
+          "finance_reviewer",
+          "accounts_payable",
+          "executive",
+          "auditor",
+        ]),
+      )
+      .min(1)
+      .max(5),
+    secureLinkExpiresHours: z.number().int().min(1).max(168),
+    retentionDays: z.number().int().min(365).max(2_920),
+    ...common,
+  }),
+  z.object({
+    type: z.literal("phase3_deliver_report"),
+    scheduleId: z.string().min(1).max(160),
+    snapshotId: z.string().min(1).max(160),
+    ...common,
+  }),
+  z.object({
     type: z.literal("phase3_generate_cate_narrative"),
     reportSnapshotId: z.string().min(1).max(160),
     ...common,
@@ -255,6 +394,7 @@ export const phaseThreeCommandRequestSchema = z.object({
   tenantId: z.string().min(1).max(80),
   expectedRevision: z.number().int().nonnegative(),
   idempotencyKey: z.string().uuid(),
+  requestedAt: z.string().datetime({ offset: true }),
   command: phaseThreeCommandSchema,
 });
 

@@ -44,6 +44,28 @@ export function verifyPhaseThreeIntegrity(
   if (!unique(state.auditEvents.map((item) => item.id))) {
     errors.push("Phase 3 audit-event identifiers are not unique.");
   }
+  if (!unique(state.reportSchedules.map((item) => item.id))) {
+    errors.push("Report schedule identifiers are not unique.");
+  }
+  if (!unique(state.reportDeliveries.map((item) => item.id))) {
+    errors.push("Report delivery identifiers are not unique.");
+  }
+  for (const delivery of state.reportDeliveries) {
+    const schedule = state.reportSchedules.find(
+      (candidate) => candidate.id === delivery.scheduleId,
+    );
+    const snapshot = state.reportSnapshots.find(
+      (candidate) => candidate.id === delivery.snapshotId,
+    );
+    if (
+      !schedule ||
+      !snapshot ||
+      schedule.reportId !== snapshot.reportId ||
+      snapshot.exportHashes[delivery.exportFormat] !== delivery.contentHash
+    ) {
+      errors.push(`${delivery.id} does not reconcile its retained report.`);
+    }
+  }
   if (!state.goldenThread.some((scene) => scene.id === state.activeSceneId)) {
     errors.push("The active Golden Thread scene is not registered.");
   }
@@ -78,8 +100,58 @@ export function verifyPhaseThreeIntegrity(
     }
   }
   for (const rfq of state.rfqs) {
+    const amendments = rfq.amendments ?? [];
+    const questions = rfq.questions ?? [];
+    const addenda = rfq.addenda ?? [];
+    const conflicts = rfq.conflicts ?? [];
+    const negotiations = rfq.negotiations ?? [];
+    const decisionNotices = rfq.decisionNotices ?? [];
     if (!unique(rfq.responses.map((response) => response.id))) {
       errors.push(`${rfq.id} contains duplicate response identifiers.`);
+    }
+    for (const [label, identifiers] of [
+      ["amendment", amendments.map((record) => record.id)],
+      ["question", questions.map((record) => record.id)],
+      ["addendum", addenda.map((record) => record.id)],
+      ["conflict", conflicts.map((record) => record.id)],
+      ["negotiation", negotiations.map((record) => record.id)],
+      ["decision notice", decisionNotices.map((record) => record.id)],
+    ] as const) {
+      if (!unique(identifiers)) {
+        errors.push(`${rfq.id} contains duplicate ${label} identifiers.`);
+      }
+    }
+    for (const amendment of amendments) {
+      if (
+        amendment.supersededResponseIds.some(
+          (responseId) =>
+            !rfq.responses.some(
+              (response) =>
+                response.id === responseId &&
+                response.status === "superseded",
+            ),
+        )
+      ) {
+        errors.push(
+          `${amendment.id} does not reconcile its superseded responses.`,
+        );
+      }
+    }
+    for (const question of questions) {
+      if (
+        question.status === "answered" &&
+        (!question.answer ||
+          !question.addendumId ||
+          !addenda.some((addendum) => addendum.id === question.addendumId))
+      ) {
+        errors.push(`${question.id} has no reconciled public addendum.`);
+      }
+    }
+    if (
+      rfq.lifecycleState === "awarded" &&
+      conflicts.some((conflict) => conflict.status === "open")
+    ) {
+      errors.push(`${rfq.id} was awarded with an open conflict.`);
     }
     for (const response of rfq.responses) {
       const calculatedTotal =
@@ -123,6 +195,16 @@ export function verifyPhaseThreeIntegrity(
       }
       if (rfq.lifecycleState !== "awarded") {
         errors.push(`${rfq.id} has an award outside the awarded lifecycle state.`);
+      }
+      if (
+        rfq.suppliers.some(
+          (supplier) =>
+            !decisionNotices.some(
+              (notice) => notice.supplierId === supplier.supplierId,
+            ),
+        )
+      ) {
+        errors.push(`${rfq.id} is missing an award or non-award notice.`);
       }
     }
   }

@@ -29,6 +29,15 @@ export async function POST(request: Request) {
   if (!parsed.success || !isTenantId(parsed.data.tenantId)) {
     return NextResponse.json({ message: "Invalid procurement tool request." }, { status: 400 });
   }
+  if (parsed.data.capability !== "application_help") {
+    return NextResponse.json(
+      {
+        message:
+          "The remote voice guide is limited to application help because it is not bound to an authenticated Catalyst user session.",
+      },
+      { status: 403, headers: { "Cache-Control": "private, no-store" } },
+    );
+  }
   const mode = isCapabilityInFallback(parsed.data.capability)
     ? "deterministic"
     : parsed.data.mode;

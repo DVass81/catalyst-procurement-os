@@ -123,17 +123,19 @@ export function deterministicAiOutput(
   const state = stateOverride ?? createDemoState(theme);
   const featured = state.requests.find(
     (candidate) => candidate.id === state.featuredRequestId,
-  )!;
+  );
   const recommendedQuote = state.quotes.find(
     (quote) => quote.recommendation === "recommended",
-  )!;
+  );
   const recommendedVendor = state.vendors.find(
-    (vendor) => vendor.id === recommendedQuote.vendorId,
-  )!;
-  const recommendedEvaluation = recommendedVendorEvaluation(state)!;
+    (vendor) => vendor.id === recommendedQuote?.vendorId,
+  );
+  const recommendedEvaluation = recommendedVendorEvaluation(state);
   const lendingBudget = state.budgets.find(
-    (budget) => budget.departmentId === "dept-lending",
-  )!;
+    (budget) =>
+      budget.departmentId === featured?.departmentId ||
+      budget.departmentId === "dept-lending",
+  );
   const elevatedVendors = state.vendors.filter(
     (vendor) => vendor.riskTier === "high",
   );
@@ -141,18 +143,20 @@ export function deterministicAiOutput(
     (contract) => contract.status === "renewal_due",
   );
 
-  const commonCitations = [
-    recordCitation(
-      "request-record",
-      featured.title,
-      featured.requestNumber,
-      "/purchase-requests",
-    ),
-  ];
-  let displayText = "";
-  let narrationText = "";
+  const commonCitations = featured
+    ? [
+        recordCitation(
+          "request-record",
+          featured.title,
+          featured.requestNumber,
+          "/purchase-requests",
+        ),
+      ]
+    : [];
+  let displayText: string;
+  let narrationText: string;
   let citations = commonCitations;
-  let evidenceCards: EvidenceCard[] = [];
+  let evidenceCards: EvidenceCard[];
   let calculation: CateCalculation | undefined;
   let claims: CateClaim[] = [];
 
@@ -193,6 +197,9 @@ export function deterministicAiOutput(
       ];
       break;
     case "gl_budget": {
+      if (!lendingBudget) {
+        throw new Error("CATE_EVIDENCE_UNAVAILABLE");
+      }
       const available =
         lendingBudget.revisedBudgetCents -
         lendingBudget.actualSpendCents -
@@ -212,6 +219,13 @@ export function deterministicAiOutput(
       break;
     }
     case "quote_comparison":
+      if (
+        !recommendedQuote ||
+        !recommendedVendor ||
+        !recommendedEvaluation
+      ) {
+        throw new Error("CATE_EVIDENCE_UNAVAILABLE");
+      }
       citations = [
         ...commonCitations,
         recordCitation("quote-record", "Fictional quote comparison", recommendedQuote.quoteNumber, "/purchase-requests"),
@@ -356,6 +370,9 @@ export function deterministicAiOutput(
       ];
       break;
     case "negotiation":
+      if (!recommendedQuote) {
+        throw new Error("CATE_EVIDENCE_UNAVAILABLE");
+      }
       citations = [
         recordCitation("quote-record", "Fictional quote comparison", recommendedQuote.quoteNumber, "/purchase-requests"),
       ];

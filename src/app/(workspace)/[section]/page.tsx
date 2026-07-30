@@ -1,40 +1,17 @@
 import type { Metadata } from "next";
+import { cookies } from "next/headers";
 import { notFound } from "next/navigation";
 
 import { PhaseTwoPage } from "@/components/demo/phase-two-page";
 import { PhaseThreePage } from "@/components/commercialization/phase-three-page";
+import {
+  canAccessWorkspaceSection,
+  isWorkspaceSection,
+  workspaceSections,
+} from "@/config/module-access";
 import { titleCase } from "@/lib/utils";
-
-const sections = [
-  "dashboard",
-  "ai-procurement",
-  "purchase-requests",
-  "rfqs",
-  "approvals",
-  "purchase-orders",
-  "receiving",
-  "inventory",
-  "vendors",
-  "vendor-risk",
-  "contracts",
-  "invoices",
-  "analytics",
-  "audit-center",
-  "administration",
-  "settings",
-  "integration-center",
-  "enterprise-access",
-  "supplier-onboarding",
-  "contract-intelligence",
-  "workflow-studio",
-  "mobile-work",
-  "reporting-studio",
-  "trust-center",
-  "accessibility-center",
-  "operations-center",
-  "golden-thread",
-  "rfqs",
-] as const;
+import { activeRoleAssignments } from "@/server/auth/authority";
+import { getAppSession } from "@/server/auth/session";
 
 const commercializationSections = [
   "integration-center",
@@ -50,10 +27,8 @@ const commercializationSections = [
   "golden-thread",
 ] as const;
 
-type Section = (typeof sections)[number];
-
 export function generateStaticParams() {
-  return sections.map((section) => ({ section }));
+  return workspaceSections.map((section) => ({ section }));
 }
 
 export async function generateMetadata({
@@ -74,7 +49,33 @@ export default async function SectionPage({
   params: Promise<{ section: string }>;
 }) {
   const { section } = await params;
-  if (!sections.includes(section as Section)) notFound();
+  if (!isWorkspaceSection(section)) notFound();
+  const session = await getAppSession();
+  if (!session) notFound();
+  if (!session.presenter) {
+    const cookieStore = await cookies();
+    const selectedTenant = cookieStore.get("catalyst-active-tenant")?.value;
+    const selectedRole = cookieStore.get("catalyst-active-role")?.value;
+    const authority =
+      (selectedTenant && session.authorities[selectedTenant]) ||
+      (session.tenantIds.length === 1
+        ? session.authorities[session.tenantIds[0]!]
+        : undefined);
+    const assignedRoles = activeRoleAssignments(authority?.roles ?? []).filter(
+      (assignment) =>
+        assignment.assignmentType !== "presenter_simulation",
+    );
+    const assignment =
+      assignedRoles.find((candidate) => candidate.role === selectedRole) ??
+      (assignedRoles.length === 1 ? assignedRoles[0] : undefined);
+    if (!assignment && section !== "dashboard") notFound();
+    if (
+      assignment &&
+      !canAccessWorkspaceSection(assignment.role, section)
+    ) {
+      notFound();
+    }
+  }
 
   if (
     commercializationSections.includes(

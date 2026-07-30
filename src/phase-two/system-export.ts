@@ -1,4 +1,5 @@
 import type { DemoState } from "@/demo/model";
+import type { DataIntakeClassification } from "@/security/data-intake-policy";
 
 export const standaloneExportDatasets = [
   "supplier_master",
@@ -171,7 +172,8 @@ export interface StandaloneExportArtifact {
   rowCount: number;
   dataset: StandaloneExportDataset;
   format: StandaloneExportFormat;
-  synthetic: true;
+  dataClassification: DataIntakeClassification;
+  synthetic: boolean;
 }
 
 function rowsForDataset(
@@ -359,6 +361,7 @@ export function buildStandaloneExport(input: {
   tenantId: string;
   dataset: StandaloneExportDataset;
   format: StandaloneExportFormat;
+  dataClassification: DataIntakeClassification;
 }): StandaloneExportArtifact {
   const rows = rowsForDataset(input.state, input.dataset);
   const columns = exportColumns[input.dataset];
@@ -371,7 +374,8 @@ export function buildStandaloneExport(input: {
       rowCount: rows.length,
       dataset: input.dataset,
       format: input.format,
-      synthetic: true,
+      dataClassification: input.dataClassification,
+      synthetic: input.dataClassification === "synthetic_demo",
     };
   }
   return {
@@ -381,7 +385,8 @@ export function buildStandaloneExport(input: {
         tenantId: input.tenantId,
         dataset: input.dataset,
         asOf: input.state.sessionDate,
-        synthetic: true,
+        dataClassification: input.dataClassification,
+        synthetic: input.dataClassification === "synthetic_demo",
         rowCount: rows.length,
         columns,
         rows,
@@ -394,6 +399,7 @@ export function buildStandaloneExport(input: {
     rowCount: rows.length,
     dataset: input.dataset,
     format: input.format,
-    synthetic: true,
+    dataClassification: input.dataClassification,
+    synthetic: input.dataClassification === "synthetic_demo",
   };
 }

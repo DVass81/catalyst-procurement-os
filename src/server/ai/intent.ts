@@ -13,6 +13,11 @@ interface IntentRule {
   material?: boolean;
 }
 
+export interface CitationGraphAssessment {
+  valid: boolean;
+  reasons: string[];
+}
+
 const intentRules: IntentRule[] = [
   {
     capability: "posted_spend",
@@ -24,12 +29,12 @@ const intentRules: IntentRule[] = [
   },
   {
     capability: "email_triage",
-    pattern: /email|gmail|inbox|triage/i,
+    pattern: /email|gmail|inbox|triage|incoming messages/i,
     expectedAnswer: "Explain the governed email boundary or proposed draft action.",
   },
   {
     capability: "negotiation",
-    pattern: /negotiat|counteroffer|counter offer/i,
+    pattern: /negotiat|counteroffer|counter offer|\bcounter\b/i,
     expectedAnswer:
       "Provide evidence-backed negotiation points without sending a message.",
   },
@@ -41,49 +46,55 @@ const intentRules: IntentRule[] = [
   },
   {
     capability: "invoice_match",
-    pattern: /invoice|three.?way|freight|duplicate invoice/i,
+    pattern:
+      /invoice|three.?way|two.?way|freight|duplicate invoice|matching exception/i,
     expectedAnswer:
       "State the match outcome and exact cited exception before recommending review.",
   },
   {
     capability: "vendor_risk",
-    pattern: /vendor risk|supplier risk|due diligence|soc report|cybersecurity/i,
+    pattern:
+      /vendor risk|supplier risk|due diligence|soc report|cybersecurity|(?:vendor|supplier).{0,40}(?:documentation|remediation|risk review)/i,
     expectedAnswer:
       "Identify evidence-backed risk indicators without making a final determination.",
   },
   {
     capability: "quote_comparison",
-    pattern: /quote|supplier comparison|vendor comparison|best value/i,
+    pattern:
+      /quote|supplier comparison|vendor comparison|best value|compare.{0,40}(?:price|delivery|warranty)|evaluation criteria|\bbids?\b|sourcing criteria/i,
     expectedAnswer:
       "Compare eligible responses using the approved criteria and retain human award authority.",
   },
   {
     capability: "market_research",
-    pattern: /market|current price|public research|benchmark/i,
+    pattern:
+      /market|current price|public research|public pricing|benchmark|current web research/i,
     expectedAnswer:
       "Use a current cited public source or explicitly refuse a current-market conclusion.",
   },
   {
     capability: "audit_summary",
-    pattern: /audit|examiner|evidence package/i,
+    pattern:
+      /audit|examiner|evidence package|correlation-linked|transaction timeline|examination/i,
     expectedAnswer:
       "Summarize the correlation-linked record trail and evidence boundary.",
   },
   {
     capability: "gl_budget",
-    pattern: /budget|\bgl\b|cost center|coding/i,
+    pattern: /budget|\bgl\b|cost center|coding|accounting code/i,
     expectedAnswer:
       "State the budget or coding result and the evidence used.",
   },
   {
     capability: "inventory",
-    pattern: /inventory|stock|duplicate purchase|monitor/i,
+    pattern:
+      /inventory|stock|duplicate purchase|monitor|on-hand|compatible units|units available/i,
     expectedAnswer:
       "State available inventory and its effect on the request.",
   },
   {
     capability: "policy",
-    pattern: /policy|standard|approved item|headset/i,
+    pattern: /policy|standard|approved item|headset|exception decision/i,
     expectedAnswer:
       "State the applicable policy result, version, exception, and human decision.",
   },
@@ -96,7 +107,8 @@ const intentRules: IntentRule[] = [
   },
   {
     capability: "requisition",
-    pattern: /create|request|requisition|need|purchase/i,
+    pattern:
+      /create|request|requisition|need|purchase|before submission/i,
     expectedAnswer:
       "Structure the requested need and identify the controls required before submission.",
   },
@@ -143,6 +155,46 @@ function containsReferencedValue(output: AiModelOutput, cardId: string) {
   );
 }
 
+export function validateCitationGraph(
+  output: AiModelOutput,
+): CitationGraphAssessment {
+  const reasons: string[] = [];
+  const citationIds = new Set<string>();
+
+  for (const citation of output.citations) {
+    if (citationIds.has(citation.id)) {
+      reasons.push(`Duplicate citation identifier: ${citation.id}.`);
+    }
+    citationIds.add(citation.id);
+    if (!citation.locator.trim()) {
+      reasons.push(`Citation ${citation.id} has no locator.`);
+    }
+    if (
+      citation.sourceType === "public_web" &&
+      (!citation.href || !citation.href.startsWith("https://"))
+    ) {
+      reasons.push(
+        `Public citation ${citation.id} does not use a secure source URL.`,
+      );
+    }
+  }
+
+  for (const card of output.evidenceCards) {
+    if (card.sourceCitationIds.length === 0) {
+      reasons.push(`Evidence card ${card.id} has no source citation.`);
+    }
+    for (const citationId of card.sourceCitationIds) {
+      if (!citationIds.has(citationId)) {
+        reasons.push(
+          `Evidence card ${card.id} references unknown citation ${citationId}.`,
+        );
+      }
+    }
+  }
+
+  return { valid: reasons.length === 0, reasons };
+}
+
 export function validateCateAnswer(input: {
   intent: CateIntentAssessment;
   output: AiModelOutput;
@@ -151,18 +203,29 @@ export function validateCateAnswer(input: {
   const citationIds = new Set(
     input.output.citations.map((citation) => citation.id),
   );
+  const citationGraph = validateCitationGraph(input.output);
   let complete =
     input.output.displayText.trim().length > 0 &&
-    input.output.recommendedNextAction.trim().length > 0;
+    input.output.recommendedNextAction.trim().length > 0 &&
+    citationGraph.valid;
   let reason =
     "The answer directly addresses the classified intent and includes the required evidence contract.";
+
+  if (!citationGraph.valid) {
+    reason = `The answer citation graph failed validation: ${citationGraph.reasons.join(
+      " ",
+    )}`;
+  }
 
   if (input.intent.resolvedCapability === "posted_spend") {
     complete =
       complete &&
       citationIds.has("spend-ledger") &&
       containsReferencedValue(input.output, "posted-spend");
-    if (!complete) {
+    if (
+      !citationIds.has("spend-ledger") ||
+      !containsReferencedValue(input.output, "posted-spend")
+    ) {
       reason =
         "The response did not state the requested posted-spend value with its required ledger evidence.";
     }

@@ -187,6 +187,25 @@ export async function syncPhaseThreeProjection(
           { onConflict: "tenant_id,snapshot_key" },
         )
       : Promise.resolve({ error: null }),
+    phaseThree.reportSchedules.length > 0
+      ? client.from("phase3_report_schedules").upsert(
+          phaseThree.reportSchedules.map((schedule) => ({
+            tenant_id: tenantId,
+            schedule_key: schedule.id,
+            report_key: schedule.reportId,
+            cadence: schedule.cadence,
+            export_format: schedule.exportFormat,
+            recipient_roles: schedule.recipientRoles,
+            secure_link_expires_hours: schedule.secureLinkExpiresHours,
+            retention_days: schedule.retentionDays,
+            status: schedule.status,
+            created_by_role: schedule.createdByRole,
+            next_run_at: schedule.nextRunAt,
+            correlation_id: schedule.correlationId,
+          })),
+          { onConflict: "tenant_id,schedule_key" },
+        )
+      : Promise.resolve({ error: null }),
     client.from("phase3_assurance_findings").upsert(
       phaseThree.assuranceFindings.map((finding) => ({
         tenant_id: tenantId,
@@ -258,4 +277,27 @@ export async function syncPhaseThreeProjection(
   results.forEach((result, index) =>
     ensureNoError(result, `projection-${index + 1}`),
   );
+
+  if (phaseThree.reportDeliveries.length > 0) {
+    const deliveryResult = await client
+      .from("phase3_report_deliveries")
+      .upsert(
+        phaseThree.reportDeliveries.map((delivery) => ({
+          tenant_id: tenantId,
+          delivery_key: delivery.id,
+          schedule_key: delivery.scheduleId,
+          snapshot_key: delivery.snapshotId,
+          recipient_roles: delivery.recipientRoles,
+          export_format: delivery.exportFormat,
+          content_hash: delivery.contentHash,
+          status: delivery.status,
+          delivered_at: delivery.deliveredAt,
+          expires_at: delivery.expiresAt,
+          retention_until: delivery.retentionUntil,
+          correlation_id: delivery.correlationId,
+        })),
+        { onConflict: "tenant_id,delivery_key" },
+      );
+    ensureNoError(deliveryResult, "report-deliveries");
+  }
 }

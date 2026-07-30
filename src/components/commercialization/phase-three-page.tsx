@@ -581,6 +581,12 @@ function RfqWorkspace({
 }) {
   const { state } = useDemo();
   const rfq = state.phaseThree.rfqs[0]!;
+  const amendments = rfq.amendments ?? [];
+  const questions = rfq.questions ?? [];
+  const addenda = rfq.addenda ?? [];
+  const conflicts = rfq.conflicts ?? [];
+  const negotiations = rfq.negotiations ?? [];
+  const decisionNotices = rfq.decisionNotices ?? [];
   const currentResponses = rfq.responses.filter(
     (response) => response.round === rfq.bafoRound,
   );
@@ -707,6 +713,36 @@ function RfqWorkspace({
             {rfq.lifecycleState === "draft" ? (
               <>
                 <Button
+                  variant="secondary"
+                  disabled={
+                    pending ||
+                    !["purchasing_specialist", "purchasing_manager"].includes(
+                      state.activeRole,
+                    )
+                  }
+                  onClick={() =>
+                    void run(
+                      {
+                        type: "phase3_rfq_update_draft",
+                        rfqId: rfq.id,
+                        title: rfq.title,
+                        description: `${rfq.description.replace(
+                          / Controlled draft revision\.$/,
+                          "",
+                        )} Controlled draft revision.`,
+                        responseDeadline: rfq.responseDeadline,
+                        sealedUntil: rfq.sealedUntil,
+                        termsVersion: rfq.termsVersion,
+                        evaluationVersion: rfq.evaluationVersion,
+                      },
+                      "The editable draft was versioned before supplier release.",
+                    )
+                  }
+                >
+                  <FileSearch className="size-4" />
+                  Version draft
+                </Button>
+                <Button
                   disabled={pending || state.stage !== "standards_reviewed"}
                   onClick={() =>
                     void run(
@@ -759,29 +795,262 @@ function RfqWorkspace({
             {rfq.lifecycleState === "evaluated" &&
             rfq.bafoRound === 1 &&
             evaluations.length >= 2 ? (
-              <Button
-                variant="secondary"
-                disabled={pending}
-                onClick={() =>
-                  void run(
-                    {
-                      type: "phase3_rfq_request_bafo",
-                      rfqId: rfq.id,
-                      supplierIds: evaluations
-                        .slice(0, 2)
-                        .map((evaluation) => evaluation.supplierId),
-                    },
-                    "Best-and-final offers requested from the two highest-ranked suppliers.",
-                  )
-                }
-              >
-                <RefreshCcw className="size-4" />
-                Request BAFO
-              </Button>
+              <>
+                <Button
+                  variant="secondary"
+                  disabled={pending || state.activeRole !== "purchasing_manager"}
+                  onClick={() =>
+                    void run(
+                      {
+                        type: "phase3_rfq_record_negotiation",
+                        rfqId: rfq.id,
+                        supplierId: evaluations[0]!.supplierId,
+                        summary:
+                          "Governed clarification recorded after evaluation without altering the sealed response or score.",
+                        negotiationEvidence: [
+                          `synthetic-negotiation:${rfq.id}:round-${rfq.bafoRound}`,
+                        ],
+                      },
+                      "Negotiation evidence recorded without modifying the sealed response.",
+                    )
+                  }
+                >
+                  <FileSearch className="size-4" />
+                  Record negotiation
+                </Button>
+                <Button
+                  variant="secondary"
+                  disabled={pending || state.activeRole !== "purchasing_manager"}
+                  onClick={() =>
+                    void run(
+                      {
+                        type: "phase3_rfq_request_bafo",
+                        rfqId: rfq.id,
+                        supplierIds: evaluations
+                          .slice(0, 2)
+                          .map((evaluation) => evaluation.supplierId),
+                      },
+                      "Best-and-final offers requested from the two highest-ranked suppliers.",
+                    )
+                  }
+                >
+                  <RefreshCcw className="size-4" />
+                  Request BAFO
+                </Button>
+              </>
             ) : null}
           </div>
         </CardContent>
       </Card>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <div>
+              <h2 className="text-lg font-semibold">Questions and addenda</h2>
+              <p className="mt-1 text-sm text-[var(--muted-foreground)]">
+                Supplier questions stay scoped; answers publish as equal-access
+                addenda to every invited supplier.
+              </p>
+            </div>
+            <FileSearch className="size-5 text-[var(--brand-secondary)]" />
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {questions.length === 0 ? (
+                <p className="text-sm text-[var(--muted-foreground)]">
+                  No governed supplier questions have been submitted.
+                </p>
+              ) : (
+                questions.map((question) => (
+                  <div key={question.id} className="rounded-xl border p-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="text-sm font-semibold">{question.question}</p>
+                      <Badge tone={question.status === "answered" ? "success" : "warning"}>
+                        {titleCase(question.status)}
+                      </Badge>
+                    </div>
+                    {question.answer ? (
+                      <p className="mt-2 text-xs leading-5 text-[var(--muted-foreground)]">
+                        Public addendum: {question.answer}
+                      </p>
+                    ) : null}
+                    {question.status === "open" ? (
+                      <Button
+                        className="mt-3"
+                        size="sm"
+                        variant="secondary"
+                        disabled={
+                          pending ||
+                          !["purchasing_specialist", "purchasing_manager"].includes(
+                            state.activeRole,
+                          )
+                        }
+                        onClick={() =>
+                          void run(
+                            {
+                              type: "phase3_rfq_answer_question",
+                              rfqId: rfq.id,
+                              questionId: question.id,
+                              answer:
+                                "Equivalent products are acceptable only when every published security, warranty, compatibility, and delivery requirement remains satisfied.",
+                              addendumTitle:
+                                "Equivalent-product requirements clarification",
+                            },
+                            "The answer was published as an equal-access addendum.",
+                          )
+                        }
+                      >
+                        Publish addendum
+                      </Button>
+                    ) : null}
+                  </div>
+                ))
+              )}
+            </div>
+            {["open", "responses_received", "bafo_open"].includes(
+              rfq.lifecycleState,
+            ) && rfq.suppliers[0] ? (
+              <Button
+                className="mt-4"
+                variant="secondary"
+                disabled={pending || state.activeRole !== "supplier_user"}
+                onClick={() =>
+                  void run(
+                    {
+                      type: "phase3_rfq_submit_question",
+                      rfqId: rfq.id,
+                      supplierId: rfq.suppliers[0]!.supplierId,
+                      question:
+                        "Please clarify whether an equivalent product meeting every published control is acceptable.",
+                    },
+                    "The supplier question was submitted without exposing another supplier.",
+                  )
+                }
+              >
+                Submit supplier question
+              </Button>
+            ) : null}
+            <p className="mt-3 text-xs text-[var(--muted-foreground)]">
+              {addenda.length} addenda retained · {amendments.length} controlled
+              amendments retained
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <div>
+              <h2 className="text-lg font-semibold">Conflicts and amendments</h2>
+              <p className="mt-1 text-sm text-[var(--muted-foreground)]">
+                Open conflicts block evaluation and award. Released changes
+                supersede affected responses and preserve lineage.
+              </p>
+            </div>
+            <ShieldCheck className="size-5 text-[var(--brand-secondary)]" />
+          </CardHeader>
+          <CardContent>
+            {conflicts.map((conflict) => (
+              <div key={conflict.id} className="mb-3 rounded-xl border p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="text-sm">{conflict.description}</p>
+                  <Badge tone={conflict.status === "open" ? "danger" : "success"}>
+                    {titleCase(conflict.status)}
+                  </Badge>
+                </div>
+                {conflict.status === "open" ? (
+                  <Button
+                    className="mt-3"
+                    size="sm"
+                    disabled={
+                      pending ||
+                      !["compliance_reviewer", "purchasing_manager"].includes(
+                        state.activeRole,
+                      )
+                    }
+                    onClick={() =>
+                      void run(
+                        {
+                          type: "phase3_rfq_resolve_conflict",
+                          rfqId: rfq.id,
+                          conflictId: conflict.id,
+                          disposition: "recused",
+                          resolution:
+                            "The conflicted evaluator is recused and an independent evaluator is assigned with retained evidence.",
+                        },
+                        "The conflict was independently dispositioned.",
+                      )
+                    }
+                  >
+                    Record recusal
+                  </Button>
+                ) : null}
+              </div>
+            ))}
+            {["open", "responses_received", "closed", "evaluated"].includes(
+              rfq.lifecycleState,
+            ) ? (
+              <Button
+                variant="secondary"
+                disabled={
+                  pending ||
+                  !["purchasing_specialist", "purchasing_manager"].includes(
+                    state.activeRole,
+                  )
+                }
+                onClick={() =>
+                  void run(
+                    {
+                      type: "phase3_rfq_disclose_conflict",
+                      rfqId: rfq.id,
+                      supplierId: rfq.suppliers[0]?.supplierId,
+                      description:
+                        "A prior professional relationship is disclosed for independent conflict review before evaluation or award.",
+                    },
+                    "The conflict was disclosed and now blocks evaluation and award.",
+                  )
+                }
+              >
+                Disclose conflict
+              </Button>
+            ) : null}
+            {["open", "responses_received"].includes(rfq.lifecycleState) ? (
+              <Button
+                className="ml-2"
+                variant="secondary"
+                disabled={
+                  pending ||
+                  !["purchasing_specialist", "purchasing_manager"].includes(
+                    state.activeRole,
+                  )
+                }
+                onClick={() =>
+                  void run(
+                    {
+                      type: "phase3_rfq_amend",
+                      rfqId: rfq.id,
+                      changes: [
+                        "Clarified the equivalent-product control requirements.",
+                      ],
+                      responseDeadline: rfq.responseDeadline,
+                      sealedUntil: rfq.sealedUntil,
+                      rationale:
+                        "The amendment distributes the clarified requirement equally and preserves any superseded response evidence.",
+                    },
+                    "The amendment was issued and response lineage preserved.",
+                  )
+                }
+              >
+                Issue amendment
+              </Button>
+            ) : null}
+            <p className="mt-3 text-xs text-[var(--muted-foreground)]">
+              {negotiations.length} negotiations · {decisionNotices.length}{" "}
+              supplier decision notices retained
+            </p>
+          </CardContent>
+        </Card>
+      </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
         {rfq.suppliers.map((supplier, index) => {
@@ -850,6 +1119,48 @@ function RfqWorkspace({
                   >
                     <LockKeyhole className="size-4" />
                     Submit sealed {rfq.bafoRound > 1 ? "BAFO" : "response"}
+                  </Button>
+                ) : null}
+                {canRespond && response?.status === "submitted" ? (
+                  <Button
+                    className="mt-2 w-full"
+                    variant="secondary"
+                    disabled={pending || state.activeRole !== "supplier_user"}
+                    onClick={() =>
+                      void run(
+                        {
+                          type: "phase3_rfq_withdraw_response",
+                          rfqId: rfq.id,
+                          supplierId: supplier.supplierId,
+                          rationale:
+                            "The supplier is withdrawing the sealed response before close to correct a documented clerical error.",
+                        },
+                        `The sealed response for ${supplier.supplierName} was withdrawn with history preserved.`,
+                      )
+                    }
+                  >
+                    Withdraw sealed response
+                  </Button>
+                ) : null}
+                {canRespond && !response ? (
+                  <Button
+                    className="mt-2 w-full"
+                    variant="ghost"
+                    disabled={pending || state.activeRole !== "supplier_user"}
+                    onClick={() =>
+                      void run(
+                        {
+                          type: "phase3_rfq_decline",
+                          rfqId: rfq.id,
+                          supplierId: supplier.supplierId,
+                          rationale:
+                            "The supplier cannot meet the published delivery requirement for this event.",
+                        },
+                        `${supplier.supplierName} declined the invitation with evidence.`,
+                      )
+                    }
+                  >
+                    Decline invitation
                   </Button>
                 ) : null}
               </CardContent>
@@ -1490,6 +1801,12 @@ function ReportingStudio({
   const phaseThree = state.phaseThree;
   const selectedReport = phaseThree.reportDefinitions[0]!;
   const latest = phaseThree.reportSnapshots.at(-1);
+  const schedule = phaseThree.reportSchedules.find(
+    (candidate) => candidate.reportId === selectedReport.id,
+  );
+  const delivery = phaseThree.reportDeliveries
+    .filter((candidate) => candidate.scheduleId === schedule?.id)
+    .at(-1);
   const narrative = phaseThree.cateNarratives.at(-1);
   return (
     <>
@@ -1571,7 +1888,68 @@ function ReportingStudio({
                     ))}
                   </>
                 ) : null}
+                {!schedule ? (
+                  <Button
+                    disabled={pending}
+                    size="sm"
+                    variant="secondary"
+                    onClick={() =>
+                      void run(
+                        {
+                          type: "phase3_create_report_schedule",
+                          reportId: selectedReport.id,
+                          cadence: "monthly",
+                          exportFormat: "PDF",
+                          recipientRoles: ["executive", "finance_reviewer"],
+                          secureLinkExpiresHours: 72,
+                          retentionDays: 2_555,
+                        },
+                        "A governed monthly report subscription was created.",
+                      )
+                    }
+                  >
+                    <LockKeyhole className="size-4" /> Create secure subscription
+                  </Button>
+                ) : latest ? (
+                  <Button
+                    disabled={pending}
+                    size="sm"
+                    variant="secondary"
+                    onClick={() =>
+                      void run(
+                        {
+                          type: "phase3_deliver_report",
+                          scheduleId: schedule.id,
+                          snapshotId: latest.id,
+                        },
+                        "The retained report was delivered to its authorized role recipients.",
+                      )
+                    }
+                  >
+                    <LockKeyhole className="size-4" /> Deliver retained report
+                  </Button>
+                ) : null}
               </div>
+              {schedule ? (
+                <div className="mt-4 rounded-xl border bg-[var(--surface-muted)] p-4 text-xs leading-5">
+                  <p className="font-semibold">
+                    {titleCase(schedule.cadence)} · {schedule.exportFormat} · secure link expires in{" "}
+                    {schedule.secureLinkExpiresHours} hours
+                  </p>
+                  <p className="text-[var(--muted-foreground)]">
+                    Recipients: {schedule.recipientRoles.map(titleCase).join(", ")} · retained{" "}
+                    {schedule.retentionDays.toLocaleString("en-US")} days
+                  </p>
+                  {delivery ? (
+                    <a
+                      className="mt-2 inline-flex font-semibold text-[var(--brand-secondary)] underline underline-offset-4"
+                      href={`/api/phase-three/report-links/${encodeURIComponent(delivery.id)}?tenantId=${encodeURIComponent(tenantId)}&activeRole=${encodeURIComponent(state.activeRole)}`}
+                    >
+                      Open authorized retained delivery
+                    </a>
+                  ) : null}
+                </div>
+              ) : null}
               {latest ? (
                 <div className="mt-5 overflow-x-auto rounded-xl border">
                   <table className="w-full min-w-[34rem] text-left text-sm">

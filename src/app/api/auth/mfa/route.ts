@@ -58,6 +58,10 @@ export async function GET() {
           updatedAt: factor.updated_at,
         })),
         protectedActionReady: session.assuranceLevel === "aal2",
+        phishingResistant: session.phishingResistant,
+        privilegedActionReady:
+          session.assuranceLevel === "aal2" &&
+          session.phishingResistant,
       },
       { headers: noStoreHeaders },
     );

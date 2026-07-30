@@ -4,7 +4,10 @@ import { aiRunRequestSchema } from "@/ai/types";
 import { describeAiHttpFailure } from "@/server/ai/http-errors";
 import { runProcurementAi } from "@/server/ai/orchestrator";
 import { authorizeCateActor } from "@/server/auth/authority";
+import { resolveRequestRole } from "@/server/auth/request-role";
 import { requireAppSession } from "@/server/auth/session";
+import { projectStateForAuthorizedRole } from "@/server/auth/state-projection";
+import { loadPhaseTwoState } from "@/server/phase-two/repository";
 import { isCapabilityInFallback } from "@/server/presenter/fallback";
 import {
   consumeRateLimit,
@@ -38,11 +41,27 @@ export async function POST(request: Request) {
   try {
     const session = await requireAppSession(parsed.data.tenantId);
     const authority = session.authorities[parsed.data.tenantId];
+    const roleContext = resolveRequestRole({
+      request,
+      session,
+      tenantId: parsed.data.tenantId,
+      presenterRole: parsed.data.role as Parameters<
+        typeof resolveRequestRole
+      >[0]["presenterRole"],
+    });
     const actor = authorizeCateActor({
       authority: authority!,
       presenter: session.presenter,
       syntheticOnly: process.env.CATALYST_SYNTHETIC_ONLY !== "0",
-      requestedRole: parsed.data.role,
+      requestedRole: roleContext.activeRole,
+    });
+    const envelope = await loadPhaseTwoState(parsed.data.tenantId);
+    const scopedState = projectStateForAuthorizedRole({
+      state: envelope.state,
+      authority: authority!,
+      activeRole: actor.activeRole,
+      simulation: actor.simulation,
+      userId: session.userId,
     });
     const mode = isCapabilityInFallback(parsed.data.capability)
       ? "deterministic"
@@ -51,6 +70,7 @@ export async function POST(request: Request) {
       { ...parsed.data, role: actor.activeRole, mode },
       request.headers.get("x-catalyst-session") ??
         `${session.userId}:${parsed.data.tenantId}`,
+      scopedState,
     );
     return NextResponse.json(result, {
       headers: {

@@ -8,10 +8,12 @@ import type { PhaseThreePersistedCommand } from "@/phase-three/commands";
 import type {
   IncidentRecord,
   PhaseThreeAuditEvent,
+  ReportSnapshot,
   SupportCase,
 } from "@/phase-three/model";
 import { createPhaseThreeState } from "@/phase-three/seed";
 import { verifyPhaseThreeIntegrity } from "@/phase-three/integrity";
+import { buildReportExport } from "@/server/phase-three/report-exports";
 
 function requirePersona(
   command: PhaseThreePersistedCommand,
@@ -161,14 +163,175 @@ function currentRoundResponses(
   );
 }
 
+function ensureRfqGovernanceCollections(
+  rfq: DemoState["phaseThree"]["rfqs"][number],
+) {
+  rfq.amendments ??= [];
+  rfq.questions ??= [];
+  rfq.addenda ??= [];
+  rfq.conflicts ??= [];
+  rfq.negotiations ??= [];
+  rfq.decisionNotices ??= [];
+}
+
 export function executePhaseThreeCommand(
   current: DemoState,
   command: PhaseThreePersistedCommand,
 ): DemoState {
   const next = structuredClone(current);
   const phaseThree = next.phaseThree;
+  phaseThree.rfqs.forEach(ensureRfqGovernanceCollections);
 
   switch (command.type) {
+    case "phase3_rfq_create": {
+      requirePersona(command, [
+        "purchasing_specialist",
+        "purchasing_manager",
+      ]);
+      if (
+        phaseThree.rfqs.some(
+          (candidate) =>
+            candidate.id === command.rfqId ||
+            candidate.rfqNumber === command.rfqNumber,
+        )
+      ) {
+        throw new WorkflowError("The RFQ identifier or number already exists.");
+      }
+      const request = findById(next.requests, command.requestId, "Request");
+      const supplierIds = new Set(command.supplierIds);
+      if (supplierIds.size !== command.supplierIds.length) {
+        throw new WorkflowError("Each invited supplier must be unique.");
+      }
+      if (command.responseDeadline > command.retentionUntil) {
+        throw new WorkflowError(
+          "The RFQ retention date must follow the response deadline.",
+        );
+      }
+      const lineIds = new Set<string>();
+      const requestLineIds = new Set<string>();
+      for (const line of command.lines) {
+        if (lineIds.has(line.id) || requestLineIds.has(line.requestLineId)) {
+          throw new WorkflowError(
+            "RFQ and request line identifiers must be unique.",
+          );
+        }
+        lineIds.add(line.id);
+        requestLineIds.add(line.requestLineId);
+        const requestLine = request.lines.find(
+          (candidate) => candidate.id === line.requestLineId,
+        );
+        if (
+          !requestLine ||
+          requestLine.purchaseQuantity !== line.quantity ||
+          requestLine.purchaseQuantity <= 0
+        ) {
+          throw new WorkflowError(
+            "Every RFQ line must reconcile to one external request line.",
+          );
+        }
+      }
+      const suppliers = command.supplierIds.map((supplierId) => {
+        const vendor = findById(next.vendors, supplierId, "Supplier");
+        if (
+          vendor.complianceHold ||
+          vendor.criticalCorrectiveAction
+        ) {
+          throw new WorkflowError(
+            `${vendor.displayName} is not eligible for an RFQ invitation.`,
+          );
+        }
+        const application = phaseThree.supplierApplications.find(
+          (candidate) => candidate.supplierId === supplierId,
+        );
+        const priorInvitation = phaseThree.rfqs
+          .flatMap((candidate) => candidate.suppliers)
+          .find((candidate) => candidate.supplierId === supplierId);
+        const supplierOrganizationId =
+          application?.supplierOrganizationId ??
+          priorInvitation?.supplierOrganizationId;
+        if (!supplierOrganizationId) {
+          throw new WorkflowError(
+            `${vendor.displayName} has no authoritative supplier organization.`,
+          );
+        }
+        return {
+          supplierId,
+          supplierOrganizationId,
+          supplierName: vendor.displayName,
+          status: "selected" as const,
+        };
+      });
+      phaseThree.rfqs.push({
+        id: command.rfqId,
+        rfqNumber: command.rfqNumber,
+        requestId: command.requestId,
+        title: command.title,
+        description: command.description,
+        sourcingMethod: command.sourcingMethod,
+        lifecycleState: "draft",
+        currency: "USD",
+        responseDeadline: command.responseDeadline,
+        sealedUntil: command.sealedUntil,
+        retentionUntil: command.retentionUntil,
+        termsVersion: command.termsVersion,
+        evaluationVersion: command.evaluationVersion,
+        lines: command.lines,
+        suppliers,
+        responses: [],
+        evaluations: [],
+        amendments: [],
+        questions: [],
+        addenda: [],
+        conflicts: [],
+        negotiations: [],
+        decisionNotices: [],
+        bafoRound: 1,
+        version: 1,
+        correlationId: command.correlationId,
+      });
+      appendAudit(next, command, {
+        action: "rfq.authored",
+        recordType: "rfq",
+        recordId: command.rfqId,
+        before: "not_created",
+        after: "draft",
+        source: "user",
+      });
+      break;
+    }
+    case "phase3_rfq_update_draft": {
+      requirePersona(command, [
+        "purchasing_specialist",
+        "purchasing_manager",
+      ]);
+      const rfq = findById(phaseThree.rfqs, command.rfqId, "RFQ");
+      if (rfq.lifecycleState !== "draft") {
+        throw new WorkflowError("Only a draft RFQ can be edited directly.");
+      }
+      const before = responseHash({
+        title: rfq.title,
+        description: rfq.description,
+        responseDeadline: rfq.responseDeadline,
+        termsVersion: rfq.termsVersion,
+        evaluationVersion: rfq.evaluationVersion,
+      });
+      rfq.title = command.title;
+      rfq.description = command.description;
+      rfq.responseDeadline = command.responseDeadline;
+      rfq.sealedUntil = command.sealedUntil;
+      rfq.termsVersion = command.termsVersion;
+      rfq.evaluationVersion = command.evaluationVersion;
+      rfq.version += 1;
+      appendAudit(next, command, {
+        action: "rfq.draft.updated",
+        recordType: "rfq",
+        recordId: rfq.id,
+        before,
+        after: responseHash(rfq),
+        source: "user",
+      });
+      break;
+    }
     case "phase3_rfq_release": {
       requirePersona(command, [
         "purchasing_specialist",
@@ -204,6 +367,321 @@ export function executePhaseThreeCommand(
         before,
         after: rfq.lifecycleState,
         source: "workflow",
+      });
+      break;
+    }
+    case "phase3_rfq_amend": {
+      requirePersona(command, [
+        "purchasing_specialist",
+        "purchasing_manager",
+      ]);
+      const rfq = findById(phaseThree.rfqs, command.rfqId, "RFQ");
+      if (
+        !["open", "responses_received", "bafo_open"].includes(
+          rfq.lifecycleState,
+        )
+      ) {
+        throw new WorkflowError(
+          "Only an open response round can be amended.",
+        );
+      }
+      const supersededResponseIds = currentRoundResponses(rfq).map(
+        (response) => response.id,
+      );
+      rfq.responses
+        .filter((response) => supersededResponseIds.includes(response.id))
+        .forEach((response) => {
+          response.status = "superseded";
+        });
+      const amendmentVersion = rfq.amendments.length + 1;
+      rfq.amendments.push({
+        id: `${rfq.id}-amendment-${amendmentVersion}`,
+        version: amendmentVersion,
+        issuedAt: timestamp(next),
+        issuedByRole: command.activePersona,
+        rationale: command.rationale,
+        changes: command.changes,
+        responseDeadline: command.responseDeadline,
+        supersededResponseIds,
+      });
+      rfq.responseDeadline = command.responseDeadline;
+      rfq.sealedUntil = command.sealedUntil;
+      rfq.termsVersion = `${rfq.termsVersion}-a${amendmentVersion}`;
+      if (rfq.lifecycleState !== "bafo_open") {
+        rfq.lifecycleState = "open";
+        rfq.suppliers
+          .filter((supplier) => supplier.status !== "declined")
+          .forEach((supplier) => {
+            supplier.status = "invited";
+          });
+      }
+      rfq.version += 1;
+      appendAudit(next, command, {
+        action: "rfq.amendment.issued",
+        recordType: "rfq_amendment",
+        recordId: `${rfq.id}-amendment-${amendmentVersion}`,
+        before: supersededResponseIds.join(",") || "no_responses",
+        after: `version:${amendmentVersion}`,
+        source: "user",
+      });
+      break;
+    }
+    case "phase3_rfq_submit_question": {
+      requirePersona(command, ["supplier_user"]);
+      const rfq = findById(phaseThree.rfqs, command.rfqId, "RFQ");
+      if (!["open", "responses_received", "bafo_open"].includes(rfq.lifecycleState)) {
+        throw new WorkflowError("This RFQ is not accepting supplier questions.");
+      }
+      const supplier = rfq.suppliers.find(
+        (candidate) => candidate.supplierId === command.supplierId,
+      );
+      if (
+        !supplier ||
+        !["invited", "viewed", "responded", "shortlisted"].includes(
+          supplier.status,
+        )
+      ) {
+        throw new WorkflowError("The supplier is not invited to this RFQ.");
+      }
+      const questionId = `${rfq.id}-question-${command.correlationId}`;
+      rfq.questions.push({
+        id: questionId,
+        supplierId: supplier.supplierId,
+        supplierOrganizationId: supplier.supplierOrganizationId,
+        question: command.question,
+        submittedAt: timestamp(next),
+        status: "open",
+      });
+      rfq.version += 1;
+      appendAudit(next, command, {
+        action: "rfq.question.submitted",
+        recordType: "rfq_question",
+        recordId: questionId,
+        before: "not_submitted",
+        after: "open",
+        source: "user",
+      });
+      break;
+    }
+    case "phase3_rfq_answer_question": {
+      requirePersona(command, [
+        "purchasing_specialist",
+        "purchasing_manager",
+      ]);
+      const rfq = findById(phaseThree.rfqs, command.rfqId, "RFQ");
+      const question = findById(
+        rfq.questions,
+        command.questionId,
+        "RFQ question",
+      );
+      if (question.status !== "open") {
+        throw new WorkflowError("This supplier question is already answered.");
+      }
+      const addendumId = `${rfq.id}-addendum-${rfq.addenda.length + 1}`;
+      question.status = "answered";
+      question.answer = command.answer;
+      question.answeredAt = timestamp(next);
+      question.answeredByRole = command.activePersona;
+      question.addendumId = addendumId;
+      rfq.addenda.push({
+        id: addendumId,
+        version: rfq.addenda.length + 1,
+        issuedAt: timestamp(next),
+        issuedByRole: command.activePersona,
+        title: command.addendumTitle,
+        content: command.answer,
+        sourceQuestionId: question.id,
+      });
+      rfq.version += 1;
+      appendAudit(next, command, {
+        action: "rfq.addendum.issued",
+        recordType: "rfq_addendum",
+        recordId: addendumId,
+        before: question.id,
+        after: "distributed_to_all_invited_suppliers",
+        source: "user",
+      });
+      break;
+    }
+    case "phase3_rfq_decline": {
+      requirePersona(command, ["supplier_user"]);
+      const rfq = findById(phaseThree.rfqs, command.rfqId, "RFQ");
+      if (!["open", "responses_received", "bafo_open"].includes(rfq.lifecycleState)) {
+        throw new WorkflowError("This RFQ invitation can no longer be declined.");
+      }
+      const supplier = rfq.suppliers.find(
+        (candidate) => candidate.supplierId === command.supplierId,
+      );
+      if (!supplier || ["awarded", "not_awarded"].includes(supplier.status)) {
+        throw new WorkflowError("The supplier has no active invitation.");
+      }
+      if (
+        currentRoundResponses(rfq).some(
+          (response) => response.supplierId === command.supplierId,
+        )
+      ) {
+        throw new WorkflowError(
+          "Withdraw the current response before declining the invitation.",
+        );
+      }
+      supplier.status = "declined";
+      rfq.version += 1;
+      appendAudit(next, command, {
+        action: "rfq.invitation.declined",
+        recordType: "rfq_supplier",
+        recordId: `${rfq.id}:${supplier.supplierId}`,
+        before: "invited",
+        after: "declined",
+        source: "user",
+      });
+      break;
+    }
+    case "phase3_rfq_withdraw_response": {
+      requirePersona(command, ["supplier_user"]);
+      const rfq = findById(phaseThree.rfqs, command.rfqId, "RFQ");
+      if (!["open", "responses_received", "bafo_open"].includes(rfq.lifecycleState)) {
+        throw new WorkflowError(
+          "Responses cannot be withdrawn after the round closes.",
+        );
+      }
+      const response = currentRoundResponses(rfq).find(
+        (candidate) =>
+          candidate.supplierId === command.supplierId &&
+          candidate.status === "submitted",
+      );
+      if (!response) {
+        throw new WorkflowError(
+          "No submitted response is available to withdraw.",
+        );
+      }
+      response.status = "withdrawn";
+      const supplier = rfq.suppliers.find(
+        (candidate) => candidate.supplierId === command.supplierId,
+      );
+      if (supplier) {
+        supplier.status =
+          rfq.lifecycleState === "bafo_open" ? "shortlisted" : "invited";
+      }
+      if (rfq.lifecycleState === "responses_received") {
+        rfq.lifecycleState = "open";
+      }
+      rfq.version += 1;
+      appendAudit(next, command, {
+        action: "rfq.response.withdrawn",
+        recordType: "rfq_response",
+        recordId: response.id,
+        before: "sealed",
+        after: "withdrawn",
+        source: "user",
+      });
+      break;
+    }
+    case "phase3_rfq_disclose_conflict": {
+      requirePersona(command, [
+        "purchasing_specialist",
+        "purchasing_manager",
+      ]);
+      const rfq = findById(phaseThree.rfqs, command.rfqId, "RFQ");
+      if (command.supplierId) {
+        if (
+          !rfq.suppliers.some(
+            (supplier) => supplier.supplierId === command.supplierId,
+          )
+        ) {
+          throw new WorkflowError("RFQ supplier was not found.");
+        }
+      }
+      const conflictId = `${rfq.id}-conflict-${command.correlationId}`;
+      rfq.conflicts.push({
+        id: conflictId,
+        disclosedByRole: command.activePersona,
+        supplierId: command.supplierId,
+        description: command.description,
+        status: "open",
+        disclosedAt: timestamp(next),
+      });
+      rfq.version += 1;
+      appendAudit(next, command, {
+        action: "rfq.conflict.disclosed",
+        recordType: "rfq_conflict",
+        recordId: conflictId,
+        before: "not_disclosed",
+        after: "open",
+        source: "user",
+      });
+      break;
+    }
+    case "phase3_rfq_resolve_conflict": {
+      requirePersona(command, ["compliance_reviewer", "purchasing_manager"]);
+      const rfq = findById(phaseThree.rfqs, command.rfqId, "RFQ");
+      const conflict = findById(
+        rfq.conflicts,
+        command.conflictId,
+        "RFQ conflict",
+      );
+      if (conflict.status !== "open") {
+        throw new WorkflowError("This conflict has already been dispositioned.");
+      }
+      if (
+        conflict.disclosedByRole === command.activePersona &&
+        command.disposition === "mitigated"
+      ) {
+        throw new WorkflowError(
+          "The conflicted role cannot independently approve its mitigation.",
+        );
+      }
+      conflict.status = command.disposition;
+      conflict.resolvedAt = timestamp(next);
+      conflict.resolvedByRole = command.activePersona;
+      conflict.resolution = command.resolution;
+      rfq.version += 1;
+      appendAudit(next, command, {
+        action: "rfq.conflict.resolved",
+        recordType: "rfq_conflict",
+        recordId: conflict.id,
+        before: "open",
+        after: conflict.status,
+        source: "user",
+      });
+      break;
+    }
+    case "phase3_rfq_record_negotiation": {
+      requirePersona(command, ["purchasing_manager"]);
+      const rfq = findById(phaseThree.rfqs, command.rfqId, "RFQ");
+      if (!["evaluated", "bafo_open"].includes(rfq.lifecycleState)) {
+        throw new WorkflowError(
+          "Negotiation may be recorded only after governed evaluation.",
+        );
+      }
+      if (
+        !rfq.suppliers.some(
+          (supplier) =>
+            supplier.supplierId === command.supplierId &&
+            ["shortlisted", "responded"].includes(supplier.status),
+        )
+      ) {
+        throw new WorkflowError(
+          "Negotiation is restricted to an evaluated or shortlisted supplier.",
+        );
+      }
+      const negotiationId = `${rfq.id}-negotiation-${command.correlationId}`;
+      rfq.negotiations.push({
+        id: negotiationId,
+        supplierId: command.supplierId,
+        round: rfq.bafoRound,
+        recordedAt: timestamp(next),
+        recordedByRole: command.activePersona,
+        summary: command.summary,
+        evidence: command.negotiationEvidence,
+      });
+      rfq.version += 1;
+      appendAudit(next, command, {
+        action: "rfq.negotiation.recorded",
+        recordType: "rfq_negotiation",
+        recordId: negotiationId,
+        before: "not_recorded",
+        after: `round:${rfq.bafoRound}`,
+        source: "user",
       });
       break;
     }
@@ -360,6 +838,11 @@ export function executePhaseThreeCommand(
           "Close and reveal the current response round before evaluation.",
         );
       }
+      if (rfq.conflicts.some((conflict) => conflict.status === "open")) {
+        throw new WorkflowError(
+          "Open conflict disclosures must be mitigated or recused before evaluation.",
+        );
+      }
       const responses = currentRoundResponses(rfq).filter(
         (response) => response.status === "revealed",
       );
@@ -513,6 +996,11 @@ export function executePhaseThreeCommand(
           "The current response round must be evaluated before award.",
         );
       }
+      if (rfq.conflicts.some((conflict) => conflict.status === "open")) {
+        throw new WorkflowError(
+          "Open conflict disclosures must be mitigated or recused before award.",
+        );
+      }
       const evaluation = rfq.evaluations.find(
         (candidate) =>
           candidate.round === rfq.bafoRound &&
@@ -565,6 +1053,25 @@ export function executePhaseThreeCommand(
           supplier.supplierId === command.supplierId
             ? "awarded"
             : "not_awarded";
+        rfq.decisionNotices.push({
+          id: `${rfq.id}-${supplier.supplierId}-decision-${rfq.bafoRound}`,
+          supplierId: supplier.supplierId,
+          noticeType:
+            supplier.supplierId === command.supplierId
+              ? "award"
+              : "non_award",
+          issuedAt: timestamp(next),
+          issuedByRole: command.activePersona,
+          summary:
+            supplier.supplierId === command.supplierId
+              ? "Award notice issued with the approved decision evidence."
+              : "Non-award notice issued without exposing another supplier's confidential response.",
+          evidence: [
+            `rfq:${rfq.id}`,
+            `evaluation-round:${rfq.bafoRound}`,
+            `decision-correlation:${command.correlationId}`,
+          ],
+        });
       });
       rfq.lifecycleState = "awarded";
       rfq.version += 1;
@@ -644,6 +1151,22 @@ export function executePhaseThreeCommand(
       }
       const before = rfq.lifecycleState;
       rfq.lifecycleState = "cancelled";
+      rfq.suppliers
+        .filter((supplier) => supplier.status !== "declined")
+        .forEach((supplier) => {
+          rfq.decisionNotices.push({
+            id: `${rfq.id}-${supplier.supplierId}-cancellation-${rfq.version + 1}`,
+            supplierId: supplier.supplierId,
+            noticeType: "cancellation",
+            issuedAt: timestamp(next),
+            issuedByRole: command.activePersona,
+            summary: command.rationale,
+            evidence: [
+              `rfq:${rfq.id}`,
+              `decision-correlation:${command.correlationId}`,
+            ],
+          });
+        });
       rfq.version += 1;
       appendAudit(next, command, {
         action: "rfq.cancelled",
@@ -783,6 +1306,42 @@ export function executePhaseThreeCommand(
         recordId: supplier.id,
         before,
         after: supplier.lifecycleState,
+        source: "user",
+      });
+      break;
+    }
+    case "phase3_bank_propose": {
+      requirePersona(command, ["supplier_user"]);
+      const supplier = findById(
+        phaseThree.supplierApplications,
+        command.applicationId,
+        "Supplier application",
+      );
+      if (
+        supplier.bankingChange &&
+        ["verification_pending", "approval_pending"].includes(
+          supplier.bankingChange.status,
+        )
+      ) {
+        throw new WorkflowError(
+          "The current banking proposal must be decided before another is submitted.",
+        );
+      }
+      const before = supplier.bankingChange?.status ?? "not_proposed";
+      supplier.bankingChange = {
+        id: `${supplier.id}-banking-${command.correlationId}`,
+        proposedLastFour: command.accountLastFour,
+        proposedBy: command.activePersona,
+        status: "verification_pending",
+        paymentInitiated: false,
+      };
+      supplier.version += 1;
+      appendAudit(next, command, {
+        action: "supplier.banking_change.proposed",
+        recordType: "banking_change",
+        recordId: supplier.bankingChange.id,
+        before,
+        after: "verification_pending",
         source: "user",
       });
       break;
@@ -1037,7 +1596,7 @@ export function executePhaseThreeCommand(
         "Report definition",
       );
       const id = `report-snapshot-${String(phaseThree.reportSnapshots.length + 1).padStart(4, "0")}`;
-      phaseThree.reportSnapshots.push({
+      const snapshot: ReportSnapshot = {
         id,
         reportId: report.id,
         asOf: timestamp(next),
@@ -1050,15 +1609,132 @@ export function executePhaseThreeCommand(
         sourceHash: phaseThree.dataset.contentHash,
         exportHashes: {},
         annotation:
-          "Synthetic commercialization snapshot; scheduled distribution is simulated.",
+          "Synthetic governed snapshot retained for role-scoped delivery.",
         correlationId: command.correlationId,
-      });
+      };
+      phaseThree.reportSnapshots.push(snapshot);
+      for (const format of ["pdf", "xlsx", "csv"] as const) {
+        snapshot.exportHashes[format.toUpperCase() as "PDF" | "XLSX" | "CSV"] =
+          buildReportExport(next, id, format).sha256;
+      }
       appendAudit(next, command, {
         action: "report.snapshot.generated",
         recordType: "report_snapshot",
         recordId: id,
         before: "not_generated",
         after: "generated",
+        source: "workflow",
+      });
+      break;
+    }
+    case "phase3_create_report_schedule": {
+      requirePersona(command, [
+        "executive",
+        "auditor",
+        "purchasing_manager",
+        "finance_reviewer",
+      ]);
+      findById(
+        phaseThree.reportDefinitions,
+        command.reportId,
+        "Report definition",
+      );
+      const duplicate = phaseThree.reportSchedules.find(
+        (schedule) =>
+          schedule.reportId === command.reportId &&
+          schedule.status === "active",
+      );
+      if (duplicate) {
+        throw new WorkflowError(
+          "An active schedule already exists for this governed report.",
+        );
+      }
+      const id = `report-schedule-${String(phaseThree.reportSchedules.length + 1).padStart(4, "0")}`;
+      const createdAt = timestamp(next);
+      const nextRunAt = `${next.sessionDate}T18:00:00-04:00`;
+      phaseThree.reportSchedules.push({
+        id,
+        reportId: command.reportId,
+        cadence: command.cadence,
+        exportFormat: command.exportFormat,
+        recipientRoles: [...new Set(command.recipientRoles)],
+        secureLinkExpiresHours: command.secureLinkExpiresHours,
+        retentionDays: command.retentionDays,
+        status: "active",
+        createdByRole: command.activePersona as DemoRole,
+        createdAt,
+        nextRunAt,
+        correlationId: command.correlationId,
+      });
+      appendAudit(next, command, {
+        action: "report.schedule.created",
+        recordType: "report_schedule",
+        recordId: id,
+        before: "not_configured",
+        after: "active",
+        source: "user",
+      });
+      break;
+    }
+    case "phase3_deliver_report": {
+      requirePersona(command, [
+        "executive",
+        "auditor",
+        "purchasing_manager",
+        "finance_reviewer",
+      ]);
+      const schedule = findById(
+        phaseThree.reportSchedules,
+        command.scheduleId,
+        "Report schedule",
+      );
+      const snapshot = findById(
+        phaseThree.reportSnapshots,
+        command.snapshotId,
+        "Report snapshot",
+      );
+      if (schedule.status !== "active") {
+        throw new WorkflowError("The report schedule is not active.");
+      }
+      if (snapshot.reportId !== schedule.reportId) {
+        throw new WorkflowError(
+          "The selected snapshot does not belong to the scheduled report.",
+        );
+      }
+      const contentHash = snapshot.exportHashes[schedule.exportFormat];
+      if (!contentHash) {
+        throw new WorkflowError(
+          "The governed export hash is unavailable; no delivery was recorded.",
+        );
+      }
+      const id = `report-delivery-${String(phaseThree.reportDeliveries.length + 1).padStart(4, "0")}`;
+      const deliveredAt = timestamp(next);
+      const delivered = new Date(deliveredAt);
+      const expiresAt = new Date(
+        delivered.getTime() + schedule.secureLinkExpiresHours * 3_600_000,
+      ).toISOString();
+      const retentionUntil = new Date(
+        delivered.getTime() + schedule.retentionDays * 86_400_000,
+      ).toISOString();
+      phaseThree.reportDeliveries.push({
+        id,
+        scheduleId: schedule.id,
+        snapshotId: snapshot.id,
+        recipientRoles: [...schedule.recipientRoles],
+        exportFormat: schedule.exportFormat,
+        contentHash,
+        status: "delivered",
+        deliveredAt,
+        expiresAt,
+        retentionUntil,
+        correlationId: command.correlationId,
+      });
+      appendAudit(next, command, {
+        action: "report.delivery.recorded",
+        recordType: "report_delivery",
+        recordId: id,
+        before: "not_delivered",
+        after: "delivered",
         source: "workflow",
       });
       break;

@@ -47,6 +47,18 @@ export async function POST(request: Request) {
   }
   try {
     const session = await requireAppSession(parsed.data.tenantId);
+    if (
+      !session.presenter ||
+      process.env.CATALYST_SYNTHETIC_ONLY !== "1"
+    ) {
+      return NextResponse.json(
+        {
+          message:
+            "External draft and calendar proposals are restricted to an authorized synthetic presenter session.",
+        },
+        { status: 403 },
+      );
+    }
     const { action, confirmationToken } = parsed.data;
     if (
       prohibited.has(action.toolName) ||
