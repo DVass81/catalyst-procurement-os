@@ -19,6 +19,8 @@ import {
   Moon,
   Search,
   Settings,
+  ShieldAlert,
+  ShieldCheck,
   Sparkles,
   Sun,
   UserRound,
@@ -36,6 +38,7 @@ import {
 } from "react";
 
 import { navigationItems, navigationSections } from "@/config/navigation";
+import { canAccessWorkspacePath } from "@/config/module-access";
 import { CatalystGuide } from "@/components/guide/catalyst-guide";
 import { useCatalystGuide } from "@/components/guide/catalyst-guide-provider";
 import { useDemo } from "@/components/demo/demo-provider";
@@ -83,9 +86,20 @@ function Navigation({
   pathname: string;
   onNavigate?: () => void;
 }) {
+  const { state } = useDemo();
+  const sections = navigationSections
+    .map((section) => ({
+      ...section,
+      items: section.items.filter(
+        (item) =>
+          state.presenterMode ||
+          canAccessWorkspacePath(state.activeRole, item.href),
+      ),
+    }))
+    .filter((section) => section.items.length > 0);
   return (
     <nav aria-label="Primary navigation" className="flex-1 space-y-5">
-      {navigationSections.map((section) => (
+      {sections.map((section) => (
         <div key={section.label}>
           <p className="mb-1.5 px-3 text-[9px] font-bold uppercase tracking-[0.16em] text-[var(--subtle-foreground)]">
             {section.label}
@@ -169,14 +183,14 @@ function Sidebar({ pathname }: { pathname: string }) {
               <Sparkles className="size-3.5" aria-hidden="true" />
             </span>
             <span className="text-xs font-bold text-white">
-              Catalyst Guide Live
+              CATE Guide
             </span>
             <Badge className="ml-auto border-white/10 bg-white/10 px-1.5 py-0.5 text-[9px] text-[#f0cb7c]">
-              Phase 4
+              AI
             </Badge>
           </div>
           <p className="mt-2 text-[11px] leading-4.5 text-white/55">
-            CATE Live, grounded procurement answers, captions, and a
+            Evidence-grounded procurement answers, captions, and a
             presenter-controlled fallback.
           </p>
           <button
@@ -202,13 +216,19 @@ function SearchPalette({
   onOpenChange: (open: boolean) => void;
 }) {
   const router = useRouter();
+  const { state } = useDemo();
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const filtered = useMemo(() => {
     const normalized = query.trim().toLowerCase();
-    if (!normalized) return searchRecords.slice(0, 8);
-    return searchRecords
+    const authorized = searchRecords.filter(
+      (record) =>
+        state.presenterMode ||
+        canAccessWorkspacePath(state.activeRole, record.href),
+    );
+    if (!normalized) return authorized.slice(0, 8);
+    return authorized
       .filter((record) =>
         [record.title, record.subtitle, ...record.keywords]
           .join(" ")
@@ -216,7 +236,7 @@ function SearchPalette({
           .includes(normalized),
       )
       .slice(0, 10);
-  }, [query]);
+  }, [query, state.activeRole, state.presenterMode]);
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
@@ -391,27 +411,41 @@ function ThemeMenu({
 function OrganizationMenu() {
   const { state, switchTenant, activeTenantId } = useDemo();
   const organization = state.organization;
+  const trigger = (
+    <button
+      type="button"
+      className="hidden h-10 items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-left shadow-sm sm:flex"
+      aria-label={
+        state.presenterMode
+          ? `Switch organization. Current organization: ${organization.organizationName}`
+          : `Current organization: ${organization.organizationName}`
+      }
+    >
+      <span
+        className="flex h-7 w-14 items-center justify-center rounded-lg px-1"
+        style={{ backgroundColor: organization.sidebarColor }}
+      >
+        <Image
+          src={organization.logoPath}
+          alt={organization.organizationName}
+          width={56}
+          height={28}
+          className="h-auto w-full"
+        />
+      </span>
+      <span className="max-w-36 truncate text-xs font-bold text-[var(--foreground)]">
+        {organization.organizationName}
+      </span>
+      {state.presenterMode && (
+        <ChevronDown className="size-3.5 text-[var(--muted-foreground)]" />
+      )}
+    </button>
+  );
+  if (!state.presenterMode) return trigger;
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
-        <button className="hidden h-10 items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-left shadow-sm transition-colors hover:bg-[var(--surface-muted)] sm:flex">
-          <span
-            className="flex h-7 w-14 items-center justify-center rounded-lg px-1"
-            style={{ backgroundColor: organization.sidebarColor }}
-          >
-            <Image
-              src={organization.logoPath}
-              alt={organization.organizationName}
-              width={56}
-              height={28}
-              className="h-auto w-full"
-            />
-          </span>
-          <span className="max-w-36 truncate text-xs font-bold text-[var(--foreground)]">
-            {organization.organizationName}
-          </span>
-          <ChevronDown className="size-3.5 text-[var(--muted-foreground)]" />
-        </button>
+        {trigger}
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
         <DropdownMenu.Content
@@ -465,9 +499,13 @@ function OrganizationMenu() {
             );
           })}
           <DropdownMenu.Separator className="my-1 h-px bg-[var(--border)]" />
-          <DropdownMenu.Item className="flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-[var(--muted-foreground)] outline-none hover:bg-[var(--surface-muted)] focus:bg-[var(--surface-muted)]">
+          <DropdownMenu.Item
+            disabled
+            className="flex cursor-not-allowed items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-[var(--muted-foreground)] opacity-70 outline-none"
+          >
             <Building2 className="size-4" />
-            Manage organizations
+            Organization administration
+            <Badge className="ml-auto">Future Activation</Badge>
           </DropdownMenu.Item>
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
@@ -476,6 +514,19 @@ function OrganizationMenu() {
 }
 
 function NotificationMenu() {
+  const { state } = useDemo();
+  if (!state.presenterMode) {
+    return (
+      <Button
+        variant="ghost"
+        size="icon"
+        disabled
+        aria-label="No authorized notifications available"
+      >
+        <Bell className="size-[18px]" />
+      </Button>
+    );
+  }
   const unread = notifications.filter((notification) => !notification.read).length;
   return (
     <DropdownMenu.Root>
@@ -537,9 +588,12 @@ function NotificationMenu() {
             ))}
           </div>
           <div className="border-t border-[var(--border)] p-2">
-            <button className="w-full rounded-xl py-2 text-xs font-bold text-[var(--brand-primary)] hover:bg-[var(--surface-muted)]">
+            <Link
+              href="/operations-center"
+              className="block w-full rounded-xl py-2 text-center text-xs font-bold text-[var(--brand-primary)] hover:bg-[var(--surface-muted)]"
+            >
               View all notifications
-            </button>
+            </Link>
           </div>
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
@@ -547,7 +601,27 @@ function NotificationMenu() {
   );
 }
 
-function ProfileMenu() {
+function ProfileMenu({
+  stagingBypass,
+  sessionEmail,
+}: {
+  stagingBypass: boolean;
+  sessionEmail: string;
+}) {
+  const { state, availableRoles, selectActiveRole, pending } = useDemo();
+  const profileName = state.presenterMode
+    ? (currentUser?.name ?? "Synthetic presenter")
+    : "Signed-in user";
+  const profileEmail =
+    sessionEmail || currentUser?.email || "authenticated-user";
+  const profileInitials = state.presenterMode
+    ? (currentUser?.initials ?? "SP")
+    : profileEmail.slice(0, 2).toUpperCase();
+  async function signOut() {
+    await fetch("/api/auth/sign-out", { method: "POST" }).catch(() => null);
+    window.location.assign("/");
+  }
+
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
@@ -557,15 +631,15 @@ function ProfileMenu() {
         >
           <Avatar.Root className="flex size-8 items-center justify-center overflow-hidden rounded-full bg-[var(--brand-soft)]">
             <Avatar.Fallback className="text-[10px] font-black text-[var(--brand-primary)]">
-              {currentUser?.initials ?? "MC"}
+              {profileInitials}
             </Avatar.Fallback>
           </Avatar.Root>
           <div className="hidden max-w-28 text-left xl:block">
             <p className="truncate text-xs font-bold text-[var(--foreground)]">
-              {currentUser?.name ?? "Maya Chen"}
+              {profileName}
             </p>
             <p className="truncate text-[9px] text-[var(--muted-foreground)]">
-              Strategic Sourcing
+              {titleCase(state.activeRole)}
             </p>
           </div>
           <ChevronDown className="hidden size-3.5 text-[var(--muted-foreground)] xl:block" />
@@ -579,46 +653,121 @@ function ProfileMenu() {
         >
           <div className="px-3 py-2">
             <p className="text-xs font-bold text-[var(--foreground)]">
-              {currentUser?.name ?? "Maya Chen"}
+              {profileName}
             </p>
             <p className="mt-0.5 truncate text-[10px] text-[var(--muted-foreground)]">
-              {currentUser?.email ?? "maya.chen@y12cu.example"}
+              {profileEmail}
             </p>
           </div>
           <DropdownMenu.Separator className="my-1 h-px bg-[var(--border)]" />
+          {!state.presenterMode && availableRoles.length > 1 ? (
+            <>
+              <p className="px-3 py-1 text-[9px] font-black uppercase tracking-[0.12em] text-[var(--subtle-foreground)]">
+                Active role
+              </p>
+              {availableRoles.map((role) => (
+                <DropdownMenu.Item
+                  key={role}
+                  asChild
+                  onSelect={(event) => event.preventDefault()}
+                >
+                  <button
+                    type="button"
+                    disabled={pending || role === state.activeRole}
+                    onClick={() => void selectActiveRole(role)}
+                    className="flex w-full cursor-pointer items-center justify-between rounded-lg px-3 py-2 text-left text-xs font-semibold text-[var(--muted-foreground)] outline-none hover:bg-[var(--surface-muted)] focus:bg-[var(--surface-muted)] disabled:cursor-default disabled:text-[var(--foreground)]"
+                  >
+                    <span>{titleCase(role)}</span>
+                    {role === state.activeRole ? (
+                      <Check className="size-3.5" aria-hidden="true" />
+                    ) : null}
+                  </button>
+                </DropdownMenu.Item>
+              ))}
+              <DropdownMenu.Separator className="my-1 h-px bg-[var(--border)]" />
+            </>
+          ) : null}
           {[
-            { label: "My profile", icon: UserRound },
-            { label: "Settings", icon: Settings },
-            { label: "Help center", icon: HelpCircle },
+            { label: "My profile", icon: UserRound, href: "/settings" },
+            {
+              label: "Multi-factor security",
+              icon: ShieldCheck,
+              href: "/auth/mfa",
+            },
+            { label: "Settings", icon: Settings, href: "/settings" },
+            ...(state.presenterMode ||
+            canAccessWorkspacePath(
+              state.activeRole,
+              "/operations-center",
+            )
+              ? [
+                  {
+                    label: "Help center",
+                    icon: HelpCircle,
+                    href: "/operations-center",
+                  },
+                ]
+              : []),
           ].map((item) => {
             const Icon = item.icon;
             return (
               <DropdownMenu.Item
                 key={item.label}
+                asChild
                 className="flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-[var(--muted-foreground)] outline-none hover:bg-[var(--surface-muted)] focus:bg-[var(--surface-muted)] focus:text-[var(--foreground)]"
               >
-                <Icon className="size-4" />
-                {item.label}
+                <Link href={item.href}>
+                  <Icon className="size-4" />
+                  {item.label}
+                </Link>
               </DropdownMenu.Item>
             );
           })}
-          <DropdownMenu.Separator className="my-1 h-px bg-[var(--border)]" />
-          <DropdownMenu.Item asChild>
-            <Link
-              href="/"
-              className="flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-rose-600 outline-none hover:bg-rose-500/10 focus:bg-rose-500/10"
-            >
-              <LogOut className="size-4" />
-              Exit demo
-            </Link>
-          </DropdownMenu.Item>
+          {stagingBypass ? (
+            <>
+              <DropdownMenu.Separator className="my-1 h-px bg-[var(--border)]" />
+              <div className="px-3 py-2 text-[10px] leading-4 text-amber-700">
+                Sign-out is unavailable while the temporary development bypass
+                is active.
+              </div>
+            </>
+          ) : (
+            <>
+              <DropdownMenu.Separator className="my-1 h-px bg-[var(--border)]" />
+              <DropdownMenu.Item
+                asChild
+                onSelect={(event) => {
+                  event.preventDefault();
+                  void signOut();
+                }}
+              >
+                <button
+                  type="button"
+                  className="flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-rose-600 outline-none hover:bg-rose-500/10 focus:bg-rose-500/10"
+                >
+                  <LogOut className="size-4" />
+                  Sign out
+                </button>
+              </DropdownMenu.Item>
+            </>
+          )}
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
     </DropdownMenu.Root>
   );
 }
 
-export function AppShell({ children }: { children: React.ReactNode }) {
+export function AppShell({
+  children,
+  accessMode,
+  bypassExpiresAt,
+  sessionEmail,
+}: {
+  children: React.ReactNode;
+  accessMode: "supabase" | "preview" | "staging_bypass";
+  bypassExpiresAt?: string;
+  sessionEmail: string;
+}) {
   const pathname = usePathname();
   const guide = useCatalystGuide();
   const { state } = useDemo();
@@ -675,6 +824,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pageTitle =
     currentItem?.label ??
     titleCase(pathname.split("/").filter(Boolean).at(-1) ?? "Dashboard");
+  const stagingBypass = accessMode === "staging_bypass";
 
   return (
     <div
@@ -696,7 +846,29 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <Sidebar pathname={pathname} />
 
       <div className="lg:pl-64">
-        <header className="sticky top-0 z-20 flex h-[var(--topbar-height)] items-center border-b border-[var(--border)] bg-[color-mix(in_srgb,var(--surface)_92%,transparent)] px-4 backdrop-blur-xl sm:px-6 lg:px-8">
+        {stagingBypass && (
+          <div
+            role="status"
+            className="sticky top-0 z-30 flex min-h-10 items-center justify-center gap-2 border-b border-amber-300 bg-amber-100 px-3 py-2 text-center text-[10px] font-black uppercase tracking-[0.08em] text-amber-950 sm:text-xs"
+          >
+            <ShieldAlert className="size-4 shrink-0" aria-hidden="true" />
+            <span>
+              Authentication bypass active — public synthetic development
+              environment — expires August 12, 2026 — not sales ready
+            </span>
+            {bypassExpiresAt && (
+              <time className="sr-only" dateTime={bypassExpiresAt}>
+                {bypassExpiresAt}
+              </time>
+            )}
+          </div>
+        )}
+        <header
+          className={cn(
+            "sticky z-20 flex h-[var(--topbar-height)] items-center border-b border-[var(--border)] bg-[color-mix(in_srgb,var(--surface)_92%,transparent)] px-4 backdrop-blur-xl sm:px-6 lg:px-8",
+            stagingBypass ? "top-10" : "top-0",
+          )}
+        >
           <div className="flex min-w-0 flex-1 items-center gap-3">
             <Dialog.Root open={mobileOpen} onOpenChange={setMobileOpen}>
               <Dialog.Trigger asChild>
@@ -777,7 +949,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <ThemeMenu theme={theme} setTheme={setTheme} />
             <NotificationMenu />
             <div className="mx-1 hidden h-6 w-px bg-[var(--border)] sm:block" />
-            <ProfileMenu />
+            <ProfileMenu
+              stagingBypass={stagingBypass}
+              sessionEmail={sessionEmail}
+            />
           </div>
         </header>
 
@@ -801,7 +976,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       <button
         onClick={() => guide.setOpen(true)}
-        aria-label="Open Catalyst Guide Live"
+        aria-label="Open CATE Guide"
         className="fixed bottom-5 right-5 z-20 flex size-14 items-center justify-center rounded-2xl bg-gradient-to-br from-[#ebbf5d] to-[#cf4427] text-[#041a6c] shadow-[0_18px_42px_rgba(4,26,108,.28)] transition-transform hover:-translate-y-1 lg:bottom-7 lg:right-7"
       >
         <Sparkles className="size-5" />

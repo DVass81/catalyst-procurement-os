@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { AiCapability, ProviderUsageEvent } from "@/ai/types";
+import { isSupabaseConfigured } from "@/lib/supabase/env";
 import { createSupabaseServiceClient } from "@/server/supabase/admin";
 
 export const MONTHLY_AI_CEILING_USD = 250;
@@ -88,10 +89,7 @@ export function usageRpcParams(event: ProviderUsageEvent) {
 
 export async function recordUsage(event: ProviderUsageEvent) {
   usageLedger.push(event);
-  if (
-    process.env.NEXT_PUBLIC_SUPABASE_URL &&
-    process.env.SUPABASE_SECRET_KEY
-  ) {
+  if (isSupabaseConfigured() && process.env.SUPABASE_SECRET_KEY) {
     const client = createSupabaseServiceClient();
     const { error } = await client.rpc(
       "record_ai_usage",

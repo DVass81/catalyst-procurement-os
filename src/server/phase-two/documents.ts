@@ -3,6 +3,8 @@ import "server-only";
 import { createHash } from "node:crypto";
 import { extname } from "node:path";
 
+import type { DataIntakeDecision } from "@/security/data-intake-policy";
+import { scanPrivateDocumentContent } from "@/server/security/document-scanner";
 import { createSupabaseServiceClient } from "@/server/supabase/admin";
 
 const MAX_DOCUMENT_BYTES = 25 * 1024 * 1024;
@@ -75,6 +77,8 @@ export async function storePrivateDocument(input: {
   parentEntityId: string;
   actorId: string;
   file: File;
+  intake: DataIntakeDecision;
+  requireLiveScan: boolean;
 }) {
   if (
     !input.file.size ||
@@ -87,6 +91,13 @@ export async function storePrivateDocument(input: {
   const detectedMime = detectMime(bytes, input.file.type, input.file.name);
   const sanitized = sanitizeDocumentFilename(input.file.name);
   const sha256 = createHash("sha256").update(bytes).digest("hex");
+  const scan = await scanPrivateDocumentContent({
+    bytes,
+    sha256,
+    detectedMime,
+    filename: sanitized,
+    liveRequired: input.requireLiveScan,
+  });
   const documentId = crypto.randomUUID();
   const versionId = crypto.randomUUID();
   const storagePath = `${input.tenantId}/${documentId}/1/${sha256}-${sanitized}`;
@@ -109,6 +120,11 @@ export async function storePrivateDocument(input: {
     lifecycle_state: "available",
     current_version: 1,
     created_by: input.actorId,
+    data_classification: input.intake.classification,
+    data_approval_reference: input.intake.approvalReference ?? null,
+    data_attestation_type: input.intake.attestationType,
+    data_attested_at: new Date().toISOString(),
+    data_attested_by: input.actorId,
   });
   if (recordError) {
     await client.storage.from("procurement-evidence").remove([storagePath]);
@@ -127,8 +143,9 @@ export async function storePrivateDocument(input: {
     detected_mime_type: detectedMime,
     size_bytes: input.file.size,
     sha256,
-    scan_mode: "simulated",
-    scan_result: "clean",
+    scan_mode: scan.mode,
+    scan_result: scan.result,
+    scanner_metadata: scan.metadata,
     uploaded_by: input.actorId,
   });
   if (versionError) {
@@ -145,9 +162,13 @@ export async function storePrivateDocument(input: {
     sizeBytes: input.file.size,
     sha256,
     lifecycleState: "available" as const,
-    scanMode: "simulated" as const,
+    dataClassification: input.intake.classification,
+    approvalReference: input.intake.approvalReference,
+    scanMode: scan.mode,
     scanLabel:
-      "Simulated clean result for demonstration only; no live malware or OCR provider was called.",
+      scan.mode === "live"
+        ? `Live malware scan passed with ${scan.metadata.engine}; signature ${scan.metadata.signatureVersion}.`
+        : "Simulated clean result for demonstration only; no live malware or OCR provider was called.",
   };
 }
 
@@ -193,5 +214,31 @@ export async function createPrivateDocumentAccess(input: {
     url: signed.signedUrl,
     expiresInSeconds: 60,
     filename: version.sanitized_filename,
+  };
+}
+
+export async function loadPrivateDocumentParent(input: {
+  tenantId: string;
+  versionId: string;
+}) {
+  const client = createSupabaseServiceClient();
+  const { data, error } = await client
+    .from("document_versions")
+    .select(
+      "id,tenant_id,document_records!inner(parent_entity_type,parent_entity_id,lifecycle_state)",
+    )
+    .eq("id", input.versionId)
+    .eq("tenant_id", input.tenantId)
+    .maybeSingle();
+  if (error || !data) throw new Error("DOCUMENT_NOT_FOUND");
+  const parent = Array.isArray(data.document_records)
+    ? data.document_records[0]
+    : data.document_records;
+  if (!parent || !["available", "held"].includes(parent.lifecycle_state)) {
+    throw new Error("DOCUMENT_ACCESS_DENIED");
+  }
+  return {
+    parentEntityType: parent.parent_entity_type,
+    parentEntityId: parent.parent_entity_id,
   };
 }

@@ -2,7 +2,12 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { analyzeFictionalDocument } from "@/server/ai/document";
+import { aiCapabilitySchema } from "@/ai/types";
+import { authorizeCateActor } from "@/server/auth/authority";
+import { resolveRequestRole } from "@/server/auth/request-role";
 import { requireAppSession } from "@/server/auth/session";
+import { projectStateForAuthorizedRole } from "@/server/auth/state-projection";
+import { loadPhaseTwoState } from "@/server/phase-two/repository";
 import { isCapabilityInFallback } from "@/server/presenter/fallback";
 import {
   consumeRateLimit,
@@ -15,24 +20,7 @@ const metadataSchema = z.object({
   currentRoute: z.string().max(200),
   role: z.string().max(80),
   workflowStage: z.string().max(80),
-  capability: z
-    .enum([
-      "requisition",
-      "policy",
-      "inventory",
-      "gl_budget",
-      "quote_comparison",
-      "vendor_risk",
-      "contract_review",
-      "invoice_match",
-      "spend_intelligence",
-      "negotiation",
-      "market_research",
-      "audit_summary",
-      "application_help",
-      "email_triage",
-    ])
-    .optional(),
+  capability: aiCapabilitySchema.optional(),
   deepReviewRequested: z.boolean().optional(),
 });
 
@@ -91,15 +79,44 @@ export async function POST(request: Request) {
   }
   try {
     const session = await requireAppSession(metadata.data.tenantId);
+    const authority = session.authorities[metadata.data.tenantId]!;
+    const roleContext = resolveRequestRole({
+      request,
+      session,
+      tenantId: metadata.data.tenantId,
+      presenterRole: metadata.data.role as Parameters<
+        typeof resolveRequestRole
+      >[0]["presenterRole"],
+    });
+    const actor = authorizeCateActor({
+      authority,
+      presenter: session.presenter,
+      syntheticOnly: process.env.CATALYST_SYNTHETIC_ONLY !== "0",
+      requestedRole: roleContext.activeRole,
+    });
+    const envelope = await loadPhaseTwoState(metadata.data.tenantId);
+    const scopedState = projectStateForAuthorizedRole({
+      state: envelope.state,
+      authority,
+      activeRole: actor.activeRole,
+      simulation: actor.simulation,
+      userId: session.userId,
+    });
     const mode = isCapabilityInFallback(metadata.data.capability)
       ? "deterministic"
       : "auto";
     const result = await analyzeFictionalDocument({
-      request: { ...metadata.data, mode, fictionalDataAcknowledged: true },
+      request: {
+        ...metadata.data,
+        role: actor.activeRole,
+        mode,
+        fictionalDataAcknowledged: true,
+      },
       file,
       sessionId:
         request.headers.get("x-catalyst-session") ??
         `${session.userId}:${metadata.data.tenantId}`,
+      scopedState,
     });
     return NextResponse.json(result, {
       headers: {

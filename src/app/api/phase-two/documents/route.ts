@@ -1,32 +1,47 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import { assessRuntimeEnvironment } from "@/config/runtime-environment";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
+import {
+  authorizeDataIntake,
+  dataIntakeClassifications,
+} from "@/security/data-intake-policy";
 import { requireAppSession } from "@/server/auth/session";
 import {
   createPrivateDocumentAccess,
+  loadPrivateDocumentParent,
   storePrivateDocument,
 } from "@/server/phase-two/documents";
+import {
+  authorizePrivateDocumentParent,
+} from "@/server/phase-two/document-authority";
 import {
   consumeRateLimit,
   requestFingerprint,
 } from "@/server/security/rate-limit";
 
+const parentEntityTypeSchema = z.enum([
+  "request",
+  "sourcing_event",
+  "vendor_quote",
+  "vendor",
+  "exception",
+  "purchase_order",
+  "receipt",
+  "invoice",
+  "contract",
+  "audit_package",
+]);
+
 const parentSchema = z.object({
   tenantId: z.string().min(1).max(80),
-  parentEntityType: z.enum([
-    "request",
-    "sourcing_event",
-    "vendor_quote",
-    "vendor",
-    "exception",
-    "purchase_order",
-    "receipt",
-    "invoice",
-    "contract",
-    "audit_package",
-  ]),
+  parentEntityType: parentEntityTypeSchema,
   parentEntityId: z.string().min(1).max(160),
+  dataClassification: z.enum(dataIntakeClassifications),
+  syntheticDataAttestation: z.enum(["true", "false"]).default("false"),
+  prohibitedDataAttestation: z.enum(["true", "false"]).default("false"),
+  pilotDataApprovalReference: z.string().trim().max(160).optional(),
 });
 
 const noStore = { "Cache-Control": "private, no-store", Vary: "Cookie" };
@@ -57,6 +72,13 @@ export async function POST(request: Request) {
     tenantId: form?.get("tenantId"),
     parentEntityType: form?.get("parentEntityType"),
     parentEntityId: form?.get("parentEntityId"),
+    dataClassification: form?.get("dataClassification"),
+    syntheticDataAttestation:
+      form?.get("syntheticDataAttestation") ?? "false",
+    prohibitedDataAttestation:
+      form?.get("prohibitedDataAttestation") ?? "false",
+    pilotDataApprovalReference:
+      form?.get("pilotDataApprovalReference") || undefined,
   });
   const file = form?.get("file");
   if (!parsed.success || !(file instanceof File)) {
@@ -67,26 +89,63 @@ export async function POST(request: Request) {
   }
   try {
     const session = await requireAppSession(parsed.data.tenantId);
+    const context = await authorizePrivateDocumentParent({
+      request,
+      session,
+      tenantId: parsed.data.tenantId,
+      parentEntityType: parsed.data.parentEntityType,
+      parentEntityId: parsed.data.parentEntityId,
+      intent: "upload",
+    });
+    const environment = assessRuntimeEnvironment();
+    const intake = authorizeDataIntake({
+      environmentKind: environment.kind,
+      environmentReady: environment.ready,
+      syntheticOnly: environment.syntheticOnly,
+      classification: parsed.data.dataClassification,
+      syntheticDataAttestation:
+        parsed.data.syntheticDataAttestation === "true",
+      prohibitedDataAttestation:
+        parsed.data.prohibitedDataAttestation === "true",
+      pilotDataApprovalReference:
+        parsed.data.pilotDataApprovalReference,
+      assuranceLevel: session.assuranceLevel,
+      simulation: context.simulation,
+    });
     const result = await storePrivateDocument({
-      ...parsed.data,
+      tenantId: parsed.data.tenantId,
+      parentEntityType: parsed.data.parentEntityType,
+      parentEntityId: parsed.data.parentEntityId,
       actorId: session.userId,
       file,
+      intake,
+      requireLiveScan: environment.kind === "secure_pilot",
     });
     return NextResponse.json(result, { status: 201, headers: noStore });
   } catch (error) {
     const message = error instanceof Error ? error.message : "";
     const rejected =
       message.includes("REJECTED") ||
+      message.startsWith("DATA_INTAKE_") ||
+      message.startsWith("SYNTHETIC_DATA_") ||
+      message.startsWith("PILOT_DATA_") ||
+      message.startsWith("DOCUMENT_SCAN_") ||
       message.includes("MISMATCH") ||
       message.includes("ARCHIVE") ||
       message.includes("PASSWORD");
+    const denied =
+      message === "DOCUMENT_ACCESS_DENIED" ||
+      message === "TENANT_ACCESS_DENIED" ||
+      message === "ACTIVE_ROLE_REQUIRED";
     return NextResponse.json(
       {
-        message: rejected
-          ? "The file was rejected by the Phase 2 document controls."
-          : "The private document could not be stored.",
+        message: denied
+          ? "Document upload is outside your active role or record scope."
+          : rejected
+            ? "The file was rejected by the Phase 2 document controls."
+            : "The private document could not be stored.",
       },
-      { status: rejected ? 422 : 500, headers: noStore },
+      { status: denied ? 403 : rejected ? 422 : 500, headers: noStore },
     );
   }
 }
@@ -112,6 +171,22 @@ export async function GET(request: Request) {
   }
   try {
     const session = await requireAppSession(parsed.data.tenantId);
+    const parent = await loadPrivateDocumentParent({
+      tenantId: parsed.data.tenantId,
+      versionId: parsed.data.versionId,
+    });
+    const parentType = parentEntityTypeSchema.safeParse(
+      parent.parentEntityType,
+    );
+    if (!parentType.success) throw new Error("DOCUMENT_ACCESS_DENIED");
+    await authorizePrivateDocumentParent({
+      request,
+      session,
+      tenantId: parsed.data.tenantId,
+      parentEntityType: parentType.data,
+      parentEntityId: parent.parentEntityId,
+      intent: "read",
+    });
     const result = await createPrivateDocumentAccess({
       tenantId: parsed.data.tenantId,
       versionId: parsed.data.versionId,
@@ -124,12 +199,17 @@ export async function GET(request: Request) {
     return NextResponse.json(
       {
         message:
-          message === "TENANT_ACCESS_DENIED"
+          message === "TENANT_ACCESS_DENIED" ||
+          message === "DOCUMENT_ACCESS_DENIED"
             ? "Document access is outside your tenant scope."
             : "Document access was denied or the version is unavailable.",
       },
       {
-        status: message === "TENANT_ACCESS_DENIED" ? 403 : 404,
+        status:
+          message === "TENANT_ACCESS_DENIED" ||
+          message === "DOCUMENT_ACCESS_DENIED"
+            ? 403
+            : 404,
         headers: noStore,
       },
     );

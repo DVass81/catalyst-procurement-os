@@ -6,6 +6,7 @@ import type {
   DemoImportBatch,
   GovernedConfiguration,
   Invoice,
+  PurchaseRequest,
   PurchaseOrder,
   PurchaseOrderRevision,
   Receipt,
@@ -155,6 +156,1685 @@ export function toggleNotice(state: DemoState) {
 export function toggleHighlights(state: DemoState) {
   const next = clone(state);
   next.demoHighlights = !next.demoHighlights;
+  return next;
+}
+
+export interface OperationalActorContext {
+  userId: string;
+  activeRole: DemoRole;
+  departmentIds: string[];
+  locationIds: string[];
+  approvalLimitCents?: number;
+}
+
+interface OperationalRequestLineInput {
+  catalogItemId?: string;
+  description: string;
+  quantity: number;
+  unitPriceCents: number;
+  glAccount: string;
+}
+
+interface OperationalRequestInput {
+  title: string;
+  departmentId: string;
+  locationId: string;
+  requiredDate: string;
+  businessJustification: string;
+  requestChannel:
+    | "catalog_goods"
+    | "non_catalog_goods"
+    | "service"
+    | "recurring"
+    | "emergency";
+  priority: "normal" | "high" | "urgent";
+  emergencyJustification?: string;
+  recurringSchedule?: {
+    cadence: "monthly" | "quarterly" | "annually";
+    startsOn: string;
+    endsOn?: string;
+  };
+  attachments: string[];
+  lines: OperationalRequestLineInput[];
+}
+
+function nextOperationalSequence(state: DemoState) {
+  return (
+    state.requests.filter((request) =>
+      request.id.startsWith("request-operational-"),
+    ).length + 1
+  );
+}
+
+function assertActorScope(
+  actor: OperationalActorContext,
+  departmentId: string,
+  locationId: string,
+) {
+  if (
+    actor.departmentIds.length > 0 &&
+    !actor.departmentIds.includes(departmentId)
+  ) {
+    throw new WorkflowError("The selected department is outside the active role scope.");
+  }
+  if (
+    actor.locationIds.length > 0 &&
+    !actor.locationIds.includes(locationId)
+  ) {
+    throw new WorkflowError("The selected location is outside the active role scope.");
+  }
+}
+
+function normalizedOperationalLines(
+  state: DemoState,
+  sequence: number,
+  lines: OperationalRequestLineInput[],
+) {
+  return lines.map((line, index) => {
+    const catalog = line.catalogItemId
+      ? state.catalogItems.find((item) => item.id === line.catalogItemId)
+      : undefined;
+    if (line.catalogItemId && !catalog) {
+      throw new WorkflowError(`Unknown catalog item: ${line.catalogItemId}.`);
+    }
+    return {
+      id: `line-operational-${sequence}-${index + 1}`,
+      catalogItemId:
+        catalog?.id ?? `non-catalog-operational-${sequence}-${index + 1}`,
+      description: line.description.trim(),
+      originalDescription: line.description.trim(),
+      requestedQuantity: line.quantity,
+      purchaseQuantity: line.quantity,
+      inventoryQuantity: 0,
+      unitPriceCents: line.unitPriceCents,
+      originalUnitPriceCents: line.unitPriceCents,
+      glAccount: line.glAccount.trim(),
+      standardStatus: catalog?.standardStatus ?? ("exception_required" as const),
+      source: "external_purchase" as const,
+    };
+  });
+}
+
+function operationalDuplicateKey(input: {
+  requesterId: string;
+  departmentId: string;
+  locationId: string;
+  requiredDate: string;
+  requestChannel?: PurchaseRequest["requestChannel"];
+  lines: Array<{
+    catalogItemId: string;
+    description: string;
+    requestedQuantity: number;
+    unitPriceCents: number;
+    glAccount: string;
+  }>;
+}) {
+  const lines = input.lines
+    .map((line) => ({
+      catalogItemId: line.catalogItemId.startsWith("non-catalog-operational-")
+        ? "non-catalog"
+        : line.catalogItemId.trim().toLowerCase(),
+      description: line.description.trim().toLowerCase(),
+      quantity: line.requestedQuantity,
+      unitPriceCents: line.unitPriceCents,
+      glAccount: line.glAccount.trim().toLowerCase(),
+    }))
+    .sort((left, right) =>
+      JSON.stringify(left).localeCompare(JSON.stringify(right)),
+    );
+  return JSON.stringify({
+    requesterId: input.requesterId,
+    departmentId: input.departmentId,
+    locationId: input.locationId,
+    requiredDate: input.requiredDate,
+    requestChannel: input.requestChannel,
+    lines,
+  });
+}
+
+function assertNoDuplicateOperationalRequest(
+  state: DemoState,
+  candidate: Parameters<typeof operationalDuplicateKey>[0],
+  excludeRequestId?: string,
+) {
+  const candidateKey = operationalDuplicateKey(candidate);
+  const duplicate = state.requests.find(
+    (request) =>
+      request.id !== excludeRequestId &&
+      request.requestChannel &&
+      request.status !== "rejected" &&
+      operationalDuplicateKey({
+        requesterId: request.requesterId,
+        departmentId: request.departmentId,
+        locationId: request.locationId,
+        requiredDate: request.requiredDate,
+        requestChannel: request.requestChannel,
+        lines: request.lines,
+      }) === candidateKey,
+  );
+  if (duplicate) {
+    throw new WorkflowError(
+      `Possible duplicate request blocked. Review ${duplicate.requestNumber} before creating another commitment.`,
+    );
+  }
+}
+
+function nextRecurringDate(
+  startsOn: string,
+  cadence: "monthly" | "quarterly" | "annually",
+) {
+  const date = new Date(`${startsOn}T12:00:00Z`);
+  date.setUTCMonth(
+    date.getUTCMonth() +
+      (cadence === "monthly" ? 1 : cadence === "quarterly" ? 3 : 12),
+  );
+  return date.toISOString().slice(0, 10);
+}
+
+function appendOperationalAudit(
+  state: DemoState,
+  actor: OperationalActorContext,
+  action: string,
+  entityType: string,
+  entityId: string,
+  description: string,
+  previousValue?: string,
+  newValue?: string,
+) {
+  appendAudit(
+    state,
+    action,
+    entityType,
+    entityId,
+    description,
+    previousValue,
+    newValue,
+    "user",
+  );
+  const event = state.auditEvents.at(-1);
+  if (event) {
+    event.userId = actor.userId;
+    event.role = actor.activeRole;
+  }
+}
+
+export function createOperationalRequest(
+  state: DemoState,
+  input: OperationalRequestInput,
+  actor: OperationalActorContext,
+) {
+  if (actor.activeRole !== "requester") {
+    throw new WorkflowError("Only an authenticated requester can create a request.");
+  }
+  assertActorScope(actor, input.departmentId, input.locationId);
+  if (!state.departments.some((item) => item.id === input.departmentId)) {
+    throw new WorkflowError("The selected department is not valid for this tenant.");
+  }
+  if (!state.locations.some((item) => item.id === input.locationId)) {
+    throw new WorkflowError("The selected location is not valid for this tenant.");
+  }
+  if (
+    input.requestChannel === "emergency" &&
+    !input.emergencyJustification?.trim()
+  ) {
+    throw new WorkflowError("Emergency requests require a separate justification.");
+  }
+  if (
+    input.requestChannel === "recurring" &&
+    !input.recurringSchedule
+  ) {
+    throw new WorkflowError("Recurring requests require a governed schedule.");
+  }
+  if (
+    input.recurringSchedule?.endsOn &&
+    input.recurringSchedule.endsOn <= input.recurringSchedule.startsOn
+  ) {
+    throw new WorkflowError("A recurring schedule must end after it starts.");
+  }
+  const next = clone(state);
+  const sequence = nextOperationalSequence(next);
+  const lines = normalizedOperationalLines(next, sequence, input.lines);
+  const total = lines.reduce(
+    (sum, line) => sum + line.purchaseQuantity * line.unitPriceCents,
+    0,
+  );
+  assertNoDuplicateOperationalRequest(next, {
+    requesterId: actor.userId,
+    departmentId: input.departmentId,
+    locationId: input.locationId,
+    requiredDate: input.requiredDate,
+    requestChannel: input.requestChannel,
+    lines,
+  });
+  const prefix = tenantRecordPrefix(next);
+  const id = `request-operational-${prefix.toLowerCase()}-${String(sequence).padStart(4, "0")}`;
+  const request: PurchaseRequest = {
+    id,
+    requestNumber: `${prefix}-REQ-${String(9000 + sequence)}`,
+    title: input.title.trim(),
+    requesterId: actor.userId,
+    createdByActorId: actor.userId,
+    departmentId: input.departmentId,
+    locationId: input.locationId,
+    requestDate: next.sessionDate,
+    requiredDate: input.requiredDate,
+    businessJustification: input.businessJustification.trim(),
+    requestType: input.requestChannel.replaceAll("_", " "),
+    requestChannel: input.requestChannel,
+    emergencyJustification: input.emergencyJustification?.trim(),
+    recurringSchedule: input.recurringSchedule
+      ? {
+          ...input.recurringSchedule,
+          nextOccurrence: nextRecurringDate(
+            input.recurringSchedule.startsOn,
+            input.recurringSchedule.cadence,
+          ),
+          status: "active",
+        }
+      : undefined,
+    status: "draft",
+    priority:
+      input.requestChannel === "emergency" ? "urgent" : input.priority,
+    lines,
+    estimatedTotalCents: total,
+    recommendedTotalCents: total,
+    identifiedSavingsCents: 0,
+    suggestedGlCoding: [...new Set(lines.map((line) => line.glAccount))],
+    budgetStatus: "within_budget",
+    inventoryFindings: [],
+    policyFindings:
+      input.requestChannel === "emergency"
+        ? ["Emergency route requires independent approval and retained justification."]
+        : [],
+    aiSummary:
+      "Request facts were validated. CATE has not approved or executed any action.",
+    attachments: [...input.attachments],
+    fieldsLocked: false,
+    revision: 1,
+  };
+  next.requests.push(request);
+  appendOperationalAudit(
+    next,
+    actor,
+    "request.operational_created",
+    "purchase_request",
+    request.id,
+    `${request.requestNumber} was created as a governed ${request.requestType} request.`,
+    undefined,
+    JSON.stringify({
+      requestNumber: request.requestNumber,
+      totalCents: total,
+      channel: request.requestChannel,
+      revision: request.revision,
+    }),
+  );
+  return next;
+}
+
+export function updateOperationalRequest(
+  state: DemoState,
+  input: Pick<
+    OperationalRequestInput,
+    | "title"
+    | "requiredDate"
+    | "businessJustification"
+    | "priority"
+    | "attachments"
+    | "lines"
+  > & { requestId: string },
+  actor: OperationalActorContext,
+) {
+  const next = clone(state);
+  const request = next.requests.find((item) => item.id === input.requestId);
+  if (!request) throw new WorkflowError("The request was not found.");
+  if (request.requesterId !== actor.userId) {
+    throw new WorkflowError("Only the requester can edit this request.");
+  }
+  if (request.fieldsLocked || !["draft", "returned"].includes(request.status)) {
+    throw new WorkflowError("Only an unlocked draft or returned request can be edited.");
+  }
+  assertActorScope(actor, request.departmentId, request.locationId);
+  const previousRevision = request.revision;
+  const sequence = Number(request.id.match(/(\d+)$/)?.[1] ?? nextOperationalSequence(next));
+  request.lines = normalizedOperationalLines(next, sequence, input.lines);
+  request.title = input.title.trim();
+  request.requiredDate = input.requiredDate;
+  request.businessJustification = input.businessJustification.trim();
+  request.priority =
+    request.requestChannel === "emergency" ? "urgent" : input.priority;
+  request.attachments = [...input.attachments];
+  request.estimatedTotalCents = request.lines.reduce(
+    (sum, line) => sum + line.purchaseQuantity * line.unitPriceCents,
+    0,
+  );
+  request.recommendedTotalCents = request.estimatedTotalCents;
+  request.suggestedGlCoding = [
+    ...new Set(request.lines.map((line) => line.glAccount)),
+  ];
+  assertNoDuplicateOperationalRequest(
+    next,
+    {
+      requesterId: request.requesterId,
+      departmentId: request.departmentId,
+      locationId: request.locationId,
+      requiredDate: request.requiredDate,
+      requestChannel: request.requestChannel,
+      lines: request.lines,
+    },
+    request.id,
+  );
+  if (request.status === "returned") request.status = "draft";
+  request.revision += 1;
+  appendOperationalAudit(
+    next,
+    actor,
+    "request.operational_updated",
+    "purchase_request",
+    request.id,
+    `${request.requestNumber} draft was revised with its prior version retained in the audit ledger.`,
+    `revision:${previousRevision}`,
+    `revision:${request.revision}`,
+  );
+  return next;
+}
+
+export function cloneOperationalRequest(
+  state: DemoState,
+  sourceRequestId: string,
+  requiredDate: string,
+  actor: OperationalActorContext,
+) {
+  const source = state.requests.find((request) => request.id === sourceRequestId);
+  if (!source) throw new WorkflowError("The source request was not found.");
+  if (!["approved", "converted_to_po"].includes(source.status)) {
+    throw new WorkflowError("Only an approved request can be cloned.");
+  }
+  const next = createOperationalRequest(
+    state,
+    {
+      title: `${source.title} — copy`,
+      departmentId: source.departmentId,
+      locationId: source.locationId,
+      requiredDate,
+      businessJustification: source.businessJustification,
+      requestChannel: source.requestChannel ?? "non_catalog_goods",
+      priority: source.priority,
+      emergencyJustification: source.emergencyJustification,
+      recurringSchedule: source.recurringSchedule
+        ? {
+            cadence: source.recurringSchedule.cadence,
+            startsOn: requiredDate,
+            endsOn: source.recurringSchedule.endsOn,
+          }
+        : undefined,
+      attachments: [],
+      lines: source.lines.map((line) => ({
+        catalogItemId: state.catalogItems.some(
+          (item) => item.id === line.catalogItemId,
+        )
+          ? line.catalogItemId
+          : undefined,
+        description: line.description,
+        quantity: line.requestedQuantity,
+        unitPriceCents: line.unitPriceCents,
+        glAccount: line.glAccount,
+      })),
+    },
+    actor,
+  );
+  const created = next.requests.at(-1)!;
+  appendOperationalAudit(
+    next,
+    actor,
+    "request.operational_cloned",
+    "purchase_request",
+    created.id,
+    `${source.requestNumber} was cloned to ${created.requestNumber}; approvals and attachments were not copied.`,
+    source.id,
+    created.id,
+  );
+  return next;
+}
+
+function operationalApprovalRoles(request: PurchaseRequest): DemoRole[][] {
+  const groups: DemoRole[][] = [["department_manager"]];
+  const hasTechnology = request.lines.some(
+    (line) =>
+      /technology|software|computer|network|security|headset/i.test(
+        line.description,
+      ),
+  );
+  if (hasTechnology) groups.push(["it_reviewer"]);
+  groups.push(["purchasing_manager", "finance_reviewer"]);
+  if (request.requestChannel === "emergency") {
+    groups.push(["compliance_reviewer"]);
+  }
+  return groups;
+}
+
+export function submitOperationalRequest(
+  state: DemoState,
+  requestId: string,
+  actor: OperationalActorContext,
+) {
+  const next = clone(state);
+  const request = next.requests.find((item) => item.id === requestId);
+  if (!request) throw new WorkflowError("The request was not found.");
+  if (request.requesterId !== actor.userId) {
+    throw new WorkflowError("Only the requester can submit this request.");
+  }
+  if (request.status !== "draft" || request.fieldsLocked) {
+    throw new WorkflowError("Only an unlocked draft can be submitted.");
+  }
+  if (request.lines.length === 0 || request.recommendedTotalCents <= 0) {
+    throw new WorkflowError("The request must contain a positive-value line.");
+  }
+  assertActorScope(actor, request.departmentId, request.locationId);
+  const groups = operationalApprovalRoles(request);
+  const approvals: Approval[] = groups.flatMap((roles, groupIndex) =>
+    roles.map((role, roleIndex) => {
+      const approver = next.users.find((user) => user.role === role);
+      return {
+        id: `approval-${request.id}-${groupIndex + 1}-${roleIndex + 1}`,
+        requestId: request.id,
+        sequence: groupIndex + 1,
+        routingMode: roles.length > 1 ? "parallel" : "sequential",
+        routingGroup: groupIndex + 1,
+        approverId: approver?.id ?? `role-queue:${role}`,
+        role,
+        status: groupIndex === 0 ? "pending" : "not_started",
+        assignedDate: next.sessionDate,
+        dueDate: addBusinessDays(next.sessionDate, groupIndex + 1),
+        escalationStatus: "none",
+        aiRecommendation:
+          "Review the request facts, authority, budget, policy, and retained evidence. Human decision required.",
+      };
+    }),
+  );
+  next.approvals.push(...approvals);
+  for (const approval of approvals.filter((item) => item.status === "pending")) {
+    upsertQueueItem(next, {
+      id: `queue-${approval.id}`,
+      queueType: "approval",
+      entityType: "purchase_request",
+      entityId: request.id,
+      assigneeRole: approval.role,
+      status: "assigned",
+      priority: request.priority === "urgent" ? "critical" : "high",
+      dueDate: approval.dueDate,
+      escalationLevel: 0,
+    });
+  }
+  request.status = "submitted";
+  request.fieldsLocked = true;
+  request.revision += 1;
+  appendOperationalAudit(
+    next,
+    actor,
+    "request.operational_submitted",
+    "purchase_request",
+    request.id,
+    `${request.requestNumber} was locked and routed through ${groups.length} approval group(s).`,
+    "draft",
+    "submitted",
+  );
+  return next;
+}
+
+export function decideOperationalApproval(
+  state: DemoState,
+  approvalId: string,
+  decision: "approve" | "return" | "reject",
+  comments: string,
+  actor: OperationalActorContext,
+) {
+  const next = clone(state);
+  const approval = next.approvals.find((item) => item.id === approvalId);
+  if (!approval || approval.status !== "pending") {
+    throw new WorkflowError("A pending operational approval is required.");
+  }
+  const request = next.requests.find((item) => item.id === approval.requestId);
+  if (!request) throw new WorkflowError("The approval request was not found.");
+  if (approval.role !== actor.activeRole) {
+    throw new WorkflowError("The active role does not own this approval.");
+  }
+  if (request.requesterId === actor.userId) {
+    throw new WorkflowError("A requester cannot approve their own request.");
+  }
+  assertActorScope(actor, request.departmentId, request.locationId);
+  if (
+    decision === "approve" &&
+    actor.approvalLimitCents !== undefined &&
+    request.recommendedTotalCents > actor.approvalLimitCents
+  ) {
+    throw new WorkflowError("The request exceeds the active approval limit.");
+  }
+
+  approval.status =
+    decision === "approve"
+      ? "approved"
+      : decision === "return"
+        ? "returned"
+        : "rejected";
+  approval.completedDate = next.sessionDate;
+  approval.decision = decision;
+  approval.comments = comments.trim();
+  const queue = next.workQueueItems.find(
+    (item) => item.id === `queue-${approval.id}`,
+  );
+  if (queue) queue.status = "completed";
+
+  if (decision === "return") {
+    request.status = "returned";
+    request.fieldsLocked = false;
+    request.revision += 1;
+  } else if (decision === "reject") {
+    request.status = "rejected";
+  } else {
+    const group = approval.routingGroup ?? approval.sequence;
+    const groupComplete = next.approvals
+      .filter(
+        (item) =>
+          item.requestId === request.id &&
+          (item.routingGroup ?? item.sequence) === group,
+      )
+      .every((item) => item.status === "approved");
+    if (groupComplete) {
+      const nextGroup = next.approvals
+        .filter(
+          (item) =>
+            item.requestId === request.id &&
+            (item.routingGroup ?? item.sequence) > group,
+        )
+        .sort(
+          (left, right) =>
+            (left.routingGroup ?? left.sequence) -
+            (right.routingGroup ?? right.sequence),
+        )[0]?.routingGroup;
+      if (nextGroup !== undefined) {
+        for (const item of next.approvals.filter(
+          (candidate) =>
+            candidate.requestId === request.id &&
+            (candidate.routingGroup ?? candidate.sequence) === nextGroup,
+        )) {
+          item.status = "pending";
+          upsertQueueItem(next, {
+            id: `queue-${item.id}`,
+            queueType: "approval",
+            entityType: "purchase_request",
+            entityId: request.id,
+            assigneeRole: item.role,
+            status: "assigned",
+            priority: request.priority === "urgent" ? "critical" : "high",
+            dueDate: item.dueDate,
+            escalationLevel: 0,
+          });
+        }
+      } else {
+        request.status = "approved";
+        request.revision += 1;
+      }
+    }
+  }
+  appendOperationalAudit(
+    next,
+    actor,
+    `approval.operational_${decision}`,
+    "approval",
+    approval.id,
+    `${actor.activeRole.replaceAll("_", " ")} recorded ${decision} with retained rationale.`,
+    "pending",
+    approval.status,
+  );
+  return next;
+}
+
+function requireOperationalRole(
+  actor: OperationalActorContext,
+  allowed: DemoRole[],
+) {
+  if (!allowed.includes(actor.activeRole)) {
+    throw new WorkflowError(
+      `This action requires one of these active roles: ${allowed.join(", ")}.`,
+    );
+  }
+}
+
+function nextOperationalId(
+  prefix: string,
+  records: { id: string }[],
+) {
+  return `${prefix}-${String(
+    records.filter((record) => record.id.startsWith(`${prefix}-`)).length + 1,
+  ).padStart(4, "0")}`;
+}
+
+export function createOperationalPurchaseOrder(
+  state: DemoState,
+  input: {
+    requestId: string;
+    vendorId: string;
+    expectedDate: string;
+    shippingCents: number;
+    taxCents: number;
+    contractReference: string;
+  },
+  actor: OperationalActorContext,
+) {
+  requireOperationalRole(actor, [
+    "purchasing_specialist",
+    "purchasing_manager",
+  ]);
+  const next = clone(state);
+  const request = next.requests.find(
+    (candidate) => candidate.id === input.requestId,
+  );
+  if (!request || request.status !== "approved") {
+    throw new WorkflowError(
+      "A fully approved operational request is required.",
+    );
+  }
+  if (
+    next.purchaseOrders.some(
+      (order) => order.sourceRequestId === request.id,
+    )
+  ) {
+    throw new WorkflowError(
+      "This request already has a purchase order.",
+    );
+  }
+  const approvals = next.approvals.filter(
+    (approval) => approval.requestId === request.id,
+  );
+  if (
+    approvals.length === 0 ||
+    approvals.some((approval) => approval.status !== "approved")
+  ) {
+    throw new WorkflowError(
+      "All assigned approvals must be complete before PO creation.",
+    );
+  }
+  const vendor = next.vendors.find(
+    (candidate) => candidate.id === input.vendorId,
+  );
+  if (
+    !vendor ||
+    vendor.onboardingStatus !== "complete" ||
+    vendor.w9Status !== "current" ||
+    vendor.sanctionsStatus !== "clear" ||
+    vendor.complianceHold ||
+    vendor.criticalCorrectiveAction
+  ) {
+    throw new WorkflowError(
+      "The selected supplier is not eligible for an operational purchase order.",
+    );
+  }
+  const contract = input.contractReference
+    ? next.contracts.find(
+        (candidate) =>
+          candidate.id === input.contractReference &&
+          candidate.vendorId === vendor.id &&
+          candidate.status !== "expired",
+      )
+    : undefined;
+  if (input.contractReference && !contract) {
+    throw new WorkflowError(
+      "The contract reference is not active for the selected supplier.",
+    );
+  }
+  const subtotalCents = request.lines.reduce(
+    (total, line) =>
+      total + line.purchaseQuantity * line.unitPriceCents,
+    0,
+  );
+  const id = nextOperationalId("po-operational", next.purchaseOrders);
+  const sequence =
+    next.purchaseOrders.filter((order) =>
+      order.id.startsWith("po-operational-"),
+    ).length + 1;
+  const purchaseOrder: PurchaseOrder = {
+    id,
+    poNumber: `${tenantRecordPrefix(next)}-PO-${next.sessionDate.slice(0, 4)}-${String(9000 + sequence)}`,
+    sourceRequestId: request.id,
+    vendorId: vendor.id,
+    buyerId: actor.userId,
+    orderDate: next.sessionDate,
+    expectedDate: input.expectedDate,
+    deliveryLocationId: request.locationId,
+    lines: structuredClone(request.lines),
+    subtotalCents,
+    shippingCents: input.shippingCents,
+    taxCents: input.taxCents,
+    totalCents:
+      subtotalCents + input.shippingCents + input.taxCents,
+    status: "awaiting_issuance",
+    contractReference: contract?.id ?? "",
+    approvalReference: approvals.map((approval) => approval.id).join(", "),
+    receiptStatus: "not_received",
+    invoiceStatus: "not_received",
+    changeOrderHistory: [],
+  };
+  const budget = next.budgets.find(
+    (candidate) => candidate.departmentId === request.departmentId,
+  );
+  if (!budget) {
+    throw new WorkflowError(
+      "A tenant budget record is required before PO commitment.",
+    );
+  }
+  const availableCents =
+    budget.revisedBudgetCents -
+    budget.actualSpendCents -
+    budget.committedCents;
+  if (purchaseOrder.totalCents > availableCents) {
+    throw new WorkflowError(
+      "The purchase order exceeds the currently available budget.",
+    );
+  }
+  budget.committedCents += purchaseOrder.totalCents;
+  next.purchaseOrders.unshift(purchaseOrder);
+  request.status = "converted_to_po";
+  request.selectedVendorId = vendor.id;
+  request.revision += 1;
+  appendOperationalAudit(
+    next,
+    actor,
+    "po.operational_created",
+    "purchase_order",
+    purchaseOrder.id,
+    `${purchaseOrder.poNumber} inherited the approved request, line, coding, delivery, supplier, and approval evidence.`,
+    undefined,
+    JSON.stringify({
+      requestId: request.id,
+      vendorId: vendor.id,
+      totalCents: purchaseOrder.totalCents,
+      status: purchaseOrder.status,
+    }),
+  );
+  return next;
+}
+
+export function issueOperationalPurchaseOrder(
+  state: DemoState,
+  purchaseOrderId: string,
+  actor: OperationalActorContext,
+) {
+  requireOperationalRole(actor, [
+    "purchasing_specialist",
+    "purchasing_manager",
+  ]);
+  const next = clone(state);
+  const purchaseOrder = next.purchaseOrders.find(
+    (candidate) => candidate.id === purchaseOrderId,
+  );
+  if (!purchaseOrder || purchaseOrder.status !== "awaiting_issuance") {
+    throw new WorkflowError(
+      "An operational purchase order awaiting issuance is required.",
+    );
+  }
+  purchaseOrder.status = "issued";
+  appendOperationalAudit(
+    next,
+    actor,
+    "po.operational_issued",
+    "purchase_order",
+    purchaseOrder.id,
+    "The authorized buyer issued the purchase order; no payment was initiated.",
+    "awaiting_issuance",
+    "issued",
+  );
+  return next;
+}
+
+export function acknowledgeOperationalPurchaseOrder(
+  state: DemoState,
+  purchaseOrderId: string,
+  acknowledgmentReference: string,
+  actor: OperationalActorContext,
+) {
+  requireOperationalRole(actor, [
+    "purchasing_specialist",
+    "purchasing_manager",
+  ]);
+  const next = clone(state);
+  const purchaseOrder = next.purchaseOrders.find(
+    (candidate) => candidate.id === purchaseOrderId,
+  );
+  if (!purchaseOrder || purchaseOrder.status !== "issued") {
+    throw new WorkflowError(
+      "An issued operational purchase order is required.",
+    );
+  }
+  purchaseOrder.status = "acknowledged";
+  purchaseOrder.vendorAcknowledgment =
+    acknowledgmentReference.trim();
+  appendOperationalAudit(
+    next,
+    actor,
+    "po.operational_acknowledged",
+    "purchase_order",
+    purchaseOrder.id,
+    "Supplier acknowledgment evidence was recorded without granting supplier authority.",
+    "issued",
+    acknowledgmentReference.trim(),
+  );
+  return next;
+}
+
+interface OperationalReceiptLineInput {
+  lineId: string;
+  quantity: number;
+  acceptedQuantity: number;
+  damagedQuantity: number;
+  rejectedQuantity: number;
+  returnedQuantity: number;
+  conditionNote?: string;
+  serialNumbers: string[];
+  lotNumbers: string[];
+  serviceAccepted?: boolean;
+  serviceAcceptanceEvidence?: string;
+}
+
+export function recordOperationalReceipt(
+  state: DemoState,
+  input: {
+    purchaseOrderId: string;
+    packingSlip: string;
+    carrierReference?: string;
+    notes: string;
+    overToleranceAction?: "reject" | "route_for_approval";
+    overToleranceRationale?: string;
+    lines: OperationalReceiptLineInput[];
+  },
+  actor: OperationalActorContext,
+) {
+  requireOperationalRole(actor, ["receiving_clerk"]);
+  const next = clone(state);
+  const purchaseOrder = next.purchaseOrders.find(
+    (candidate) => candidate.id === input.purchaseOrderId,
+  );
+  if (
+    !purchaseOrder ||
+    !["issued", "acknowledged", "partially_received"].includes(
+      purchaseOrder.status,
+    )
+  ) {
+    throw new WorkflowError(
+      "An issued, acknowledged, or partially received purchase order is required.",
+    );
+  }
+  if (
+    actor.locationIds.length > 0 &&
+    !actor.locationIds.includes(purchaseOrder.deliveryLocationId)
+  ) {
+    throw new WorkflowError(
+      "The delivery location is outside the receiving role scope.",
+    );
+  }
+  if (purchaseOrder.buyerId === actor.userId) {
+    throw new WorkflowError(
+      "The purchase-order buyer cannot receive their own order.",
+    );
+  }
+  const request = next.requests.find(
+    (candidate) => candidate.id === purchaseOrder.sourceRequestId,
+  );
+  const activeReceipts = next.receipts.filter(
+    (receipt) =>
+      receipt.purchaseOrderId === purchaseOrder.id &&
+      receipt.lifecycleStatus !== "reversed",
+  );
+  if (
+    next.receipts.some(
+      (receipt) =>
+        receipt.purchaseOrderId === purchaseOrder.id &&
+        receipt.packingSlip.toLowerCase() ===
+          input.packingSlip.trim().toLowerCase() &&
+        receipt.lifecycleStatus !== "reversed",
+    )
+  ) {
+    throw new WorkflowError(
+      "This packing slip has already been recorded for the purchase order.",
+    );
+  }
+  const seen = new Set<string>();
+  let totalValueCents = 0;
+  let routedOverTolerance = false;
+  const lines = input.lines.map((line) => {
+    if (seen.has(line.lineId)) {
+      throw new WorkflowError(
+        "A receipt cannot contain the same PO line twice.",
+      );
+    }
+    seen.add(line.lineId);
+    const ordered = purchaseOrder.lines.find(
+      (candidate) => candidate.id === line.lineId,
+    );
+    if (!ordered) {
+      throw new WorkflowError(
+        `Receipt line ${line.lineId} is not on the purchase order.`,
+      );
+    }
+    if (
+      line.acceptedQuantity +
+        line.rejectedQuantity >
+        line.quantity ||
+      line.damagedQuantity > line.quantity ||
+      line.returnedQuantity > line.rejectedQuantity
+    ) {
+      throw new WorkflowError(
+        `Receipt dispositions do not reconcile for ${ordered.description}.`,
+      );
+    }
+    const priorAccepted = activeReceipts.reduce(
+      (total, receipt) =>
+        total +
+        (receipt.lines.find(
+          (candidate) => candidate.lineId === line.lineId,
+        )?.acceptedQuantity ?? 0),
+      0,
+    );
+    const remainingQuantity =
+      ordered.purchaseQuantity - priorAccepted;
+    if (line.quantity > remainingQuantity) {
+      if (
+        input.overToleranceAction !== "route_for_approval" ||
+        !input.overToleranceRationale?.trim()
+      ) {
+        throw new WorkflowError(
+          `Delivered quantity exceeds the remaining purchase order quantity for ${ordered.description}; route the overage with rationale or reject it.`,
+        );
+      }
+      routedOverTolerance = true;
+    }
+    if (
+      priorAccepted + line.acceptedQuantity >
+      ordered.purchaseQuantity
+    ) {
+      throw new WorkflowError(
+        `Accepted quantity exceeds the purchase order for ${ordered.description}.`,
+      );
+    }
+    if (
+      request?.requestChannel === "service" &&
+      line.acceptedQuantity > 0 &&
+      (!line.serviceAccepted ||
+        !line.serviceAcceptanceEvidence?.trim())
+    ) {
+      throw new WorkflowError(
+        "Service receipts require explicit acceptance and acceptance evidence.",
+      );
+    }
+    if (
+      line.serialNumbers.length > 0 &&
+      line.serialNumbers.length !== line.acceptedQuantity
+    ) {
+      throw new WorkflowError(
+        "Serial-number count must equal the accepted quantity.",
+      );
+    }
+    if (new Set(line.serialNumbers).size !== line.serialNumbers.length) {
+      throw new WorkflowError(
+        "Serial numbers must be unique within the receipt.",
+      );
+    }
+    totalValueCents +=
+      line.acceptedQuantity * ordered.unitPriceCents;
+    return {
+      lineId: line.lineId,
+      quantity: line.quantity,
+      acceptedQuantity: line.acceptedQuantity,
+      pendingInspectionQuantity:
+        line.quantity -
+        line.acceptedQuantity -
+        line.rejectedQuantity,
+      damagedQuantity: line.damagedQuantity,
+      rejectedQuantity: line.rejectedQuantity,
+      returnedQuantity: line.returnedQuantity,
+      conditionNote: line.conditionNote?.trim(),
+      serialNumbers: [...line.serialNumbers],
+      lotNumbers: [...line.lotNumbers],
+      serviceAccepted: line.serviceAccepted,
+      serviceAcceptanceEvidence:
+        line.serviceAcceptanceEvidence?.trim(),
+    };
+  });
+  const receiptId = nextOperationalId(
+    "receipt-operational",
+    next.receipts,
+  );
+  const receipt: Receipt = {
+    id: receiptId,
+    receiptNumber: `${tenantRecordPrefix(next)}-RCV-${next.sessionDate.slice(0, 4)}-${String(9000 + next.receipts.filter((item) => item.id.startsWith("receipt-operational-")).length + 1)}`,
+    purchaseOrderId: purchaseOrder.id,
+    receivedBy: actor.userId,
+    receivedDate: next.sessionDate,
+    locationId: purchaseOrder.deliveryLocationId,
+    lines,
+    packingSlip: input.packingSlip.trim(),
+    photos: [],
+    notes: input.notes.trim(),
+    exceptionStatus: lines.some(
+      (line) => line.rejectedQuantity > 0,
+    )
+      ? "rejected_damage"
+      : lines.some((line) => line.damagedQuantity > 0)
+        ? "accepted_damage"
+        : "none",
+    totalValueCents,
+    lifecycleStatus: routedOverTolerance
+      ? "pending_inspection"
+      : "posted",
+    carrierReference: input.carrierReference?.trim(),
+  };
+  next.receipts.push(receipt);
+  const allReceipts = [...activeReceipts, receipt];
+  const complete =
+    !routedOverTolerance &&
+    purchaseOrder.lines.every((ordered) => {
+      const accepted = allReceipts.reduce(
+        (total, item) =>
+          total +
+          (item.lines.find(
+            (line) => line.lineId === ordered.id,
+          )?.acceptedQuantity ?? 0),
+        0,
+      );
+      return accepted === ordered.purchaseQuantity;
+    });
+  purchaseOrder.receiptStatus = complete ? "complete" : "partial";
+  purchaseOrder.status = complete
+    ? "fully_received"
+    : "partially_received";
+  appendOperationalAudit(
+    next,
+    actor,
+    routedOverTolerance
+      ? "receipt.operational_over_tolerance_routed"
+      : complete
+      ? "receipt.operational_completed"
+      : "receipt.operational_partial",
+    "receipt",
+    receipt.id,
+    routedOverTolerance
+      ? `The over-tolerance delivery was retained pending approval: ${input.overToleranceRationale?.trim()}`
+      : "Receipt quantities, condition, returns, serial/lot data, and service evidence were validated and posted.",
+    undefined,
+    JSON.stringify({
+      purchaseOrderId: purchaseOrder.id,
+      receiptStatus: purchaseOrder.receiptStatus,
+      acceptedValueCents: totalValueCents,
+    }),
+  );
+  return next;
+}
+
+interface OperationalInvoiceLineInput {
+  lineId: string;
+  quantity: number;
+  unitPriceCents: number;
+}
+
+export function recordOperationalInvoice(
+  state: DemoState,
+  input: {
+    purchaseOrderId: string;
+    invoiceNumber: string;
+    invoiceDate: string;
+    dueDate: string;
+    shippingCents: number;
+    taxCents: number;
+    uploadedDocument: string;
+    lines: OperationalInvoiceLineInput[];
+  },
+  actor: OperationalActorContext,
+) {
+  requireOperationalRole(actor, ["accounts_payable"]);
+  const next = clone(state);
+  const purchaseOrder = next.purchaseOrders.find(
+    (candidate) => candidate.id === input.purchaseOrderId,
+  );
+  if (
+    !purchaseOrder ||
+    ["draft", "awaiting_issuance", "cancelled", "closed"].includes(
+      purchaseOrder.status,
+    )
+  ) {
+    throw new WorkflowError(
+      "An active issued purchase order is required for invoice entry.",
+    );
+  }
+  const seen = new Set<string>();
+  const invoiceLines = input.lines.map((line) => {
+    if (seen.has(line.lineId)) {
+      throw new WorkflowError(
+        "An invoice cannot contain the same PO line twice.",
+      );
+    }
+    seen.add(line.lineId);
+    const ordered = purchaseOrder.lines.find(
+      (candidate) => candidate.id === line.lineId,
+    );
+    if (!ordered) {
+      throw new WorkflowError(
+        `Invoice line ${line.lineId} is not on the purchase order.`,
+      );
+    }
+    return {
+      ...structuredClone(ordered),
+      requestedQuantity: line.quantity,
+      purchaseQuantity: line.quantity,
+      unitPriceCents: line.unitPriceCents,
+    };
+  });
+  const subtotalCents = invoiceLines.reduce(
+    (total, line) =>
+      total + line.purchaseQuantity * line.unitPriceCents,
+    0,
+  );
+  const duplicate = next.invoices.some(
+    (invoice) =>
+      invoice.vendorId === purchaseOrder.vendorId &&
+      invoice.invoiceNumber.toLowerCase() ===
+        input.invoiceNumber.toLowerCase(),
+  );
+  const id = nextOperationalId("invoice-operational", next.invoices);
+  const invoice: Invoice = {
+    id,
+    invoiceNumber: input.invoiceNumber.trim(),
+    vendorId: purchaseOrder.vendorId,
+    purchaseOrderId: purchaseOrder.id,
+    invoiceDate: input.invoiceDate,
+    dueDate: input.dueDate,
+    lines: invoiceLines,
+    subtotalCents,
+    shippingCents: input.shippingCents,
+    taxCents: input.taxCents,
+    totalCents:
+      subtotalCents + input.shippingCents + input.taxCents,
+    matchStatus: duplicate ? "exception" : "pending",
+    duplicateRisk: duplicate ? "possible" : "none",
+    exceptionStatus: duplicate ? "duplicate_invoice" : "none",
+    approvalStatus: duplicate ? "pending" : "not_required",
+    paymentStatus: "on_hold",
+    uploadedDocument: input.uploadedDocument.trim(),
+    varianceCents: 0,
+    varianceReason: duplicate
+      ? "Possible duplicate supplier invoice number detected."
+      : undefined,
+    invoiceType: "standard",
+  };
+  next.invoices.unshift(invoice);
+  purchaseOrder.status = "invoiced";
+  purchaseOrder.invoiceStatus = duplicate ? "exception" : "pending_match";
+  appendOperationalAudit(
+    next,
+    actor,
+    duplicate
+      ? "invoice.operational_duplicate_detected"
+      : "invoice.operational_recorded",
+    "invoice",
+    invoice.id,
+    duplicate
+      ? "The invoice was retained on hold as a possible duplicate; no payment action occurred."
+      : "The invoice document and line facts were recorded pending governed match.",
+    undefined,
+    JSON.stringify({
+      invoiceNumber: invoice.invoiceNumber,
+      totalCents: invoice.totalCents,
+      duplicateRisk: invoice.duplicateRisk,
+    }),
+  );
+  return next;
+}
+
+export function matchOperationalInvoice(
+  state: DemoState,
+  input: {
+    invoiceId: string;
+    matchMode: "two_way" | "three_way";
+    amountToleranceCents: number;
+    quantityTolerance: number;
+  },
+  actor: OperationalActorContext,
+) {
+  requireOperationalRole(actor, ["accounts_payable"]);
+  const next = clone(state);
+  const invoice = next.invoices.find(
+    (candidate) => candidate.id === input.invoiceId,
+  );
+  const purchaseOrder = next.purchaseOrders.find(
+    (candidate) => candidate.id === invoice?.purchaseOrderId,
+  );
+  const request = next.requests.find(
+    (candidate) =>
+      candidate.id === purchaseOrder?.sourceRequestId,
+  );
+  if (!invoice || !purchaseOrder || !request) {
+    throw new WorkflowError(
+      "Invoice, purchase order, and source request are required.",
+    );
+  }
+  if (invoice.matchStatus !== "pending") {
+    throw new WorkflowError(
+      "Only a pending, non-duplicate invoice can be matched.",
+    );
+  }
+  if (
+    input.matchMode === "two_way" &&
+    request.requestChannel !== "service"
+  ) {
+    throw new WorkflowError(
+      "Two-way matching is restricted to approved service requests.",
+    );
+  }
+  const evidence: string[] = [];
+  let maximumQuantityVariance = 0;
+  for (const ordered of purchaseOrder.lines) {
+    const billed =
+      invoice.lines.find((line) => line.id === ordered.id)
+        ?.purchaseQuantity ?? 0;
+    maximumQuantityVariance = Math.max(
+      maximumQuantityVariance,
+      Math.abs(billed - ordered.purchaseQuantity),
+    );
+    if (input.matchMode === "three_way") {
+      const accepted = next.receipts
+        .filter(
+          (receipt) =>
+            receipt.purchaseOrderId === purchaseOrder.id &&
+            receipt.lifecycleStatus !== "reversed",
+        )
+        .reduce(
+          (total, receipt) =>
+            total +
+            (receipt.lines.find(
+              (line) => line.lineId === ordered.id,
+            )?.acceptedQuantity ?? 0),
+          0,
+        );
+      maximumQuantityVariance = Math.max(
+        maximumQuantityVariance,
+        Math.abs(billed - accepted),
+      );
+      evidence.push(
+        `${ordered.id}:ordered=${ordered.purchaseQuantity};accepted=${accepted};billed=${billed}`,
+      );
+    } else {
+      evidence.push(
+        `${ordered.id}:ordered=${ordered.purchaseQuantity};billed=${billed}`,
+      );
+    }
+  }
+  const amountVariance = Math.abs(
+    invoice.totalCents - purchaseOrder.totalCents,
+  );
+  const exception =
+    amountVariance > input.amountToleranceCents ||
+    maximumQuantityVariance > input.quantityTolerance;
+  invoice.matchMode = input.matchMode;
+  invoice.matchEvidence = evidence;
+  invoice.varianceCents = amountVariance;
+  if (exception) {
+    invoice.matchStatus = "exception";
+    invoice.exceptionStatus = "price_or_quantity_variance";
+    invoice.approvalStatus = "pending";
+    invoice.paymentStatus = "on_hold";
+    invoice.varianceReason = `Amount variance ${amountVariance} cents; maximum quantity variance ${maximumQuantityVariance}.`;
+    purchaseOrder.invoiceStatus = "exception";
+  } else {
+    invoice.matchStatus = "matched";
+    invoice.exceptionStatus = "none";
+    invoice.approvalStatus = "not_required";
+    invoice.paymentStatus = "ready";
+    purchaseOrder.invoiceStatus = "matched";
+  }
+  appendOperationalAudit(
+    next,
+    actor,
+    exception
+      ? "invoice.operational_match_exception"
+      : "invoice.operational_matched",
+    "invoice",
+    invoice.id,
+    `${input.matchMode.replaceAll("_", " ")} completed against governed amount and quantity tolerances.`,
+    "pending",
+    invoice.matchStatus,
+  );
+  return next;
+}
+
+export function recordOperationalCredit(
+  state: DemoState,
+  input: {
+    invoiceId: string;
+    creditNumber: string;
+    creditCents: number;
+    reason: string;
+    uploadedDocument: string;
+  },
+  actor: OperationalActorContext,
+) {
+  requireOperationalRole(actor, ["accounts_payable"]);
+  const next = clone(state);
+  const original = next.invoices.find(
+    (candidate) => candidate.id === input.invoiceId,
+  );
+  if (
+    !original ||
+    original.invoiceType === "credit" ||
+    original.paymentStatus !== "exported"
+  ) {
+    throw new WorkflowError(
+      "A previously exported standard invoice is required for a credit.",
+    );
+  }
+  if (input.creditCents > original.totalCents) {
+    throw new WorkflowError(
+      "A credit cannot exceed the original invoice total.",
+    );
+  }
+  if (
+    next.invoices.some(
+      (candidate) =>
+        candidate.vendorId === original.vendorId &&
+        candidate.invoiceNumber.toLowerCase() ===
+          input.creditNumber.toLowerCase(),
+    )
+  ) {
+    throw new WorkflowError(
+      "The credit reference has already been recorded.",
+    );
+  }
+  const sourceLine = original.lines[0];
+  if (!sourceLine) {
+    throw new WorkflowError(
+      "The original invoice has no line evidence.",
+    );
+  }
+  const credit: Invoice = {
+    id: nextOperationalId("invoice-operational-credit", next.invoices),
+    invoiceNumber: input.creditNumber.trim(),
+    vendorId: original.vendorId,
+    purchaseOrderId: original.purchaseOrderId,
+    invoiceDate: next.sessionDate,
+    dueDate: next.sessionDate,
+    lines: [
+      {
+        ...structuredClone(sourceLine),
+        id: `${sourceLine.id}-credit`,
+        description: `Credit: ${input.reason.trim()}`,
+        originalDescription: sourceLine.description,
+        requestedQuantity: 1,
+        purchaseQuantity: 1,
+        unitPriceCents: input.creditCents,
+        originalUnitPriceCents: input.creditCents,
+      },
+    ],
+    subtotalCents: input.creditCents,
+    shippingCents: 0,
+    taxCents: 0,
+    totalCents: input.creditCents,
+    matchStatus: "matched",
+    duplicateRisk: "none",
+    exceptionStatus: "none",
+    approvalStatus: "approved",
+    paymentStatus: "ready",
+    uploadedDocument: input.uploadedDocument.trim(),
+    varianceCents: 0,
+    varianceReason: input.reason.trim(),
+    matchMode: original.matchMode,
+    matchEvidence: [
+      `original_invoice=${original.id}`,
+      `credit_cents=${input.creditCents}`,
+    ],
+    invoiceType: "credit",
+    originalInvoiceId: original.id,
+  };
+  next.invoices.unshift(credit);
+  appendOperationalAudit(
+    next,
+    actor,
+    "invoice.operational_credit_recorded",
+    "invoice",
+    credit.id,
+    "The supplier credit was linked to the original exported invoice and is ready for a separate accounting handoff.",
+    original.id,
+    JSON.stringify({
+      creditNumber: credit.invoiceNumber,
+      creditCents: credit.totalCents,
+    }),
+  );
+  return next;
+}
+
+export function resolveOperationalInvoice(
+  state: DemoState,
+  invoiceId: string,
+  decision: "accept" | "request_correction",
+  justification: string,
+  actor: OperationalActorContext,
+) {
+  requireOperationalRole(actor, ["finance_reviewer"]);
+  const next = clone(state);
+  const invoice = next.invoices.find(
+    (candidate) => candidate.id === invoiceId,
+  );
+  const purchaseOrder = next.purchaseOrders.find(
+    (candidate) => candidate.id === invoice?.purchaseOrderId,
+  );
+  if (
+    !invoice ||
+    !purchaseOrder ||
+    invoice.matchStatus !== "exception"
+  ) {
+    throw new WorkflowError(
+      "A matched invoice exception is required.",
+    );
+  }
+  const previous = invoice.exceptionStatus;
+  if (decision === "request_correction") {
+    invoice.exceptionStatus = "correction_requested";
+    invoice.approvalStatus = "pending";
+    invoice.paymentStatus = "on_hold";
+  } else {
+    if (invoice.duplicateRisk === "possible") {
+      throw new WorkflowError(
+        "A possible duplicate cannot be accepted as a variance.",
+      );
+    }
+    invoice.exceptionStatus = "accepted_with_justification";
+    invoice.approvalStatus = "approved";
+    invoice.paymentStatus = "ready";
+    invoice.matchStatus = "matched";
+    purchaseOrder.invoiceStatus = "matched";
+  }
+  appendOperationalAudit(
+    next,
+    actor,
+    decision === "accept"
+      ? "invoice.operational_variance_accepted"
+      : "invoice.operational_correction_requested",
+    "invoice",
+    invoice.id,
+    justification.trim(),
+    previous,
+    invoice.exceptionStatus,
+  );
+  return next;
+}
+
+export function exportOperationalPaymentReadiness(
+  state: DemoState,
+  invoiceId: string,
+  actor: OperationalActorContext,
+) {
+  requireOperationalRole(actor, ["accounts_payable"]);
+  const next = clone(state);
+  const invoice = next.invoices.find(
+    (candidate) => candidate.id === invoiceId,
+  );
+  if (
+    !invoice ||
+    invoice.matchStatus !== "matched" ||
+    invoice.paymentStatus !== "ready"
+  ) {
+    throw new WorkflowError(
+      "A matched payment-ready invoice is required.",
+    );
+  }
+  const purchaseOrder = next.purchaseOrders.find(
+    (candidate) => candidate.id === invoice.purchaseOrderId,
+  );
+  const request = next.requests.find(
+    (candidate) => candidate.id === purchaseOrder?.sourceRequestId,
+  );
+  const budget = next.budgets.find(
+    (candidate) => candidate.departmentId === request?.departmentId,
+  );
+  if (!purchaseOrder || !request || !budget) {
+    throw new WorkflowError(
+      "Budget and source-order evidence are required for payment-readiness export.",
+    );
+  }
+  if (invoice.invoiceType === "credit") {
+    if (budget.actualSpendCents < invoice.totalCents) {
+      throw new WorkflowError(
+        "The credit exceeds the recorded actual spend.",
+      );
+    }
+    budget.actualSpendCents -= invoice.totalCents;
+  } else {
+    if (budget.committedCents < purchaseOrder.totalCents) {
+      throw new WorkflowError(
+        "The committed budget does not reconcile to the purchase order.",
+      );
+    }
+    budget.committedCents -= purchaseOrder.totalCents;
+    budget.actualSpendCents += invoice.totalCents;
+  }
+  invoice.paymentStatus = "exported";
+  appendOperationalAudit(
+    next,
+    actor,
+    "invoice.operational_payment_readiness_exported",
+    "invoice",
+    invoice.id,
+    invoice.invoiceType === "credit"
+      ? "A credit-adjustment handoff was exported; Catalyst did not initiate, schedule, or execute payment."
+      : "A payment-readiness record was exported; Catalyst did not initiate, schedule, or execute payment.",
+    "ready",
+    "exported",
+  );
+  return next;
+}
+
+export function cancelOperationalPurchaseOrder(
+  state: DemoState,
+  purchaseOrderId: string,
+  reason: string,
+  actor: OperationalActorContext,
+) {
+  requireOperationalRole(actor, ["purchasing_manager"]);
+  const next = clone(state);
+  const purchaseOrder = next.purchaseOrders.find(
+    (candidate) => candidate.id === purchaseOrderId,
+  );
+  if (
+    !purchaseOrder ||
+    !["issued", "acknowledged"].includes(purchaseOrder.status)
+  ) {
+    throw new WorkflowError(
+      "Only an unfulfilled issued or acknowledged PO can be cancelled.",
+    );
+  }
+  if (
+    next.receipts.some(
+      (receipt) =>
+        receipt.purchaseOrderId === purchaseOrder.id &&
+        receipt.lifecycleStatus !== "reversed",
+    ) ||
+    next.invoices.some(
+      (invoice) =>
+        invoice.purchaseOrderId === purchaseOrder.id,
+    )
+  ) {
+    throw new WorkflowError(
+      "Receiving or invoice evidence prevents cancellation; use governed correction instead.",
+    );
+  }
+  const previous = purchaseOrder.status;
+  const request = next.requests.find(
+    (candidate) => candidate.id === purchaseOrder.sourceRequestId,
+  );
+  const budget = next.budgets.find(
+    (candidate) => candidate.departmentId === request?.departmentId,
+  );
+  if (!budget || budget.committedCents < purchaseOrder.totalCents) {
+    throw new WorkflowError(
+      "The committed budget cannot be safely released.",
+    );
+  }
+  budget.committedCents -= purchaseOrder.totalCents;
+  purchaseOrder.status = "cancelled";
+  purchaseOrder.changeOrderHistory.push(
+    `Cancelled: ${reason.trim()}`,
+  );
+  appendOperationalAudit(
+    next,
+    actor,
+    "po.operational_cancelled",
+    "purchase_order",
+    purchaseOrder.id,
+    reason.trim(),
+    previous,
+    "cancelled",
+  );
+  return next;
+}
+
+export function closeOperationalPurchaseOrder(
+  state: DemoState,
+  purchaseOrderId: string,
+  reason: string,
+  actor: OperationalActorContext,
+) {
+  requireOperationalRole(actor, ["purchasing_manager"]);
+  const next = clone(state);
+  const purchaseOrder = next.purchaseOrders.find(
+    (candidate) => candidate.id === purchaseOrderId,
+  );
+  const invoices = next.invoices.filter(
+    (invoice) => invoice.purchaseOrderId === purchaseOrderId,
+  );
+  if (
+    !purchaseOrder ||
+    purchaseOrder.receiptStatus !== "complete" ||
+    purchaseOrder.invoiceStatus !== "matched" ||
+    invoices.length === 0 ||
+    invoices.some(
+      (invoice) => invoice.paymentStatus !== "exported",
+    )
+  ) {
+    throw new WorkflowError(
+      "Closure requires complete receiving, matched invoices, and exported payment-readiness evidence.",
+    );
+  }
+  const previous = purchaseOrder.status;
+  purchaseOrder.status = "closed";
+  purchaseOrder.changeOrderHistory.push(
+    `Closed: ${reason.trim()}`,
+  );
+  appendOperationalAudit(
+    next,
+    actor,
+    "po.operational_closed",
+    "purchase_order",
+    purchaseOrder.id,
+    reason.trim(),
+    previous,
+    "closed",
+  );
   return next;
 }
 
@@ -480,7 +2160,7 @@ export function submitRequest(state: DemoState) {
     channel: "email_simulated",
     deliveryState: "delivered",
     dedupeKey: `${tenantRecordPrefix(next)}:featured:manager-approval-email`,
-    subject: "Simulated email Â· procurement review assigned",
+    subject: "Simulated email · procurement review assigned",
     mandatory: false,
     attempts: 1,
     acknowledged: false,
@@ -503,6 +2183,311 @@ function currentFeaturedApproval(state: DemoState) {
     .filter((approval) => approval.requestId === FEATURED_REQUEST_ID)
     .sort((a, b) => a.sequence - b.sequence)
     .find((approval) => approval.status === "pending");
+}
+
+function activeApprovalDelegation(state: DemoState, approvalId: string) {
+  return state.approvalDelegations.find(
+    (delegation) =>
+      delegation.approvalId === approvalId &&
+      delegation.status === "active" &&
+      delegation.startsOn <= state.sessionDate &&
+      delegation.expiresOn >= state.sessionDate,
+  );
+}
+
+export function delegateApproval(
+  state: DemoState,
+  input: {
+    approvalId: string;
+    delegateRole: DemoRole;
+    delegationType: "manual" | "out_of_office";
+    startsOn: string;
+    expiresOn: string;
+    reason: string;
+  },
+) {
+  const next = clone(state);
+  const approval = next.approvals.find(
+    (candidate) => candidate.id === input.approvalId,
+  );
+  if (!approval || approval.status !== "pending") {
+    throw new WorkflowError("Only a pending approval can be delegated.");
+  }
+  const user = activeUser(next);
+  if (
+    user.id !== approval.approverId &&
+    next.activeRole !== "system_administrator"
+  ) {
+    throw new WorkflowError(
+      "Only the assigned approver or an authorized administrator can delegate this approval.",
+    );
+  }
+  if (input.delegateRole === approval.role) {
+    throw new WorkflowError(
+      "Choose a distinct qualified delegate role for this demonstration.",
+    );
+  }
+  if (
+    input.startsOn > next.sessionDate ||
+    input.expiresOn < next.sessionDate ||
+    input.expiresOn <= input.startsOn
+  ) {
+    throw new WorkflowError(
+      "The delegation must be active now and have a valid bounded end date.",
+    );
+  }
+  if (activeApprovalDelegation(next, approval.id)) {
+    throw new WorkflowError("This approval already has an active delegation.");
+  }
+  const delegation = {
+    id: `approval-delegation-${String(next.approvalDelegations.length + 1).padStart(4, "0")}`,
+    approvalId: approval.id,
+    delegatorUserId: user.id,
+    delegatorRole: approval.role,
+    delegateRole: input.delegateRole,
+    delegationType: input.delegationType,
+    startsOn: input.startsOn,
+    expiresOn: input.expiresOn,
+    status: "active" as const,
+    reason: input.reason.trim(),
+    createdAt: next.sessionDate,
+  };
+  next.approvalDelegations.push(delegation);
+  approval.delegation = `${input.delegationType}:${approval.role}->${input.delegateRole}:${input.startsOn}:${input.expiresOn}`;
+  const queue = next.workQueueItems.find(
+    (candidate) =>
+      candidate.entityId === approval.requestId &&
+      candidate.status !== "completed",
+  );
+  if (queue) queue.assigneeRole = input.delegateRole;
+  appendAudit(
+    next,
+    input.delegationType === "out_of_office"
+      ? "approval.out_of_office_routed"
+      : "approval.delegated",
+    "approval_delegation",
+    delegation.id,
+    `Approval ${approval.id} was delegated from ${approval.role} to ${input.delegateRole} through ${input.expiresOn}.`,
+    undefined,
+    JSON.stringify(delegation),
+    "user",
+  );
+  return next;
+}
+
+export function sendApprovalReminder(state: DemoState, approvalId: string) {
+  const next = clone(state);
+  const approval = next.approvals.find(
+    (candidate) => candidate.id === approvalId,
+  );
+  if (!approval || approval.status !== "pending") {
+    throw new WorkflowError("A reminder requires a pending approval.");
+  }
+  const delegation = activeApprovalDelegation(next, approval.id);
+  const recipientRole = delegation?.delegateRole ?? approval.role;
+  const reminderNumber =
+    next.notifications.filter(
+      (notification) =>
+        notification.eventType === "approval.reminder" &&
+        notification.subject.includes(approval.id),
+    ).length + 1;
+  enqueueNotification(next, {
+    id: `notification-${approval.id}-reminder-${reminderNumber}`,
+    eventType: "approval.reminder",
+    recipientRole,
+    channel: "in_app",
+    deliveryState: "delivered",
+    dedupeKey: `${tenantRecordPrefix(next)}:${approval.id}:reminder:${reminderNumber}`,
+    subject: `${approval.id} approval reminder ${reminderNumber}`,
+    mandatory: true,
+    attempts: 1,
+    acknowledged: false,
+  });
+  appendAudit(
+    next,
+    "approval.reminder_sent",
+    "approval",
+    approval.id,
+    `A retained reminder was delivered to ${recipientRole}.`,
+    approval.status,
+    approval.status,
+    "workflow",
+  );
+  return next;
+}
+
+export function escalateApproval(
+  state: DemoState,
+  approvalId: string,
+  reason: string,
+) {
+  requireRole(state, ["operations_manager", "system_administrator"]);
+  const next = clone(state);
+  const approval = next.approvals.find(
+    (candidate) => candidate.id === approvalId,
+  );
+  if (!approval || approval.status !== "pending") {
+    throw new WorkflowError("Only a pending approval can be escalated.");
+  }
+  const previous = approval.escalationStatus;
+  approval.escalationStatus = "overdue";
+  const queue = next.workQueueItems.find(
+    (candidate) =>
+      candidate.entityId === approval.requestId &&
+      candidate.status !== "completed",
+  );
+  if (queue) {
+    queue.escalationLevel += 1;
+    queue.priority = "critical";
+  }
+  const escalationLevel = queue?.escalationLevel ?? 1;
+  enqueueNotification(next, {
+    id: `notification-${approval.id}-escalation-${escalationLevel}`,
+    eventType: "approval.escalated",
+    recipientRole: "purchasing_manager",
+    channel: "in_app",
+    deliveryState: "delivered",
+    dedupeKey: `${tenantRecordPrefix(next)}:${approval.id}:escalation:${escalationLevel}`,
+    subject: `${approval.id} approval SLA escalation`,
+    mandatory: true,
+    attempts: 1,
+    acknowledged: false,
+  });
+  appendAudit(
+    next,
+    "approval.escalated",
+    "approval",
+    approval.id,
+    reason.trim(),
+    previous,
+    approval.escalationStatus,
+    "workflow",
+  );
+  return next;
+}
+
+export interface BulkApprovalCandidate {
+  approvalId: string;
+  requestId: string;
+  eligible: boolean;
+  reasons: string[];
+}
+
+export function evaluateBulkApprovalCandidates(
+  state: DemoState,
+  approvalIds: string[],
+): BulkApprovalCandidate[] {
+  const user = activeUser(state);
+  return [...new Set(approvalIds)].map((approvalId) => {
+    const reasons: string[] = [];
+    const approval = state.approvals.find(
+      (candidate) => candidate.id === approvalId,
+    );
+    const request = approval
+      ? state.requests.find(
+          (candidate) => candidate.id === approval.requestId,
+        )
+      : undefined;
+    if (!approval) reasons.push("approval_not_found");
+    if (!request) reasons.push("request_not_found");
+    if (approval?.status !== "pending") reasons.push("approval_not_pending");
+    if (
+      approval &&
+      (approval.role !== state.activeRole ||
+        approval.approverId !== user.id)
+    ) {
+      reasons.push("not_directly_assigned_to_active_role");
+    }
+    if (request?.requesterId === user.id) {
+      reasons.push("self_approval_denied");
+    }
+    if (request?.priority !== "normal") {
+      reasons.push("not_low_risk_priority");
+    }
+    if (request?.budgetStatus !== "within_budget") {
+      reasons.push("budget_review_required");
+    }
+    if (
+      request &&
+      (user.approvalAuthorityCents <= 0 ||
+        request.recommendedTotalCents > user.approvalAuthorityCents)
+    ) {
+      reasons.push("approval_limit_exceeded");
+    }
+    if (
+      approval &&
+      state.approvals.filter(
+        (candidate) => candidate.requestId === approval.requestId,
+      ).length !== 1
+    ) {
+      reasons.push("multi_step_route_requires_individual_review");
+    }
+    if (approval && activeApprovalDelegation(state, approval.id)) {
+      reasons.push("delegated_approval_requires_individual_review");
+    }
+    return {
+      approvalId,
+      requestId: approval?.requestId ?? "",
+      eligible: reasons.length === 0,
+      reasons,
+    };
+  });
+}
+
+export function bulkApproveLowRisk(
+  state: DemoState,
+  approvalIds: string[],
+  rationale: string,
+) {
+  if (approvalIds.length === 0 || approvalIds.length > 25) {
+    throw new WorkflowError(
+      "Bulk approval requires between one and twenty-five records.",
+    );
+  }
+  const decisions = evaluateBulkApprovalCandidates(state, approvalIds);
+  const denied = decisions.filter((decision) => !decision.eligible);
+  if (denied.length > 0) {
+    throw new WorkflowError(
+      `Bulk approval blocked: ${denied
+        .map(
+          (decision) =>
+            `${decision.approvalId} (${decision.reasons.join(", ")})`,
+        )
+        .join("; ")}.`,
+    );
+  }
+  const next = clone(state);
+  for (const decision of decisions) {
+    const approval = next.approvals.find(
+      (candidate) => candidate.id === decision.approvalId,
+    )!;
+    const request = next.requests.find(
+      (candidate) => candidate.id === decision.requestId,
+    )!;
+    approval.status = "approved";
+    approval.completedDate = next.sessionDate;
+    approval.decision = "approve";
+    approval.comments = rationale.trim();
+    request.status = "approved";
+    request.fieldsLocked = true;
+    const queue = next.workQueueItems.find(
+      (candidate) =>
+        candidate.entityId === request.id &&
+        candidate.status !== "completed",
+    );
+    if (queue) queue.status = "completed";
+    appendAudit(
+      next,
+      "approval.bulk_record_approved",
+      "approval",
+      approval.id,
+      `Low-risk bulk approval passed per-record authority, amount, budget, role, and segregation checks. Rationale: ${rationale.trim()}`,
+      "pending",
+      "approved",
+      "user",
+    );
+  }
+  return next;
 }
 
 const approvalStage: Record<number, WorkflowStage> = {
@@ -533,14 +2518,21 @@ export function decideApproval(
       "Segregation of duties prevents the requester from approving their own request.",
     );
   }
-  if (approval.approverId !== user.id || approval.role !== next.activeRole) {
+  const delegation = activeApprovalDelegation(next, approval.id);
+  const directlyAssigned =
+    approval.approverId === user.id && approval.role === next.activeRole;
+  const delegated =
+    delegation?.delegateRole === next.activeRole &&
+    delegation.delegatorUserId !== user.id;
+  if (!directlyAssigned && !delegated) {
     throw new WorkflowError(
-      `Switch to the assigned ${approval.role.replaceAll("_", " ")} to decide this step.`,
+      `Switch to the assigned ${(delegation?.delegateRole ?? approval.role).replaceAll("_", " ")} to decide this step.`,
     );
   }
   approval.comments = comments;
   approval.completedDate = next.sessionDate;
   approval.decision = decision;
+  if (delegation) delegation.status = "expired";
 
   if (decision === "return") {
     approval.status = "returned";
@@ -682,6 +2674,12 @@ export function createFeaturedPurchaseOrder(state: DemoState) {
     changeOrderHistory: [],
   };
   next.purchaseOrders.unshift(po);
+  const sourcingAward = next.phaseThree.rfqs.find(
+    (rfq) =>
+      rfq.requestId === request.id &&
+      rfq.award?.supplierId === request.selectedVendorId,
+  )?.award;
+  if (sourcingAward) sourcingAward.purchaseOrderId = po.id;
   request.status = "converted_to_po";
   next.stage = "po_draft";
   appendAudit(
@@ -1131,6 +3129,98 @@ export function issuePurchaseOrderRevision(
   return next;
 }
 
+export function cancelFeaturedPurchaseOrder(
+  state: DemoState,
+  reason: string,
+) {
+  requireRole(state, ["purchasing_manager"]);
+  if (reason.trim().length < 20) {
+    throw new WorkflowError("A substantive cancellation reason is required.");
+  }
+  const next = clone(state);
+  const po = next.purchaseOrders.find(
+    (candidate) => candidate.id === "po-featured",
+  );
+  if (!po || !["issued", "acknowledged"].includes(po.status)) {
+    throw new WorkflowError(
+      "Only an unfulfilled issued or acknowledged purchase order may be cancelled.",
+    );
+  }
+  if (
+    next.receipts.some(
+      (receipt) =>
+        receipt.purchaseOrderId === po.id &&
+        receipt.lifecycleStatus !== "reversed",
+    )
+  ) {
+    throw new WorkflowError(
+      "A purchase order with active receiving evidence cannot be cancelled.",
+    );
+  }
+  const openRevision = next.purchaseOrderRevisions.find(
+    (revision) =>
+      revision.purchaseOrderId === po.id &&
+      ["approval_pending", "approved"].includes(revision.status),
+  );
+  if (openRevision) {
+    throw new WorkflowError(
+      "Resolve the pending purchase-order revision before cancellation.",
+    );
+  }
+  const previous = po.status;
+  po.status = "cancelled";
+  po.changeOrderHistory.push(`Cancelled: ${reason.trim()}`);
+  appendAudit(
+    next,
+    "po.cancelled",
+    "purchase_order",
+    po.id,
+    reason.trim(),
+    previous,
+    po.status,
+    "user",
+  );
+  return next;
+}
+
+export function closeFeaturedPurchaseOrder(state: DemoState, reason: string) {
+  requireRole(state, ["purchasing_manager"]);
+  if (reason.trim().length < 20) {
+    throw new WorkflowError("A substantive closure reason is required.");
+  }
+  const next = clone(state);
+  const po = next.purchaseOrders.find(
+    (candidate) => candidate.id === "po-featured",
+  );
+  const invoice = next.invoices.find(
+    (candidate) => candidate.purchaseOrderId === po?.id,
+  );
+  if (
+    !po ||
+    po.receiptStatus !== "complete" ||
+    po.invoiceStatus !== "matched" ||
+    invoice?.paymentStatus !== "exported"
+  ) {
+    throw new WorkflowError(
+      "A purchase order can close only after receiving, matching, and payment-readiness export fully reconcile.",
+    );
+  }
+  const previous = po.status;
+  po.status = "closed";
+  po.changeOrderHistory.push(`Closed: ${reason.trim()}`);
+  appendAudit(
+    next,
+    "po.closed",
+    "purchase_order",
+    po.id,
+    reason.trim(),
+    previous,
+    po.status,
+    "user",
+  );
+  return next;
+}
+
 export function runThreeWayMatch(state: DemoState) {
   requireStage(state, ["fully_received"]);
   if (state.activeRole !== "accounts_payable") {
@@ -1294,6 +3384,11 @@ export function resolveInvoiceException(
     invoice.exceptionStatus = "accepted_with_justification";
     invoice.approvalStatus = "approved";
     invoice.paymentStatus = "ready";
+    invoice.matchStatus = "matched";
+    const purchaseOrder = next.purchaseOrders.find(
+      (candidate) => candidate.id === invoice.purchaseOrderId,
+    );
+    if (purchaseOrder) purchaseOrder.invoiceStatus = "matched";
     next.stage = "variance_accepted";
   }
   const queue = next.workQueueItems.find(
@@ -1826,13 +3921,24 @@ export function dashboardProjection(state: DemoState) {
       invoice.invoiceDate.slice(0, 4) === state.sessionDate.slice(0, 4),
   );
   const yearToDateSpendCents = postedInvoices.reduce(
-    (total, invoice) => total + invoice.totalCents,
+    (total, invoice) =>
+      total +
+      (invoice.invoiceType === "credit"
+        ? -invoice.totalCents
+        : invoice.totalCents),
     0,
   );
   const purchaseOrderById = new Map(state.purchaseOrders.map((po) => [po.id, po]));
   const spendUnderContractCents = postedInvoices.reduce((total, invoice) => {
     const po = purchaseOrderById.get(invoice.purchaseOrderId);
-    return total + (po?.contractReference ? invoice.totalCents : 0);
+    return (
+      total +
+      (po?.contractReference
+        ? invoice.invoiceType === "credit"
+          ? -invoice.totalCents
+          : invoice.totalCents
+        : 0)
+    );
   }, 0);
   const completedApprovals = state.approvals.filter(
     (approval) => approval.completedDate,

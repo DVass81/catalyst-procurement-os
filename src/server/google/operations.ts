@@ -2,6 +2,7 @@ import "server-only";
 
 import { google } from "googleapis";
 
+import { isSupabaseConfigured } from "@/lib/supabase/env";
 import type { AppSession } from "@/server/auth/session";
 import { decryptToken } from "@/server/security/encryption";
 import { createSupabasePrivateClient } from "@/server/supabase/admin";
@@ -29,7 +30,7 @@ export function isGoogleLiveConfigured() {
       process.env.GOOGLE_CLIENT_SECRET &&
       process.env.TOKEN_ENCRYPTION_KEY &&
       process.env.SUPABASE_SECRET_KEY &&
-      process.env.NEXT_PUBLIC_SUPABASE_URL,
+      isSupabaseConfigured(),
   );
 }
 
