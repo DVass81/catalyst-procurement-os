@@ -87,6 +87,11 @@ export const phaseTwoCommandSchema = z.discriminatedUnion("type", [
     requestId: z.string().min(1).max(120),
   }),
   z.object({
+    type: z.literal("withdraw_operational_request"),
+    requestId: z.string().min(1).max(120),
+    reason: z.string().trim().min(20).max(2_000),
+  }),
+  z.object({
     type: z.literal("decide_operational_approval"),
     approvalId: z.string().min(1).max(120),
     decision: z.enum(["approve", "return", "reject"]),
@@ -200,6 +205,11 @@ export const phaseTwoCommandSchema = z.discriminatedUnion("type", [
   }),
   z.object({
     type: z.literal("close_operational_purchase_order"),
+    purchaseOrderId: z.string().min(1).max(120),
+    reason: z.string().trim().min(20).max(2_000),
+  }),
+  z.object({
+    type: z.literal("reopen_operational_purchase_order"),
     purchaseOrderId: z.string().min(1).max(120),
     reason: z.string().trim().min(20).max(2_000),
   }),

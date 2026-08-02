@@ -681,6 +681,55 @@ export function submitOperationalRequest(
   return next;
 }
 
+export function withdrawOperationalRequest(
+  state: DemoState,
+  requestId: string,
+  reason: string,
+  actor: OperationalActorContext,
+) {
+  const next = clone(state);
+  const request = next.requests.find((item) => item.id === requestId);
+  if (!request) throw new WorkflowError("The request was not found.");
+  if (request.requesterId !== actor.userId || actor.activeRole !== "requester") {
+    throw new WorkflowError("Only the requester can withdraw this request.");
+  }
+  if (!["draft", "returned", "submitted"].includes(request.status)) {
+    throw new WorkflowError(
+      "Only a draft, returned, or unapproved submitted request can be withdrawn.",
+    );
+  }
+  assertActorScope(actor, request.departmentId, request.locationId);
+  const previous = request.status;
+  for (const approval of next.approvals.filter(
+    (item) =>
+      item.requestId === request.id &&
+      ["pending", "not_started"].includes(item.status),
+  )) {
+    approval.status = "rejected";
+    approval.completedDate = next.sessionDate;
+    approval.decision = "withdrawn_by_requester";
+    approval.comments = reason.trim();
+    const queue = next.workQueueItems.find(
+      (item) => item.id === `queue-${approval.id}`,
+    );
+    if (queue) queue.status = "completed";
+  }
+  request.status = "withdrawn";
+  request.fieldsLocked = true;
+  request.revision += 1;
+  appendOperationalAudit(
+    next,
+    actor,
+    "request.operational_withdrawn",
+    "purchase_request",
+    request.id,
+    reason.trim(),
+    previous,
+    "withdrawn",
+  );
+  return next;
+}
+
 export function decideOperationalApproval(
   state: DemoState,
   approvalId: string,
@@ -1834,6 +1883,35 @@ export function closeOperationalPurchaseOrder(
     reason.trim(),
     previous,
     "closed",
+  );
+  return next;
+}
+
+export function reopenOperationalPurchaseOrder(
+  state: DemoState,
+  purchaseOrderId: string,
+  reason: string,
+  actor: OperationalActorContext,
+) {
+  requireOperationalRole(actor, ["purchasing_manager"]);
+  const next = clone(state);
+  const purchaseOrder = next.purchaseOrders.find(
+    (candidate) => candidate.id === purchaseOrderId,
+  );
+  if (!purchaseOrder || purchaseOrder.status !== "closed") {
+    throw new WorkflowError("Only a closed purchase order can be reopened.");
+  }
+  purchaseOrder.status = "invoiced";
+  purchaseOrder.changeOrderHistory.push(`Reopened: ${reason.trim()}`);
+  appendOperationalAudit(
+    next,
+    actor,
+    "po.operational_reopened",
+    "purchase_order",
+    purchaseOrder.id,
+    reason.trim(),
+    "closed",
+    "invoiced",
   );
   return next;
 }

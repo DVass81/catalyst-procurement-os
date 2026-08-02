@@ -7,6 +7,7 @@ import {
   cloneOperationalRequest,
   acknowledgeOperationalPurchaseOrder,
   closeOperationalPurchaseOrder,
+  reopenOperationalPurchaseOrder,
   createOperationalPurchaseOrder,
   createOperationalRequest,
   decideOperationalApproval,
@@ -19,6 +20,7 @@ import {
   resolveOperationalInvoice,
   submitOperationalRequest,
   updateOperationalRequest,
+  withdrawOperationalRequest,
   type OperationalActorContext,
 } from "@/demo/workflow";
 
@@ -211,6 +213,39 @@ describe("operational request lifecycle", () => {
     expect(state.requests.at(-1)?.attachments).toEqual([]);
     expect(state.requests.at(-1)?.requesterId).toBe(requester.userId);
     assertDemoIntegrity(state);
+  });
+
+  it("withdraws a submitted request and closes every outstanding approval", () => {
+    let state = createRequest();
+    const request = state.requests.at(-1)!;
+    state = submitOperationalRequest(state, request.id, requester);
+    state = withdrawOperationalRequest(
+      state,
+      request.id,
+      "The requester documented that the business need ended before any approval or commitment.",
+      requester,
+    );
+
+    expect(state.requests.at(-1)).toMatchObject({
+      status: "withdrawn",
+      fieldsLocked: true,
+    });
+    expect(
+      state.approvals
+        .filter((approval) => approval.requestId === request.id)
+        .every((approval) => approval.status === "rejected"),
+    ).toBe(true);
+    expect(state.auditEvents.at(-1)?.action).toBe(
+      "request.operational_withdrawn",
+    );
+    expect(() =>
+      withdrawOperationalRequest(
+        state,
+        request.id,
+        "A second withdrawal must be rejected without changing retained evidence.",
+        requester,
+      ),
+    ).toThrow(/only a draft, returned, or unapproved submitted request/i);
   });
 
   it("enforces scope, self-approval, approval limit, and governed special paths", () => {
@@ -469,6 +504,25 @@ describe("operational request lifecycle", () => {
         (event) => event.action === "po.operational_closed",
       ),
     ).toBe(true);
+    state = reopenOperationalPurchaseOrder(
+      state,
+      purchaseOrder.id,
+      "A documented administrative correction requires authorized reopening without removing prior evidence.",
+      actor(
+        "purchasing_manager",
+        "00000000-0000-4000-8000-000000000404",
+      ),
+    );
+    expect(state.purchaseOrders[0]?.status).toBe("invoiced");
+    expect(state.auditEvents.at(-1)?.action).toBe("po.operational_reopened");
+    expect(() =>
+      reopenOperationalPurchaseOrder(
+        state,
+        purchaseOrder.id,
+        "A non-manager role cannot reopen a purchase order under any circumstances.",
+        accountsPayable,
+      ),
+    ).toThrow(/requires one of these active roles/i);
     assertDemoIntegrity(state);
   });
 

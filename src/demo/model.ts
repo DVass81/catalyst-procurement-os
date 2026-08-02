@@ -216,6 +216,7 @@ export interface PurchaseRequest {
     | "approved"
     | "returned"
     | "rejected"
+    | "withdrawn"
     | "converted_to_po";
   priority: "normal" | "high" | "urgent";
   lines: RequestLine[];

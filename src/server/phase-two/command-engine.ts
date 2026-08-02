@@ -50,6 +50,7 @@ import {
   updateOperationalRequest,
   cloneOperationalRequest,
   submitOperationalRequest,
+  withdrawOperationalRequest,
   decideOperationalApproval,
   createOperationalPurchaseOrder,
   issueOperationalPurchaseOrder,
@@ -62,6 +63,7 @@ import {
   exportOperationalPaymentReadiness,
   cancelOperationalPurchaseOrder,
   closeOperationalPurchaseOrder,
+  reopenOperationalPurchaseOrder,
   type OperationalActorContext,
 } from "@/demo/workflow";
 import type { PhaseTwoCommand } from "@/phase-two/commands";
@@ -93,6 +95,15 @@ export function executePhaseTwoCommand(
     case "submit_operational_request":
       if (!actor) throw new Error("COMMAND_ACTOR_CONTEXT_REQUIRED");
       next = submitOperationalRequest(current, command.requestId, actor);
+      break;
+    case "withdraw_operational_request":
+      if (!actor) throw new Error("COMMAND_ACTOR_CONTEXT_REQUIRED");
+      next = withdrawOperationalRequest(
+        current,
+        command.requestId,
+        command.reason,
+        actor,
+      );
       break;
     case "decide_operational_approval":
       if (!actor) throw new Error("COMMAND_ACTOR_CONTEXT_REQUIRED");
@@ -171,6 +182,15 @@ export function executePhaseTwoCommand(
     case "close_operational_purchase_order":
       if (!actor) throw new Error("COMMAND_ACTOR_CONTEXT_REQUIRED");
       next = closeOperationalPurchaseOrder(
+        current,
+        command.purchaseOrderId,
+        command.reason,
+        actor,
+      );
+      break;
+    case "reopen_operational_purchase_order":
+      if (!actor) throw new Error("COMMAND_ACTOR_CONTEXT_REQUIRED");
+      next = reopenOperationalPurchaseOrder(
         current,
         command.purchaseOrderId,
         command.reason,

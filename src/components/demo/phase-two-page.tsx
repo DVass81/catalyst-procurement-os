@@ -1028,6 +1028,27 @@ function OperationalRequestWorkbench({
                         Submit
                       </Button>
                     ) : null}
+                    {["draft", "returned", "submitted"].includes(
+                      request.status,
+                    ) ? (
+                      <Button
+                        size="sm"
+                        variant="danger"
+                        onClick={() =>
+                          void execute(
+                            {
+                              type: "withdraw_operational_request",
+                              requestId: request.id,
+                              reason:
+                                "The requester withdrew the documented need before approval or purchase-order conversion.",
+                            },
+                            "Operational request withdrawn",
+                          )
+                        }
+                      >
+                        Withdraw
+                      </Button>
+                    ) : null}
                     {["approved", "converted_to_po"].includes(request.status) ? (
                       <Button
                         size="sm"
@@ -1925,6 +1946,34 @@ function PurchaseOrderView({ state, execute }: { state: DemoState; execute: Exec
                     }
                   >
                     Close
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={
+                      state.activeRole !== "purchasing_manager" ||
+                      order.status !== "closed"
+                    }
+                    title={
+                      state.activeRole !== "purchasing_manager"
+                        ? "Purchasing Manager authority is required"
+                        : order.status !== "closed"
+                          ? "Only a closed purchase order can be reopened"
+                          : undefined
+                    }
+                    onClick={() =>
+                      void execute(
+                        {
+                          type: "reopen_operational_purchase_order",
+                          purchaseOrderId: order.id,
+                          reason:
+                            "Authorized correction requires the reconciled purchase order to return to an open administrative state.",
+                        },
+                        "Operational purchase order reopened",
+                      )
+                    }
+                  >
+                    Reopen
                   </Button>
                 </div>
               </div>

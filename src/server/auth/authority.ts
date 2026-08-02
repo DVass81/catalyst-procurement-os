@@ -115,6 +115,7 @@ const phaseTwoPresenterOnlyCommands = new Set<PhaseTwoCommand["type"]>([
 ]);
 
 const phaseTwoProtectedCommands = new Set<PhaseTwoCommand["type"]>([
+  "withdraw_operational_request",
   "decide_operational_approval",
   "create_operational_purchase_order",
   "issue_operational_purchase_order",
@@ -127,6 +128,7 @@ const phaseTwoProtectedCommands = new Set<PhaseTwoCommand["type"]>([
   "export_operational_payment_readiness",
   "cancel_operational_purchase_order",
   "close_operational_purchase_order",
+  "reopen_operational_purchase_order",
   "decide_vendor_exception",
   "decide_approval",
   "delegate_approval",
@@ -170,6 +172,7 @@ const phaseTwoAllowedRoles: Record<PhaseTwoCommand["type"], readonly DemoRole[]>
     update_operational_request: ["requester"],
     clone_operational_request: ["requester"],
     submit_operational_request: ["requester"],
+    withdraw_operational_request: ["requester"],
     decide_operational_approval: [
       "department_manager",
       "it_reviewer",
@@ -197,6 +200,7 @@ const phaseTwoAllowedRoles: Record<PhaseTwoCommand["type"], readonly DemoRole[]>
     export_operational_payment_readiness: ["accounts_payable"],
     cancel_operational_purchase_order: ["purchasing_manager"],
     close_operational_purchase_order: ["purchasing_manager"],
+    reopen_operational_purchase_order: ["purchasing_manager"],
     analyze_request: ["requester", "purchasing_specialist", "purchasing_manager"],
     accept_inventory_recommendation: [
       "requester",
