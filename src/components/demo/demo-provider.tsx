@@ -18,6 +18,7 @@ import {
 import type { CatalystEnvironmentKind } from "@/config/runtime-environment";
 import type { DemoState } from "@/demo/model";
 import { createDemoState } from "@/demo/seed";
+import { CatalystApiError, readApiJson } from "@/lib/http/api-json";
 import type {
   PhaseTwoCommand,
   PhaseTwoStateEnvelope,
@@ -95,22 +96,27 @@ async function requestState(
       cache: "no-store",
     },
   );
-  const result = (await response.json()) as PhaseTwoStateEnvelope & {
-    message?: string;
-    code?: string;
-    availableRoles?: DemoState["activeRole"][];
-  };
-  if (!response.ok) {
+  try {
+    return await readApiJson<
+      PhaseTwoStateEnvelope & {
+        message?: string;
+        code?: string;
+        availableRoles?: DemoState["activeRole"][];
+      }
+    >(response, "The authoritative Catalyst state is unavailable.");
+  } catch (error) {
     if (
-      response.status === 409 &&
-      result.code === "ACTIVE_ROLE_REQUIRED" &&
-      Array.isArray(result.availableRoles)
+      error instanceof CatalystApiError &&
+      error.status === 409 &&
+      error.code === "ACTIVE_ROLE_REQUIRED" &&
+      Array.isArray(error.payload?.availableRoles)
     ) {
-      throw new ActiveRoleRequiredError(result.availableRoles);
+      throw new ActiveRoleRequiredError(
+        error.payload.availableRoles as DemoState["activeRole"][],
+      );
     }
-    throw new Error(result.message ?? "The authoritative demo state is unavailable.");
+    throw error;
   }
-  return result;
 }
 
 async function requestWorkspaceContext() {
@@ -118,16 +124,11 @@ async function requestWorkspaceContext() {
     headers: { Accept: "application/json" },
     cache: "no-store",
   });
-  const result = (await response.json()) as {
-    message?: string;
+  return readApiJson<{
     tenantIds?: string[];
     defaultTenantId?: string | null;
     environmentKind?: CatalystEnvironmentKind;
-  };
-  if (!response.ok) {
-    throw new Error(result.message ?? "Workspace access is unavailable.");
-  }
-  return result;
+  }>(response, "Workspace access is unavailable.");
 }
 
 export function DemoProvider({ children }: { children: React.ReactNode }) {
@@ -303,6 +304,7 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
             "Content-Type": "application/json",
             Accept: "application/json",
             "x-catalyst-active-role": activeRoleRef.current,
+            "x-catalyst-correlation-id": correlationId,
           },
           body: JSON.stringify({
             tenantId,
@@ -314,18 +316,24 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
             command,
           }),
         });
-        const result = (await response.json()) as PhaseTwoStateEnvelope & {
-          message?: string;
-        };
-        if (!response.ok) {
-          if (response.status === 409) {
+        let result: PhaseTwoStateEnvelope;
+        try {
+          result = await readApiJson<PhaseTwoStateEnvelope>(
+            response,
+            "The workflow command failed.",
+          );
+        } catch (responseError) {
+          if (
+            responseError instanceof CatalystApiError &&
+            responseError.status === 409
+          ) {
             const latest = await requestState(
               tenantId,
               activeRoleRef.current,
             );
             acceptEnvelope(tenantId, latest);
           }
-          throw new Error(result.message ?? "The workflow command failed.");
+          throw responseError;
         }
         acceptEnvelope(tenantId, result);
         return result.state;

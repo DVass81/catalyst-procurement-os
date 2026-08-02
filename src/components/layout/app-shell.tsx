@@ -57,6 +57,52 @@ import { BrandMark } from "./brand-mark";
 
 type Theme = "light" | "dark" | "system";
 
+function WorkspaceResolutionScreen({
+  blocked = false,
+  message,
+}: {
+  blocked?: boolean;
+  message?: string | null;
+}) {
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-[var(--background)] p-6">
+      <section
+        aria-live="polite"
+        aria-busy={blocked ? undefined : true}
+        className="w-full max-w-lg rounded-3xl border border-[var(--border)] bg-[var(--surface)] p-8 text-center shadow-[var(--shadow-elevated)]"
+      >
+        <span className="mx-auto flex size-14 items-center justify-center rounded-2xl bg-[var(--brand-soft)] text-[var(--brand-primary)]">
+          <ShieldCheck
+            className={cn("size-7", !blocked && "animate-pulse")}
+            aria-hidden="true"
+          />
+        </span>
+        <p className="mt-5 text-xs font-black uppercase tracking-[0.14em] text-[var(--brand-secondary-text)]">
+          Secure workspace resolution
+        </p>
+        <h1 className="mt-2 text-2xl font-black text-[var(--foreground)]">
+          {blocked ? "Workspace unavailable" : "Preparing your workspace"}
+        </h1>
+        <p className="mt-3 text-sm leading-6 text-[var(--muted-foreground)]">
+          {blocked
+            ? message ??
+              "Catalyst could not verify authoritative access. No tenant records or controlled actions were loaded."
+            : "Catalyst is verifying your session, organization, active role, permissions, and authoritative records before displaying any workspace data."}
+        </p>
+        {blocked ? (
+          <Button className="mt-6" onClick={() => window.location.reload()}>
+            Retry secure resolution
+          </Button>
+        ) : (
+          <div className="mx-auto mt-6 h-1.5 w-48 overflow-hidden rounded-full bg-[var(--surface-muted)]">
+            <div className="h-full w-2/3 animate-pulse rounded-full bg-[var(--brand-primary)]" />
+          </div>
+        )}
+      </section>
+    </main>
+  );
+}
+
 const resultTypeLabels: Record<string, string> = {
   purchase_request: "Purchase request",
   purchase_order: "Purchase order",
@@ -770,7 +816,7 @@ export function AppShell({
 }) {
   const pathname = usePathname();
   const guide = useCatalystGuide();
-  const { state } = useDemo();
+  const { durability, error, hydrated, persistence, state } = useDemo();
   const organization = state.organization;
   const [mobileOpen, setMobileOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -825,6 +871,14 @@ export function AppShell({
     currentItem?.label ??
     titleCase(pathname.split("/").filter(Boolean).at(-1) ?? "Dashboard");
   const stagingBypass = accessMode === "staging_bypass";
+
+  if (!hydrated) {
+    return <WorkspaceResolutionScreen />;
+  }
+
+  if (durability === "read_only" && persistence === "unavailable") {
+    return <WorkspaceResolutionScreen blocked message={error} />;
+  }
 
   return (
     <div

@@ -31,6 +31,25 @@ const noStoreHeaders = {
   Vary: "Cookie",
 };
 
+function correlationIdFor(request: Request, fallback?: string) {
+  return (
+    fallback ??
+    request.headers.get("x-catalyst-correlation-id") ??
+    crypto.randomUUID()
+  );
+}
+
+function responseHeaders(
+  correlationId: string,
+  additional?: Record<string, string>,
+) {
+  return {
+    ...noStoreHeaders,
+    "X-Catalyst-Correlation-Id": correlationId,
+    ...additional,
+  };
+}
+
 function statusFor(error: unknown) {
   const message = error instanceof Error ? error.message : "";
   if (message === "AUTHENTICATION_REQUIRED") return 401;
@@ -135,11 +154,16 @@ function rejectionCode(error: unknown) {
 }
 
 export async function GET(request: Request) {
+  const correlationId = correlationIdFor(request);
   const tenantId = new URL(request.url).searchParams.get("tenantId") ?? "";
   if (!tenantId || tenantId.length > 80) {
     return NextResponse.json(
-      { message: "A valid tenant is required." },
-      { status: 400, headers: noStoreHeaders },
+      {
+        code: "INVALID_TENANT",
+        correlationId,
+        message: "A valid tenant is required.",
+      },
+      { status: 400, headers: responseHeaders(correlationId) },
     );
   }
   try {
@@ -168,13 +192,14 @@ export async function GET(request: Request) {
       return NextResponse.json(
         {
           code: "ACTIVE_ROLE_REQUIRED",
+          correlationId,
           message:
             "Select one of your assigned roles before loading tenant records.",
           availableRoles: directlyAssignedRoles.map(
             (assignment) => assignment.role,
           ),
         },
-        { status: 409, headers: noStoreHeaders },
+        { status: 409, headers: responseHeaders(correlationId) },
       );
     }
     const presenterSimulation =
@@ -200,7 +225,7 @@ export async function GET(request: Request) {
           (assignment) => assignment.role,
         ),
       },
-      { headers: noStoreHeaders },
+      { headers: responseHeaders(correlationId) },
     );
     response.cookies.set("catalyst-active-role", activeRole, {
       httpOnly: true,
@@ -217,13 +242,18 @@ export async function GET(request: Request) {
     return response;
   } catch (error) {
     return NextResponse.json(
-      { message: safeMessage(error) },
-      { status: statusFor(error), headers: noStoreHeaders },
+      {
+        code: rejectionCode(error),
+        correlationId,
+        message: safeMessage(error),
+      },
+      { status: statusFor(error), headers: responseHeaders(correlationId) },
     );
   }
 }
 
 export async function POST(request: Request) {
+  const requestCorrelationId = correlationIdFor(request);
   const rate = consumeRateLimit(
     `phase-two-command:${requestFingerprint(request)}`,
     120,
@@ -231,11 +261,15 @@ export async function POST(request: Request) {
   );
   if (!rate.allowed) {
     return NextResponse.json(
-      { message: "Workflow command limit reached. Please wait a moment." },
+      {
+        code: "RATE_LIMITED",
+        correlationId: requestCorrelationId,
+        message: "Workflow command limit reached. Please wait a moment.",
+      },
       {
         status: 429,
         headers: {
-          ...noStoreHeaders,
+          ...responseHeaders(requestCorrelationId),
           "Retry-After": String(rate.retryAfterSeconds),
         },
       },
@@ -246,17 +280,23 @@ export async function POST(request: Request) {
   );
   if (!parsed.success) {
     return NextResponse.json(
-      { message: "The workflow command is invalid." },
-      { status: 400, headers: noStoreHeaders },
+      {
+        code: "INVALID_COMMAND",
+        correlationId: requestCorrelationId,
+        message: "The workflow command is invalid.",
+      },
+      { status: 422, headers: responseHeaders(requestCorrelationId) },
     );
   }
   if (parsed.data.command.type === "generate_audit_package") {
     return NextResponse.json(
       {
+        code: "CONTROLLED_ENDPOINT_REQUIRED",
+        correlationId: requestCorrelationId,
         message:
           "Audit packages must use the controlled artifact-generation endpoint.",
       },
-      { status: 400, headers: noStoreHeaders },
+      { status: 400, headers: responseHeaders(requestCorrelationId) },
     );
   }
 
@@ -264,6 +304,10 @@ export async function POST(request: Request) {
     ReturnType<typeof requireAppSession>
   > | null = null;
   let rejectionActiveRole: string | undefined;
+  const correlationId = correlationIdFor(
+    request,
+    parsed.data.correlationId || requestCorrelationId,
+  );
   try {
     const environment = assessRuntimeEnvironment();
     const session = await requireAppSession(parsed.data.tenantId);
@@ -357,7 +401,7 @@ export async function POST(request: Request) {
         },
         {
           headers: {
-            ...noStoreHeaders,
+            ...responseHeaders(correlationId),
             "X-Catalyst-Command-Replayed": "1",
             "X-RateLimit-Remaining": String(rate.remaining),
           },
@@ -405,7 +449,7 @@ export async function POST(request: Request) {
     };
     return NextResponse.json(response, {
       headers: {
-        ...noStoreHeaders,
+        ...responseHeaders(correlationId),
         "X-Catalyst-Command-Replayed": committed.replayed ? "1" : "0",
         "X-RateLimit-Remaining": String(rate.remaining),
       },
@@ -445,16 +489,26 @@ export async function POST(request: Request) {
       } catch {
         return NextResponse.json(
           {
+            code: "REJECTION_EVIDENCE_UNAVAILABLE",
+            correlationId,
             message:
               "The action was rejected without changing state, but its rejection evidence could not be preserved. All controlled actions remain blocked.",
           },
-          { status: 503, headers: noStoreHeaders },
+          {
+            status: 503,
+            headers: responseHeaders(correlationId),
+          },
         );
       }
     }
     return NextResponse.json(
-      { message: safeMessage(error), rejectionResult },
-      { status: statusFor(error), headers: noStoreHeaders },
+      {
+        code: rejectionCode(error),
+        correlationId,
+        message: safeMessage(error),
+        rejectionResult,
+      },
+      { status: statusFor(error), headers: responseHeaders(correlationId) },
     );
   }
 }
