@@ -24,6 +24,9 @@ services:
       - key: APP_BASE_URL
         value: ${APP_URL}
         scope: RUN_TIME
+      - key: CATALYST_ENVIRONMENT_KIND
+        value: development_preview
+        scope: RUN_TIME
       - key: DEMO_AUTH_BYPASS
         value: "1"
         scope: RUN_TIME
@@ -38,6 +41,12 @@ services:
         scope: RUN_TIME
       - key: CATALYST_RELEASE_CHANNEL
         value: development-preview
+        scope: RUN_TIME
+      - key: CATALYST_PRESENTER_SIMULATION
+        value: "1"
+        scope: RUN_TIME
+      - key: CATALYST_RESET_ENABLED
+        value: "1"
         scope: RUN_TIME
       - key: CATALYST_RELEASE_COMMIT
         value: ${_self.COMMIT_HASH}
