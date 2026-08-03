@@ -2,14 +2,19 @@ import type {
   AiCapability,
   AiModelOutput,
   AiRunRequest,
+  CateCalculation,
+  CateClaim,
+  CateIntentAssessment,
   Citation,
   EvidenceCard,
   ProposedAction,
 } from "@/ai/types";
 import { tenantDemoConfigs, tenantThemes } from "@/config/organizations";
 import { createDemoState, FREIGHT_VARIANCE_CENTS } from "@/demo/seed";
+import type { DemoState } from "@/demo/model";
+import { dashboardProjection } from "@/demo/workflow";
+import { assessCateIntent } from "@/server/ai/intent";
 import { createProposedAction } from "@/server/security/confirmation";
-import { classifyCapability } from "@/server/ai/router";
 import { recommendedVendorEvaluation } from "@/demo/vendor-policy";
 
 const HUMAN_REVIEW =
@@ -95,11 +100,18 @@ function googleProposals(
   return actions;
 }
 
-export function deterministicAiOutput(request: AiRunRequest): {
+export function deterministicAiOutput(
+  request: AiRunRequest,
+  stateOverride?: DemoState,
+): {
   capability: AiCapability;
+  intent: CateIntentAssessment;
   output: AiModelOutput;
+  calculation?: CateCalculation;
+  claims: CateClaim[];
 } {
-  const capability = request.capability ?? classifyCapability(request.prompt);
+  const intent = assessCateIntent(request.prompt, request.capability);
+  const capability = intent.resolvedCapability;
   const theme =
     tenantThemes[request.tenantId as keyof typeof tenantThemes] ??
     tenantThemes["org-y12-demo"];
@@ -108,20 +120,22 @@ export function deterministicAiOutput(request: AiRunRequest): {
     tenantDemoConfigs["org-y12-demo"];
   const recordPrefix =
     request.tenantId === "org-y12-demo" ? "Y12" : "CCCU";
-  const state = createDemoState(theme);
+  const state = stateOverride ?? createDemoState(theme);
   const featured = state.requests.find(
     (candidate) => candidate.id === state.featuredRequestId,
-  )!;
+  );
   const recommendedQuote = state.quotes.find(
     (quote) => quote.recommendation === "recommended",
-  )!;
+  );
   const recommendedVendor = state.vendors.find(
-    (vendor) => vendor.id === recommendedQuote.vendorId,
-  )!;
-  const recommendedEvaluation = recommendedVendorEvaluation(state)!;
+    (vendor) => vendor.id === recommendedQuote?.vendorId,
+  );
+  const recommendedEvaluation = recommendedVendorEvaluation(state);
   const lendingBudget = state.budgets.find(
-    (budget) => budget.departmentId === "dept-lending",
-  )!;
+    (budget) =>
+      budget.departmentId === featured?.departmentId ||
+      budget.departmentId === "dept-lending",
+  );
   const elevatedVendors = state.vendors.filter(
     (vendor) => vendor.riskTier === "high",
   );
@@ -129,18 +143,22 @@ export function deterministicAiOutput(request: AiRunRequest): {
     (contract) => contract.status === "renewal_due",
   );
 
-  const commonCitations = [
-    recordCitation(
-      "request-record",
-      featured.title,
-      featured.requestNumber,
-      "/purchase-requests",
-    ),
-  ];
-  let displayText = "";
-  let narrationText = "";
+  const commonCitations = featured
+    ? [
+        recordCitation(
+          "request-record",
+          featured.title,
+          featured.requestNumber,
+          "/purchase-requests",
+        ),
+      ]
+    : [];
+  let displayText: string;
+  let narrationText: string;
   let citations = commonCitations;
-  let evidenceCards: EvidenceCard[] = [];
+  let evidenceCards: EvidenceCard[];
+  let calculation: CateCalculation | undefined;
+  let claims: CateClaim[] = [];
 
   switch (capability) {
     case "requisition":
@@ -179,6 +197,9 @@ export function deterministicAiOutput(request: AiRunRequest): {
       ];
       break;
     case "gl_budget": {
+      if (!lendingBudget) {
+        throw new Error("CATE_EVIDENCE_UNAVAILABLE");
+      }
       const available =
         lendingBudget.revisedBudgetCents -
         lendingBudget.actualSpendCents -
@@ -198,6 +219,13 @@ export function deterministicAiOutput(request: AiRunRequest): {
       break;
     }
     case "quote_comparison":
+      if (
+        !recommendedQuote ||
+        !recommendedVendor ||
+        !recommendedEvaluation
+      ) {
+        throw new Error("CATE_EVIDENCE_UNAVAILABLE");
+      }
       citations = [
         ...commonCitations,
         recordCitation("quote-record", "Fictional quote comparison", recommendedQuote.quoteNumber, "/purchase-requests"),
@@ -262,6 +290,71 @@ export function deterministicAiOutput(request: AiRunRequest): {
         evidence("variance", "Unapproved freight", `$${(FREIGHT_VARIANCE_CENTS / 100).toFixed(2)}`, "Invoice remains on hold", "critical", ["invoice-record"]),
       ];
       break;
+    case "posted_spend": {
+      const projection = dashboardProjection(state);
+      const postedInvoices = state.invoices.filter(
+        (invoice) =>
+          invoice.matchStatus === "matched" &&
+          invoice.paymentStatus !== "on_hold" &&
+          invoice.invoiceDate.slice(0, 4) === state.sessionDate.slice(0, 4),
+      );
+      const postedSpend = `$${(
+        projection.yearToDateSpendCents / 100
+      ).toLocaleString("en-US", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      })}`;
+      citations = [
+        recordCitation(
+          "spend-ledger",
+          `${state.sessionDate.slice(0, 4)} posted invoice ledger`,
+          tenant.dataPackId,
+          "/analytics",
+        ),
+      ];
+      displayText = `${postedSpend} is the current calendar-year posted spend as of ${state.sessionDate}. It includes ${postedInvoices.length} matched fictional invoices that are not on hold. A purchasing manager should review the governed-spend and exception drilldowns, then assign any material off-contract or held-item follow-up to an authorized owner.`;
+      narrationText = `Current posted spend is ${postedSpend}, based on ${postedInvoices.length} matched invoices that are not on hold. The next step is to review the governed-spend and exception drilldowns before assigning follow-up.`;
+      evidenceCards = [
+        evidence(
+          "posted-spend",
+          "YTD posted spend",
+          postedSpend,
+          `As of ${state.sessionDate} · ${postedInvoices.length} matched, non-held invoices`,
+          "neutral",
+          ["spend-ledger"],
+        ),
+      ];
+      calculation = {
+        formula:
+          "Sum invoice total cents where match status is matched, payment status is not on hold, and invoice year equals the demonstration year.",
+        asOf: state.sessionDate,
+        filters: [
+          "match_status = matched",
+          "payment_status != on_hold",
+          `invoice_year = ${state.sessionDate.slice(0, 4)}`,
+          "synthetic tenant records only",
+        ],
+        recordCount: postedInvoices.length,
+        result: postedSpend,
+        sourceCitationIds: ["spend-ledger"],
+      };
+      claims = [
+        {
+          id: "claim-posted-spend",
+          text: `${postedSpend} is the current calendar-year posted spend as of ${state.sessionDate}.`,
+          classification: "fact",
+          sourceCitationIds: ["spend-ledger"],
+        },
+        {
+          id: "claim-posted-spend-action",
+          text:
+            "An authorized purchasing manager should review the governed-spend and exception drilldowns before assigning follow-up.",
+          classification: "human_action",
+          sourceCitationIds: ["spend-ledger"],
+        },
+      ];
+      break;
+    }
     case "spend_intelligence":
       citations = [
         recordCitation("spend-ledger", "FY2026 fictional spend ledger", tenant.dataPackId, "/analytics"),
@@ -277,6 +370,9 @@ export function deterministicAiOutput(request: AiRunRequest): {
       ];
       break;
     case "negotiation":
+      if (!recommendedQuote) {
+        throw new Error("CATE_EVIDENCE_UNAVAILABLE");
+      }
       citations = [
         recordCitation("quote-record", "Fictional quote comparison", recommendedQuote.quoteNumber, "/purchase-requests"),
       ];
@@ -331,6 +427,7 @@ export function deterministicAiOutput(request: AiRunRequest): {
 
   return {
     capability,
+    intent,
     output: {
       displayText,
       narrationText,
@@ -380,5 +477,18 @@ export function deterministicAiOutput(request: AiRunRequest): {
         "CATE provides evidence-backed analysis only. An authorized person retains every approval, award, issuance, receipt, exception, and payment-readiness decision.",
       humanReviewNotice: HUMAN_REVIEW,
     },
+    calculation,
+    claims:
+      claims.length > 0
+        ? claims
+        : [
+            {
+              id: `claim-${capability}`,
+              text: displayText,
+              classification:
+                citations.length > 0 ? "fact" : "limitation",
+              sourceCitationIds: citations.map((citation) => citation.id),
+            },
+          ],
   };
 }

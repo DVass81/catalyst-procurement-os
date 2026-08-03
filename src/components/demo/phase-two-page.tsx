@@ -26,6 +26,10 @@ import {
 } from "recharts";
 
 import { useDemo } from "@/components/demo/demo-provider";
+import {
+  WorkflowRail,
+  workflowStageRank,
+} from "@/components/demo/workflow-rail";
 import { AiWorkspace } from "@/components/ai/ai-workspace";
 import { CertifiedKpiDashboard } from "@/components/analytics/certified-kpi-dashboard";
 import {
@@ -35,57 +39,24 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import type { DemoRole, DemoState, WorkflowStage } from "@/demo/model";
+import type { DemoRole, DemoState } from "@/demo/model";
 import {
   dashboardProjection,
+  evaluateBulkApprovalCandidates,
   featuredApprovalsFor,
   featuredFinancials,
 } from "@/demo/workflow";
 import { formatCurrency, titleCase } from "@/lib/utils";
-import { formatSessionDate } from "@/demo/clock";
+import { addCalendarDays, formatSessionDate } from "@/demo/clock";
 import { statusLabel, statusPresentation } from "@/demo/presentation";
 import { evaluateVendorQuotes } from "@/demo/vendor-policy";
 import type { PhaseTwoCommand } from "@/phase-two/commands";
+import type { ImportEntityType } from "@/phase-two/import-mapping";
 
 type ExecuteCommand = (
   command: PhaseTwoCommand | PhaseTwoCommand[],
   success: string,
 ) => Promise<void>;
-
-const workflowSteps: Array<[string, WorkflowStage]> = [
-  ["Request", "draft"],
-  ["Inventory", "inventory_reviewed"],
-  ["Standards", "standards_reviewed"],
-  ["Vendor", "vendor_selected"],
-  ["Budget", "budget_confirmed"],
-  ["Approvals", "submitted"],
-  ["PO", "po_draft"],
-  ["Receipt", "fully_received"],
-  ["Invoice & Audit", "invoice_exception"],
-];
-
-const stageRanks: Record<WorkflowStage, number> = {
-  draft: 0,
-  analyzed: 0,
-  inventory_reviewed: 1,
-  standards_reviewed: 2,
-  vendor_selected: 3,
-  budget_confirmed: 4,
-  submitted: 5,
-  manager_approved: 5,
-  it_approved: 5,
-  purchasing_approved: 5,
-  approved: 5,
-  po_draft: 6,
-  po_issued: 6,
-  acknowledged: 6,
-  fully_received: 7,
-  invoice_exception: 8,
-  exception_routed: 8,
-  correction_requested: 8,
-  variance_accepted: 8,
-  resolved: 8,
-};
 
 function money(cents: number) {
   return formatCurrency(cents / 100, {
@@ -118,29 +89,6 @@ function SectionHeader({
   );
 }
 
-function WorkflowRail({ stage }: { stage: WorkflowStage }) {
-  const active = stageRanks[stage];
-  return (
-    <div className="scrollbar-none flex gap-2 overflow-x-auto pb-1" aria-label="Featured workflow progress">
-      {workflowSteps.map(([label], index) => (
-        <div
-          key={label}
-          data-tour-id={`workflow-${label.toLowerCase().replaceAll(" ", "-")}`}
-          className={`min-w-28 rounded-xl border px-3 py-2 text-center text-[10px] font-extrabold ${
-            index === active
-              ? "border-[var(--brand-primary)] bg-[var(--brand-primary)] text-white"
-              : index < active
-                ? "border-sky-200 bg-sky-50 text-[var(--brand-primary)] dark:border-sky-900 dark:bg-sky-950/30"
-                : "border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)]"
-          }`}
-        >
-          {index + 1}. {label}
-        </div>
-      ))}
-    </div>
-  );
-}
-
 function DataTable({
   columns,
   rows,
@@ -151,19 +99,169 @@ function DataTable({
   pageSize?: number;
 }) {
   const [showAll, setShowAll] = useState(false);
-  const visibleRows = showAll ? rows : rows.slice(0, pageSize);
+  const [query, setQuery] = useState("");
+  const [visibleColumnIndexes, setVisibleColumnIndexes] = useState<number[]>(
+    () => columns.map((_, index) => index),
+  );
+  const tableKey = `catalyst-table-view:${columns
+    .join("-")
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, "")}`;
+  const searchId = `${tableKey.replaceAll(":", "-")}-search`;
+  const normalizedQuery = query.trim().toLowerCase();
+  const filteredRows = normalizedQuery
+    ? rows.filter((row) =>
+        row.some((cell) =>
+          String(cell).toLowerCase().includes(normalizedQuery),
+        ),
+      )
+    : rows;
+  const visibleRows = showAll
+    ? filteredRows
+    : filteredRows.slice(0, pageSize);
+
+  function saveView() {
+    window.localStorage.setItem(
+      tableKey,
+      JSON.stringify({
+        query,
+        visibleColumnIndexes,
+      }),
+    );
+  }
+
+  function loadView() {
+    const stored = window.localStorage.getItem(tableKey);
+    if (!stored) return;
+    try {
+      const parsed = JSON.parse(stored) as {
+        query?: unknown;
+        visibleColumnIndexes?: unknown;
+      };
+      if (typeof parsed.query === "string") setQuery(parsed.query);
+      if (
+        Array.isArray(parsed.visibleColumnIndexes) &&
+        parsed.visibleColumnIndexes.every(
+          (index) =>
+            Number.isInteger(index) &&
+            index >= 0 &&
+            index < columns.length,
+        ) &&
+        parsed.visibleColumnIndexes.length > 0
+      ) {
+        setVisibleColumnIndexes(parsed.visibleColumnIndexes);
+      }
+    } catch {
+      window.localStorage.removeItem(tableKey);
+    }
+  }
+
+  function exportCurrentView() {
+    const csvRows = [
+      visibleColumnIndexes.map((index) => columns[index]),
+      ...filteredRows.map((row) =>
+        visibleColumnIndexes.map((index) => row[index]),
+      ),
+    ];
+    const csv = csvRows
+      .map((row) =>
+        row
+          .map((cell) => `"${String(cell ?? "").replaceAll('"', '""')}"`)
+          .join(","),
+      )
+      .join("\r\n");
+    const url = URL.createObjectURL(
+      new Blob([csv], { type: "text/csv;charset=utf-8" }),
+    );
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "catalyst-authorized-current-view.csv";
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function toggleColumn(index: number) {
+    setVisibleColumnIndexes((current) => {
+      if (current.includes(index)) {
+        return current.length === 1
+          ? current
+          : current.filter((candidate) => candidate !== index);
+      }
+      return [...current, index].sort((left, right) => left - right);
+    });
+  }
+
   return (
     <div className="overflow-hidden rounded-2xl border border-[var(--border)]">
+      <div className="flex flex-col gap-3 border-b border-[var(--border)] bg-[var(--surface-subtle)] p-3 lg:flex-row lg:items-center">
+        <div className="min-w-0 flex-1">
+          <label className="sr-only" htmlFor={searchId}>
+            Filter table records
+          </label>
+          <input
+            id={searchId}
+            type="search"
+            value={query}
+            onChange={(event) => {
+              setQuery(event.target.value);
+              setShowAll(false);
+            }}
+            placeholder="Filter all visible records"
+            className="h-9 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-xs outline-none focus:ring-2 focus:ring-[var(--brand-secondary)]"
+          />
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <details className="relative">
+            <summary className="flex h-9 cursor-pointer list-none items-center rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-xs font-bold">
+              Columns ({visibleColumnIndexes.length}/{columns.length})
+            </summary>
+            <fieldset className="absolute right-0 z-20 mt-2 max-h-72 min-w-56 overflow-auto rounded-xl border border-[var(--border)] bg-[var(--surface-elevated)] p-3 shadow-[var(--shadow-elevated)]">
+              <legend className="sr-only">Visible columns</legend>
+              {columns.map((column, index) => (
+                <label
+                  key={column}
+                  className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-xs hover:bg-[var(--surface-subtle)]"
+                >
+                  <input
+                    type="checkbox"
+                    checked={visibleColumnIndexes.includes(index)}
+                    onChange={() => toggleColumn(index)}
+                  />
+                  {column}
+                </label>
+              ))}
+            </fieldset>
+          </details>
+          <Button size="sm" variant="secondary" onClick={saveView}>
+            Save view
+          </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={loadView}
+          >
+            Load view
+          </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={filteredRows.length === 0}
+            onClick={exportCurrentView}
+          >
+            Export current view
+          </Button>
+        </div>
+      </div>
       <div className="overflow-x-auto">
       <table className="w-full min-w-[760px] border-collapse text-left text-xs">
         <thead className="bg-[var(--surface-subtle)]">
           <tr>
-            {columns.map((column) => (
+            {visibleColumnIndexes.map((columnIndex) => (
               <th
-                key={column}
+                key={columns[columnIndex]}
                 className="border-b border-[var(--border)] px-4 py-3 text-[10px] font-black uppercase tracking-wider text-[var(--muted-foreground)]"
               >
-                {column}
+                {columns[columnIndex]}
               </th>
             ))}
           </tr>
@@ -171,7 +269,9 @@ function DataTable({
         <tbody>
           {visibleRows.map((row, rowIndex) => (
             <tr key={rowIndex} className="border-b border-[var(--border)] last:border-0">
-              {row.map((cell, cellIndex) => (
+              {visibleColumnIndexes.map((cellIndex) => {
+                const cell = row[cellIndex];
+                return (
                 <td
                   key={`${cell}-${cellIndex}`}
                   className={`px-4 py-3 text-[var(--muted-foreground)] ${
@@ -187,26 +287,38 @@ function DataTable({
                     cell
                   )}
                 </td>
-              ))}
+                );
+              })}
             </tr>
           ))}
+          {visibleRows.length === 0 ? (
+            <tr>
+              <td
+                colSpan={visibleColumnIndexes.length}
+                className="px-4 py-10 text-center text-sm text-[var(--muted-foreground)]"
+              >
+                No authorized records match this filter.
+              </td>
+            </tr>
+          ) : null}
         </tbody>
       </table>
       </div>
-      {rows.length > pageSize && (
-        <div className="flex items-center justify-between border-t border-[var(--border)] bg-[var(--surface-subtle)] px-4 py-3 text-xs">
+        <div className="flex items-center justify-between gap-3 border-t border-[var(--border)] bg-[var(--surface-subtle)] px-4 py-3 text-xs">
           <span className="text-[var(--muted-foreground)]">
-            Showing {showAll ? rows.length : Math.min(pageSize, rows.length)} of {rows.length} records
+            Showing {visibleRows.length} of {filteredRows.length} matching records
+            {filteredRows.length !== rows.length ? ` (${rows.length} total)` : ""}
           </span>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => setShowAll((current) => !current)}
-          >
-            {showAll ? "Show prioritized records" : "Show complete dataset"}
-          </Button>
+          {filteredRows.length > pageSize ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setShowAll((current) => !current)}
+            >
+              {showAll ? "Show prioritized records" : "Show complete dataset"}
+            </Button>
+          ) : null}
         </div>
-      )}
     </div>
   );
 }
@@ -498,7 +610,508 @@ function DashboardView({ state }: { state: DemoState }) {
   );
 }
 
+function OperationalRequestWorkbench({
+  state,
+  execute,
+}: {
+  state: DemoState;
+  execute: ExecuteCommand;
+}) {
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [title, setTitle] = useState("Branch network support services");
+  const [justification, setJustification] = useState(
+    "Provide governed support coverage for branch network equipment and documented service acceptance.",
+  );
+  const [description, setDescription] = useState(
+    "Quarterly branch network support service",
+  );
+  const [quantity, setQuantity] = useState("1");
+  const [unitPrice, setUnitPrice] = useState("2500.00");
+  const [glAccount, setGlAccount] = useState("6200-IT-SERVICES");
+  const [requestChannel, setRequestChannel] = useState<
+    "catalog_goods" | "non_catalog_goods" | "service" | "recurring" | "emergency"
+  >("service");
+  const [priority, setPriority] = useState<"normal" | "high" | "urgent">(
+    "normal",
+  );
+  const [requiredDate, setRequiredDate] = useState(
+    addCalendarDays(state.sessionDate, 30),
+  );
+  const [emergencyJustification, setEmergencyJustification] = useState(
+    "Critical branch operations require an accelerated route with independent review and complete retained evidence.",
+  );
+  const [recurringCadence, setRecurringCadence] = useState<
+    "monthly" | "quarterly" | "annually"
+  >("quarterly");
+  const [attachments, setAttachments] = useState("statement-of-work.pdf");
+
+  const operationalRequests = state.requests.filter(
+    (request) =>
+      request.id.startsWith("request-operational-") ||
+      request.createdByActorId,
+  );
+  const pendingOperationalApprovals = state.approvals.filter(
+    (approval) =>
+      approval.id.startsWith("approval-request-operational-") &&
+      approval.status === "pending" &&
+      approval.role === state.activeRole,
+  );
+
+  function resetForm() {
+    setEditingId(null);
+    setTitle("Branch network support services");
+    setJustification(
+      "Provide governed support coverage for branch network equipment and documented service acceptance.",
+    );
+    setDescription("Quarterly branch network support service");
+    setQuantity("1");
+    setUnitPrice("2500.00");
+    setGlAccount("6200-IT-SERVICES");
+    setRequestChannel("service");
+    setPriority("normal");
+    setRequiredDate(addCalendarDays(state.sessionDate, 30));
+    setAttachments("statement-of-work.pdf");
+  }
+
+  function edit(request: DemoState["requests"][number]) {
+    const line = request.lines[0];
+    if (!line) return;
+    setEditingId(request.id);
+    setTitle(request.title);
+    setJustification(request.businessJustification);
+    setDescription(line.description);
+    setQuantity(String(line.requestedQuantity));
+    setUnitPrice((line.unitPriceCents / 100).toFixed(2));
+    setGlAccount(line.glAccount);
+    setPriority(request.priority);
+    setRequiredDate(request.requiredDate);
+    setAttachments(request.attachments.join(", "));
+  }
+
+  function save() {
+    const line = {
+      description,
+      quantity: Math.max(1, Number.parseInt(quantity, 10) || 1),
+      unitPriceCents: Math.max(
+        0,
+        Math.round((Number.parseFloat(unitPrice) || 0) * 100),
+      ),
+      glAccount,
+    };
+    const attachmentList = attachments
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
+    if (editingId) {
+      void execute(
+        {
+          type: "update_operational_request",
+          requestId: editingId,
+          title,
+          requiredDate,
+          businessJustification: justification,
+          priority,
+          attachments: attachmentList,
+          lines: [line],
+        },
+        "Operational request updated",
+      ).then(resetForm);
+      return;
+    }
+    void execute(
+      {
+        type: "create_operational_request",
+        title,
+        departmentId: state.departments[0]?.id ?? "",
+        locationId: state.locations[0]?.id ?? "",
+        requiredDate,
+        businessJustification: justification,
+        requestChannel,
+        priority,
+        emergencyJustification:
+          requestChannel === "emergency"
+            ? emergencyJustification
+            : undefined,
+        recurringSchedule:
+          requestChannel === "recurring"
+            ? {
+                cadence: recurringCadence,
+                startsOn: requiredDate,
+              }
+            : undefined,
+        attachments: attachmentList,
+        lines: [line],
+      },
+      "Operational request created",
+    ).then(resetForm);
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <div>
+          <h2 className="font-black">Operational request workbench</h2>
+          <p className="text-xs text-[var(--muted-foreground)]">
+            Authenticated role transactions are separate from the Guided Story.
+            Draft changes, submission, approvals, and cloning are committed with
+            revisions and audit references.
+          </p>
+        </div>
+        <Badge>{state.activeRole.replaceAll("_", " ")}</Badge>
+      </CardHeader>
+      <CardContent className="space-y-5">
+        {state.activeRole === "requester" ? (
+          <div className="rounded-xl border border-[var(--border)] p-4">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <label className="text-xs font-bold xl:col-span-2">
+                Request title
+                <input
+                  value={title}
+                  onChange={(event) => setTitle(event.target.value)}
+                  className="mt-1 h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 font-normal"
+                />
+              </label>
+              <label className="text-xs font-bold">
+                Type
+                <select
+                  value={requestChannel}
+                  disabled={Boolean(editingId)}
+                  onChange={(event) =>
+                    setRequestChannel(
+                      event.target.value as typeof requestChannel,
+                    )
+                  }
+                  className="mt-1 h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 font-normal"
+                >
+                  <option value="catalog_goods">Catalog goods</option>
+                  <option value="non_catalog_goods">Non-catalog goods</option>
+                  <option value="service">Service</option>
+                  <option value="recurring">Recurring</option>
+                  <option value="emergency">Emergency</option>
+                </select>
+              </label>
+              <label className="text-xs font-bold">
+                Required date
+                <input
+                  type="date"
+                  value={requiredDate}
+                  onChange={(event) => setRequiredDate(event.target.value)}
+                  className="mt-1 h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 font-normal"
+                />
+              </label>
+              <label className="text-xs font-bold xl:col-span-2">
+                Business justification
+                <textarea
+                  value={justification}
+                  onChange={(event) => setJustification(event.target.value)}
+                  className="mt-1 min-h-20 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3 font-normal"
+                />
+              </label>
+              <label className="text-xs font-bold xl:col-span-2">
+                Line description
+                <input
+                  value={description}
+                  onChange={(event) => setDescription(event.target.value)}
+                  className="mt-1 h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 font-normal"
+                />
+              </label>
+              <label className="text-xs font-bold">
+                Quantity
+                <input
+                  inputMode="numeric"
+                  value={quantity}
+                  onChange={(event) => setQuantity(event.target.value)}
+                  className="mt-1 h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 font-normal"
+                />
+              </label>
+              <label className="text-xs font-bold">
+                Unit price
+                <input
+                  inputMode="decimal"
+                  value={unitPrice}
+                  onChange={(event) => setUnitPrice(event.target.value)}
+                  className="mt-1 h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 font-normal"
+                />
+              </label>
+              <label className="text-xs font-bold">
+                GL account
+                <input
+                  value={glAccount}
+                  onChange={(event) => setGlAccount(event.target.value)}
+                  className="mt-1 h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 font-normal"
+                />
+              </label>
+              <label className="text-xs font-bold">
+                Priority
+                <select
+                  value={priority}
+                  onChange={(event) =>
+                    setPriority(event.target.value as typeof priority)
+                  }
+                  className="mt-1 h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 font-normal"
+                >
+                  <option value="normal">Normal</option>
+                  <option value="high">High</option>
+                  <option value="urgent">Urgent</option>
+                </select>
+              </label>
+              <label className="text-xs font-bold xl:col-span-2">
+                Evidence filenames, comma separated
+                <input
+                  value={attachments}
+                  onChange={(event) => setAttachments(event.target.value)}
+                  className="mt-1 h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 font-normal"
+                />
+              </label>
+              {requestChannel === "emergency" ? (
+                <label className="text-xs font-bold xl:col-span-4">
+                  Emergency justification
+                  <textarea
+                    value={emergencyJustification}
+                    onChange={(event) =>
+                      setEmergencyJustification(event.target.value)
+                    }
+                    className="mt-1 min-h-20 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3 font-normal"
+                  />
+                </label>
+              ) : null}
+              {requestChannel === "recurring" ? (
+                <label className="text-xs font-bold">
+                  Cadence
+                  <select
+                    value={recurringCadence}
+                    onChange={(event) =>
+                      setRecurringCadence(
+                        event.target.value as typeof recurringCadence,
+                      )
+                    }
+                    className="mt-1 h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 font-normal"
+                  >
+                    <option value="monthly">Monthly</option>
+                    <option value="quarterly">Quarterly</option>
+                    <option value="annually">Annually</option>
+                  </select>
+                </label>
+              ) : null}
+            </div>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Button onClick={save}>
+                {editingId ? "Save governed revision" : "Create draft request"}
+              </Button>
+              {editingId ? (
+                <Button variant="secondary" onClick={resetForm}>
+                  Cancel edit
+                </Button>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+
+        {pendingOperationalApprovals.length > 0 ? (
+          <div className="space-y-3">
+            <h3 className="text-sm font-black">Assigned operational decisions</h3>
+            {pendingOperationalApprovals.map((approval) => {
+              const request = state.requests.find(
+                (item) => item.id === approval.requestId,
+              );
+              return (
+                <div
+                  key={approval.id}
+                  className="flex flex-col justify-between gap-3 rounded-xl border border-[var(--border)] p-4 md:flex-row md:items-center"
+                >
+                  <div>
+                    <p className="text-sm font-black">
+                      {request?.requestNumber} · {request?.title}
+                    </p>
+                    <p className="text-xs text-[var(--muted-foreground)]">
+                      {money(request?.recommendedTotalCents ?? 0)} · group{" "}
+                      {approval.routingGroup ?? approval.sequence} ·{" "}
+                      {approval.routingMode ?? "sequential"}
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      onClick={() =>
+                        void execute(
+                          {
+                            type: "decide_operational_approval",
+                            approvalId: approval.id,
+                            decision: "approve",
+                            comments:
+                              "Reviewed request facts, scope, budget, policy, and retained evidence.",
+                          },
+                          "Operational approval recorded",
+                        )
+                      }
+                    >
+                      Approve
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() =>
+                        void execute(
+                          {
+                            type: "decide_operational_approval",
+                            approvalId: approval.id,
+                            decision: "return",
+                            comments:
+                              "Return for correction with the original request and decision evidence retained.",
+                          },
+                          "Operational request returned",
+                        )
+                      }
+                    >
+                      Return
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : null}
+
+        <DataTable
+          columns={[
+            "Request",
+            "Title",
+            "Type",
+            "Amount",
+            "Priority",
+            "Status",
+            "Revision",
+            "Next occurrence",
+          ]}
+          rows={operationalRequests.map((request) => [
+            request.requestNumber,
+            request.title,
+            request.requestChannel ?? request.requestType,
+            money(request.recommendedTotalCents),
+            request.priority,
+            request.status,
+            request.revision,
+            request.recurringSchedule?.nextOccurrence ?? "Not recurring",
+          ])}
+        />
+        {state.activeRole === "requester" ? (
+          <div className="space-y-2">
+            {operationalRequests.map((request) => (
+              <div
+                key={request.id}
+                className="space-y-3 rounded-xl bg-[var(--surface-subtle)] px-3 py-3 text-xs"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-bold">
+                    {request.requestNumber} · {request.status}
+                  </span>
+                  <div className="flex gap-2">
+                    {["draft", "returned"].includes(request.status) &&
+                    !request.fieldsLocked ? (
+                      <Button size="sm" variant="secondary" onClick={() => edit(request)}>
+                        Edit
+                      </Button>
+                    ) : null}
+                    {request.status === "draft" && !request.fieldsLocked ? (
+                      <Button
+                        size="sm"
+                        onClick={() =>
+                          void execute(
+                            {
+                              type: "submit_operational_request",
+                              requestId: request.id,
+                            },
+                            "Operational request submitted",
+                          )
+                        }
+                      >
+                        Submit
+                      </Button>
+                    ) : null}
+                    {["draft", "returned", "submitted"].includes(
+                      request.status,
+                    ) ? (
+                      <Button
+                        size="sm"
+                        variant="danger"
+                        onClick={() =>
+                          void execute(
+                            {
+                              type: "withdraw_operational_request",
+                              requestId: request.id,
+                              reason:
+                                "The requester withdrew the documented need before approval or purchase-order conversion.",
+                            },
+                            "Operational request withdrawn",
+                          )
+                        }
+                      >
+                        Withdraw
+                      </Button>
+                    ) : null}
+                    {["approved", "converted_to_po"].includes(request.status) ? (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() =>
+                          void execute(
+                            {
+                              type: "clone_operational_request",
+                              sourceRequestId: request.id,
+                              requiredDate: addCalendarDays(
+                                state.sessionDate,
+                                30,
+                              ),
+                            },
+                            "Approved request cloned as a new draft",
+                          )
+                        }
+                      >
+                        Clone to draft
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
+                <PrivateDocumentUpload
+                  tenantId={state.organization.organizationId}
+                  parentEntityId={request.id}
+                />
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
 function RequestView({
+  state,
+  execute,
+}: {
+  state: DemoState;
+  execute: ExecuteCommand;
+}) {
+  const guidedRequest = state.requests.find(
+    (candidate) => candidate.id === state.featuredRequestId,
+  );
+  return (
+    <>
+      <OperationalRequestWorkbench state={state} execute={execute} />
+      {guidedRequest ? (
+        <GuidedRequestView state={state} execute={execute} />
+      ) : (
+        <SectionHeader
+          eyebrow="Role-scoped workspace"
+          title="Your procurement requests"
+          description="The Guided Story record is not included because this authenticated role can see only its authorized operational records."
+        />
+      )}
+    </>
+  );
+}
+
+function GuidedRequestView({
   state,
   execute,
 }: {
@@ -618,7 +1231,7 @@ function RequestView({
             </p>
             <Button
               className="mt-4"
-              disabled={stageRanks[state.stage] > 0 || request.fieldsLocked}
+              disabled={workflowStageRank(state.stage) > 0 || request.fieldsLocked}
               onClick={() =>
                 void execute(
                   state.stage === "draft"
@@ -896,6 +1509,22 @@ function ApprovalView({
 }) {
   const approvals = featuredApprovalsFor(state);
   const pending = approvals.find((approval) => approval.status === "pending");
+  const [bulkPreviewIds, setBulkPreviewIds] = useState<string[] | null>(null);
+  const bulkCandidates = evaluateBulkApprovalCandidates(
+    state,
+    state.approvals
+      .filter((approval) => approval.status === "pending")
+      .map((approval) => approval.id),
+  );
+  const eligibleBulkIds = bulkCandidates
+    .filter((candidate) => candidate.eligible)
+    .map((candidate) => candidate.approvalId)
+    .slice(0, 25);
+  const activeDelegation = state.approvalDelegations.find(
+    (delegation) =>
+      delegation.approvalId === pending?.id &&
+      delegation.status === "active",
+  );
   return (
     <>
       <SectionHeader
@@ -936,12 +1565,78 @@ function ApprovalView({
           approval.aiRecommendation,
         ])}
       />
+      <Card>
+        <CardContent className="p-5">
+          <div className="flex flex-col justify-between gap-3 md:flex-row md:items-center">
+            <div>
+              <h2 className="text-sm font-black">Guarded bulk approval</h2>
+              <p className="mt-1 max-w-3xl text-xs leading-5 text-[var(--muted-foreground)]">
+                Only directly assigned, homogeneous, normal-priority,
+                within-budget, single-step requests under the active
+                approver&apos;s limit can enter the preview. Every record is
+                re-authorized and audited at commit.
+              </p>
+            </div>
+            <Button
+              variant="secondary"
+              disabled={eligibleBulkIds.length === 0}
+              onClick={() => setBulkPreviewIds(eligibleBulkIds)}
+            >
+              Preview {eligibleBulkIds.length} eligible
+            </Button>
+          </div>
+          {bulkPreviewIds ? (
+            <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 p-4 text-xs text-blue-950">
+              <p className="font-black">
+                Confirm {bulkPreviewIds.length} low-risk approval
+                {bulkPreviewIds.length === 1 ? "" : "s"}
+              </p>
+              <p className="mt-1 break-words">
+                {bulkPreviewIds.join(", ")}
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button
+                  size="sm"
+                  onClick={() =>
+                    void execute(
+                      {
+                        type: "bulk_decide_approvals",
+                        approvalIds: bulkPreviewIds,
+                        decision: "approve",
+                        rationale:
+                          "Reviewed the homogeneous low-risk preview and confirmed each request is within budget, authority, role, and segregation limits.",
+                      },
+                      "Eligible low-risk approvals recorded with per-record evidence",
+                    ).then(() => setBulkPreviewIds(null))
+                  }
+                >
+                  Confirm governed bulk approval
+                </Button>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => setBulkPreviewIds(null)}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          ) : null}
+        </CardContent>
+      </Card>
       {pending ? (
         <Card>
           <CardContent className="p-5">
             <p className="text-sm font-black">
               Current step: {titleCase(pending.role)} · active role: {titleCase(state.activeRole)}
             </p>
+            {activeDelegation ? (
+              <p className="mt-3 rounded-xl bg-blue-50 p-3 text-xs font-bold text-blue-900">
+                {titleCase(activeDelegation.delegationType)} routing is active
+                through {activeDelegation.expiresOn}. The authorized delegate is{" "}
+                {titleCase(activeDelegation.delegateRole)}.
+              </p>
+            ) : null}
             {state.activeUserId ===
               state.requests.find((request) => request.id === state.featuredRequestId)?.requesterId && (
               <p className="mt-3 rounded-xl bg-rose-50 p-3 text-xs font-bold text-rose-800">
@@ -958,6 +1653,87 @@ function ApprovalView({
               <Button variant="danger" onClick={() => void execute({ type: "decide_approval", decision: "reject", comments: "Business need not supported." }, "Request rejected")}>
                 Reject
               </Button>
+              <Button
+                variant="secondary"
+                onClick={() =>
+                  void execute(
+                    {
+                      type: "send_approval_reminder",
+                      approvalId: pending.id,
+                    },
+                    "Approval reminder retained",
+                  )
+                }
+              >
+                Send reminder
+              </Button>
+              {!activeDelegation &&
+              state.activeUserId === pending.approverId ? (
+                <Button
+                  variant="secondary"
+                  onClick={() =>
+                    void execute(
+                      {
+                        type: "delegate_approval",
+                        approvalId: pending.id,
+                        delegateRole:
+                          pending.role === "finance_reviewer"
+                            ? "purchasing_manager"
+                            : "finance_reviewer",
+                        delegationType: "out_of_office",
+                        startsOn: state.sessionDate,
+                        expiresOn: addCalendarDays(state.sessionDate, 5),
+                        reason:
+                          "The assigned approver is unavailable and requires a bounded, auditable alternate approver.",
+                      },
+                      "Out-of-office approval routing activated",
+                    )
+                  }
+                >
+                  Route out of office
+                </Button>
+              ) : null}
+              {state.presenterMode && activeDelegation &&
+              state.activeRole !== activeDelegation.delegateRole ? (
+                <Button
+                  variant="secondary"
+                  onClick={() =>
+                    void execute(
+                      {
+                        type: "switch_role",
+                        role: activeDelegation.delegateRole,
+                      },
+                      "Switched to the authorized delegate",
+                    )
+                  }
+                >
+                  Switch to delegate
+                </Button>
+              ) : null}
+              {state.presenterMode ? (
+                <Button
+                  variant="secondary"
+                  onClick={() =>
+                    void execute(
+                      [
+                        {
+                          type: "switch_role",
+                          role: "operations_manager",
+                        },
+                        {
+                          type: "escalate_approval",
+                          approvalId: pending.id,
+                          reason:
+                            "The synthetic SLA threshold was exceeded and the pending decision requires management attention.",
+                        },
+                      ],
+                      "Approval escalated with retained SLA evidence",
+                    )
+                  }
+                >
+                  Demonstrate SLA escalation
+                </Button>
+              ) : null}
             </div>
           </CardContent>
         </Card>
@@ -975,7 +1751,30 @@ function PurchaseOrderView({ state, execute }: { state: DemoState; execute: Exec
   const revision = state.purchaseOrderRevisions.find(
     (candidate) => candidate.purchaseOrderId === po?.id,
   );
+  const featuredInvoice = state.invoices.find(
+    (candidate) => candidate.purchaseOrderId === po?.id,
+  );
   const canManagePo = state.activeRole === "purchasing_manager" || state.activeRole === "purchasing_specialist";
+  const canAcknowledgePo = state.activeRole === "supplier_user";
+  const approvedOperationalRequests = state.requests.filter(
+    (request) =>
+      request.id.startsWith("request-operational-") &&
+      request.status === "approved" &&
+      !state.purchaseOrders.some(
+        (order) => order.sourceRequestId === request.id,
+      ),
+  );
+  const eligibleOperationalVendors = state.vendors.filter(
+    (vendor) =>
+      vendor.onboardingStatus === "complete" &&
+      vendor.w9Status === "current" &&
+      vendor.sanctionsStatus === "clear" &&
+      !vendor.complianceHold &&
+      !vendor.criticalCorrectiveAction,
+  );
+  const operationalOrders = state.purchaseOrders.filter((order) =>
+    order.id.startsWith("po-operational-"),
+  );
   return (
     <>
       <SectionHeader eyebrow="Purchase order lifecycle" title="Purchase Orders" description="Create, issue, and acknowledge the featured PO only after all required human approvals." />
@@ -995,6 +1794,201 @@ function PurchaseOrderView({ state, execute }: { state: DemoState; execute: Exec
           ])} />
         </CardContent>
       </Card>
+      <Card>
+        <CardHeader>
+          <div>
+            <h2 className="font-black">Operational PO workbench</h2>
+            <p className="text-xs text-[var(--muted-foreground)]">
+              Convert, issue, acknowledge, cancel, and close ordinary approved
+              records under the active role.
+            </p>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {approvedOperationalRequests.map((request) => {
+            const vendor = eligibleOperationalVendors[0];
+            return (
+              <div
+                key={request.id}
+                className="flex flex-col justify-between gap-3 rounded-xl border p-4 md:flex-row md:items-center"
+              >
+                <p className="text-sm font-black">
+                  {request.requestNumber} · {request.title} ·{" "}
+                  {money(request.recommendedTotalCents)}
+                </p>
+                <Button
+                  size="sm"
+                  disabled={!canManagePo || !vendor}
+                  onClick={() =>
+                    vendor
+                      ? void execute(
+                          {
+                            type: "create_operational_purchase_order",
+                            requestId: request.id,
+                            vendorId: vendor.id,
+                            expectedDate: addCalendarDays(
+                              state.sessionDate,
+                              15,
+                            ),
+                            shippingCents: 0,
+                            taxCents: 0,
+                            contractReference:
+                              state.contracts.find(
+                                (contract) =>
+                                  contract.vendorId === vendor.id &&
+                                  contract.status !== "expired",
+                              )?.id ?? "",
+                          },
+                          "Operational purchase order created",
+                        )
+                      : undefined
+                  }
+                >
+                  Create governed PO
+                </Button>
+              </div>
+            );
+          })}
+          {operationalOrders.map((order) => {
+            const invoice = state.invoices.find(
+              (candidate) =>
+                candidate.purchaseOrderId === order.id,
+            );
+            return (
+              <div
+                key={`${order.id}-actions`}
+                className="rounded-xl border bg-[var(--surface-subtle)] p-4"
+              >
+                <p className="text-sm font-black">
+                  {order.poNumber} · {statusLabel(order.status)}
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    disabled={
+                      !canManagePo ||
+                      order.status !== "awaiting_issuance"
+                    }
+                    onClick={() =>
+                      void execute(
+                        {
+                          type: "issue_operational_purchase_order",
+                          purchaseOrderId: order.id,
+                        },
+                        "Operational purchase order issued",
+                      )
+                    }
+                  >
+                    Issue
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={!canAcknowledgePo || order.status !== "issued"}
+                    onClick={() =>
+                      void execute(
+                        {
+                          type: "acknowledge_operational_purchase_order",
+                          purchaseOrderId: order.id,
+                          acknowledgmentReference: `Supplier portal acknowledgment ${order.poNumber}`,
+                        },
+                        "Supplier acknowledgment recorded",
+                      )
+                    }
+                  >
+                    Record acknowledgment
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="danger"
+                    disabled={
+                      state.activeRole !== "purchasing_manager" ||
+                      !["issued", "acknowledged"].includes(order.status) ||
+                      state.receipts.some(
+                        (receipt) =>
+                          receipt.purchaseOrderId === order.id &&
+                          receipt.lifecycleStatus !== "reversed",
+                      ) ||
+                      Boolean(invoice)
+                    }
+                    onClick={() =>
+                      void execute(
+                        {
+                          type: "cancel_operational_purchase_order",
+                          purchaseOrderId: order.id,
+                          reason:
+                            "The documented need was withdrawn before fulfillment; prior evidence remains retained.",
+                        },
+                        "Operational purchase order cancelled",
+                      )
+                    }
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={
+                      state.activeRole !== "purchasing_manager" ||
+                      order.receiptStatus !== "complete" ||
+                      order.invoiceStatus !== "matched" ||
+                      invoice?.paymentStatus !== "exported"
+                    }
+                    onClick={() =>
+                      void execute(
+                        {
+                          type: "close_operational_purchase_order",
+                          purchaseOrderId: order.id,
+                          reason:
+                            "Receiving, matching, and payment-readiness export reconcile with retained evidence.",
+                        },
+                        "Operational purchase order closed",
+                      )
+                    }
+                  >
+                    Close
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={
+                      state.activeRole !== "purchasing_manager" ||
+                      order.status !== "closed"
+                    }
+                    title={
+                      state.activeRole !== "purchasing_manager"
+                        ? "Purchasing Manager authority is required"
+                        : order.status !== "closed"
+                          ? "Only a closed purchase order can be reopened"
+                          : undefined
+                    }
+                    onClick={() =>
+                      void execute(
+                        {
+                          type: "reopen_operational_purchase_order",
+                          purchaseOrderId: order.id,
+                          reason:
+                            "Authorized correction requires the reconciled purchase order to return to an open administrative state.",
+                        },
+                        "Operational purchase order reopened",
+                      )
+                    }
+                  >
+                    Reopen
+                  </Button>
+                </div>
+              </div>
+            );
+          })}
+          {approvedOperationalRequests.length === 0 &&
+          operationalOrders.length === 0 ? (
+            <p className="text-xs text-[var(--muted-foreground)]">
+              No operational request or purchase order is available to the
+              active role.
+            </p>
+          ) : null}
+        </CardContent>
+      </Card>
       {!po ? (
         <Card><CardContent className="p-5"><p className="text-sm text-[var(--muted-foreground)]">The PO inherits the approved vendor, lines, coding, delivery, quote, and approval history.</p><Button className="mt-4" disabled={state.stage !== "approved" || !canManagePo} title={!canManagePo ? "Switch to a purchasing role" : undefined} onClick={() => void execute({ type: "create_purchase_order" }, "Purchase order created")}>Create purchase order</Button></CardContent></Card>
       ) : (
@@ -1004,8 +1998,51 @@ function PurchaseOrderView({ state, execute }: { state: DemoState; execute: Exec
           <div className="flex flex-wrap gap-2">
             <Button disabled={state.stage !== "po_draft" || !canManagePo} title={!canManagePo ? "Switch to a purchasing role" : undefined} onClick={() => void execute({ type: "issue_purchase_order" }, "PO issued")}>Issue PO</Button>
             <Button variant="secondary" disabled={state.stage !== "po_issued" || !canManagePo} title={!canManagePo ? "Switch to a purchasing role" : undefined} onClick={() => void execute({ type: "record_vendor_acknowledgment" }, "Acknowledgment recorded")}>Record acknowledgment</Button>
-            <Button variant="ghost">Preview PO</Button>
-            <Button variant="ghost">Download placeholder</Button>
+            <Button
+              variant="danger"
+              disabled={
+                state.activeRole !== "purchasing_manager" ||
+                !["issued", "acknowledged"].includes(po.status) ||
+                state.receipts.some(
+                  (receipt) =>
+                    receipt.purchaseOrderId === po.id &&
+                    receipt.lifecycleStatus !== "reversed",
+                )
+              }
+              onClick={() =>
+                void execute(
+                  {
+                    type: "cancel_purchase_order",
+                    reason:
+                      "The documented business need was withdrawn before fulfillment; all prior order evidence remains retained.",
+                  },
+                  "Unfulfilled purchase order cancelled",
+                )
+              }
+            >
+              Cancel unfulfilled PO
+            </Button>
+            <Button
+              variant="secondary"
+              disabled={
+                state.activeRole !== "purchasing_manager" ||
+                po.receiptStatus !== "complete" ||
+                po.invoiceStatus !== "matched" ||
+                featuredInvoice?.paymentStatus !== "exported"
+              }
+              onClick={() =>
+                void execute(
+                  {
+                    type: "close_purchase_order",
+                    reason:
+                      "Receiving, invoice match, and payment-readiness export reconcile; the order is administratively complete.",
+                  },
+                  "Fully reconciled purchase order closed",
+                )
+              }
+            >
+              Close reconciled PO
+            </Button>
           </div>
           {["issued", "acknowledged"].includes(po.status) && (
             <Card className="mt-4 border-amber-200 bg-amber-50/50">
@@ -1100,6 +2137,13 @@ function ReceivingView({ state, execute }: { state: DemoState; execute: ExecuteC
   const partial = receipts.find(
     (candidate) => candidate.id === "receipt-featured-partial",
   );
+  const operationalOrders = state.purchaseOrders.filter(
+    (order) =>
+      order.id.startsWith("po-operational-") &&
+      ["issued", "acknowledged", "partially_received"].includes(
+        order.status,
+      ),
+  );
   return (
     <>
       <SectionHeader eyebrow="Controlled receiving" title="Receiving" description="Record the external receipt separately from the three-monitor internal transfer." />
@@ -1115,6 +2159,83 @@ function ReceivingView({ state, execute }: { state: DemoState; execute: ExecuteC
             state.locations.find((location) => location.id === candidate.deliveryLocationId)?.name ?? candidate.deliveryLocationId,
           ])} />
           <p className="mt-3 text-xs text-[var(--muted-foreground)]">Queue includes expected, overdue, partial, recently received, damage-exception, and internal-transfer context. Quick receive remains role-controlled.</p>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <div>
+            <h2 className="font-black">Operational receiving</h2>
+            <p className="text-xs text-[var(--muted-foreground)]">
+              Post a record-level receipt. Quantity, location, duties,
+              service acceptance, serial/lot, damage, rejection, and return
+              controls are enforced on the server.
+            </p>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {operationalOrders.map((order) => {
+            const request = state.requests.find(
+              (candidate) => candidate.id === order.sourceRequestId,
+            );
+            return (
+              <div
+                key={`${order.id}-receiving`}
+                className="flex flex-col justify-between gap-3 rounded-xl border p-4 md:flex-row md:items-center"
+              >
+                <div>
+                  <p className="text-sm font-black">{order.poNumber}</p>
+                  <p className="text-xs text-[var(--muted-foreground)]">
+                    {statusLabel(order.receiptStatus)} ·{" "}
+                    {request?.requestChannel?.replaceAll("_", " ") ??
+                      "goods"}
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  disabled={state.activeRole !== "receiving_clerk"}
+                  onClick={() =>
+                    void execute(
+                      {
+                        type: "record_operational_receipt",
+                        purchaseOrderId: order.id,
+                        packingSlip: `${order.poNumber}-acceptance.pdf`,
+                        carrierReference: `SIM-${order.poNumber}`,
+                        overToleranceAction: "reject",
+                        notes:
+                          request?.requestChannel === "service"
+                            ? "Service deliverable reviewed against the approved statement of work and accepted."
+                            : "Delivered quantities and condition were inspected and accepted.",
+                        lines: order.lines.map((line) => ({
+                          lineId: line.id,
+                          quantity: line.purchaseQuantity,
+                          acceptedQuantity: line.purchaseQuantity,
+                          damagedQuantity: 0,
+                          rejectedQuantity: 0,
+                          returnedQuantity: 0,
+                          serialNumbers: [],
+                          lotNumbers: [],
+                          serviceAccepted:
+                            request?.requestChannel === "service",
+                          serviceAcceptanceEvidence:
+                            request?.requestChannel === "service"
+                              ? `${order.poNumber}-service-acceptance.pdf`
+                              : undefined,
+                        })),
+                      },
+                      "Operational receipt posted",
+                    )
+                  }
+                >
+                  Post complete receipt
+                </Button>
+              </div>
+            );
+          })}
+          {operationalOrders.length === 0 ? (
+            <p className="text-xs text-[var(--muted-foreground)]">
+              No operational order is currently eligible for receiving.
+            </p>
+          ) : null}
         </CardContent>
       </Card>
       {!receipt ? (
@@ -1155,6 +2276,16 @@ function InvoiceView({ state, execute }: { state: DemoState; execute: ExecuteCom
     )
     .reduce((total, candidate) => total + candidate.totalValueCents, 0);
   const invoice = state.invoices.find((candidate) => candidate.id === "invoice-featured");
+  const operationalOrders = state.purchaseOrders.filter(
+    (order) =>
+      order.id.startsWith("po-operational-") &&
+      !["awaiting_issuance", "cancelled", "closed"].includes(
+        order.status,
+      ),
+  );
+  const operationalInvoices = state.invoices.filter((candidate) =>
+    candidate.id.startsWith("invoice-operational-"),
+  );
   return (
     <>
       <SectionHeader eyebrow="Human-controlled matching" title="Invoices" description="Compare PO, receipt, and invoice facts. CATE explains exceptions but never approves payment." />
@@ -1175,6 +2306,212 @@ function InvoiceView({ state, execute }: { state: DemoState; execute: ExecuteCom
           <p className="mt-3 text-xs text-[var(--muted-foreground)]">Human approval remains visible for pending match, exception, duplicate-risk, approval, payment-ready, and exported-handoff states. Catalyst never executes payment.</p>
         </CardContent>
       </Card>
+      <Card>
+        <CardHeader>
+          <div>
+            <h2 className="font-black">Operational invoice workbench</h2>
+            <p className="text-xs text-[var(--muted-foreground)]">
+              Enter, match, resolve, and export ordinary invoices. The
+              exported record is payment readiness only; Catalyst never pays.
+            </p>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {operationalOrders
+            .filter(
+              (order) =>
+                !operationalInvoices.some(
+                  (candidate) =>
+                    candidate.purchaseOrderId === order.id,
+                ),
+            )
+            .map((order) => (
+              <div
+                key={`${order.id}-invoice-entry`}
+                className="flex flex-col justify-between gap-3 rounded-xl border p-4 md:flex-row md:items-center"
+              >
+                <div>
+                  <p className="text-sm font-black">{order.poNumber}</p>
+                  <p className="text-xs text-[var(--muted-foreground)]">
+                    {money(order.totalCents)} · {order.receiptStatus}
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  disabled={state.activeRole !== "accounts_payable"}
+                  onClick={() =>
+                    void execute(
+                      {
+                        type: "record_operational_invoice",
+                        purchaseOrderId: order.id,
+                        invoiceNumber: `INV-${order.poNumber}`,
+                        invoiceDate: state.sessionDate,
+                        dueDate: addCalendarDays(state.sessionDate, 30),
+                        shippingCents: order.shippingCents,
+                        taxCents: order.taxCents,
+                        uploadedDocument: `INV-${order.poNumber}.pdf`,
+                        lines: order.lines.map((line) => ({
+                          lineId: line.id,
+                          quantity: line.purchaseQuantity,
+                          unitPriceCents: line.unitPriceCents,
+                        })),
+                      },
+                      "Operational invoice entered",
+                    )
+                  }
+                >
+                  Enter matching invoice
+                </Button>
+              </div>
+            ))}
+          {operationalInvoices.map((candidate) => {
+            const order = state.purchaseOrders.find(
+              (item) => item.id === candidate.purchaseOrderId,
+            );
+            const request = state.requests.find(
+              (item) => item.id === order?.sourceRequestId,
+            );
+            const matchMode =
+              request?.requestChannel === "service"
+                ? "two_way"
+                : "three_way";
+            return (
+              <div
+                key={`${candidate.id}-actions`}
+                className="rounded-xl border bg-[var(--surface-subtle)] p-4"
+              >
+                <p className="text-sm font-black">
+                  {candidate.invoiceNumber} ·{" "}
+                  {statusLabel(candidate.matchStatus)}
+                </p>
+                <p className="text-xs text-[var(--muted-foreground)]">
+                  {money(candidate.totalCents)} ·{" "}
+                  {statusLabel(candidate.paymentStatus)}
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    disabled={
+                      state.activeRole !== "accounts_payable" ||
+                      candidate.matchStatus !== "pending"
+                    }
+                    onClick={() =>
+                      void execute(
+                        {
+                          type: "match_operational_invoice",
+                          invoiceId: candidate.id,
+                          matchMode,
+                          amountToleranceCents: 0,
+                          quantityTolerance: 0,
+                        },
+                        `${matchMode.replaceAll("_", " ")} completed`,
+                      )
+                    }
+                  >
+                    Run {matchMode.replaceAll("_", "-")} match
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={
+                      state.activeRole !== "finance_reviewer" ||
+                      candidate.matchStatus !== "exception" ||
+                      candidate.duplicateRisk === "possible"
+                    }
+                    onClick={() =>
+                      void execute(
+                        {
+                          type: "resolve_operational_invoice",
+                          invoiceId: candidate.id,
+                          decision: "accept",
+                          justification:
+                            "Finance reviewed the documented variance, supporting evidence, authority, and payment hold.",
+                        },
+                        "Operational invoice variance accepted",
+                      )
+                    }
+                  >
+                    Accept documented variance
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={
+                      state.activeRole !== "finance_reviewer" ||
+                      candidate.matchStatus !== "exception"
+                    }
+                    onClick={() =>
+                      void execute(
+                        {
+                          type: "resolve_operational_invoice",
+                          invoiceId: candidate.id,
+                          decision: "request_correction",
+                          justification:
+                            "Finance requires corrected supplier evidence before the payment hold can be released.",
+                        },
+                        "Corrected operational invoice requested",
+                      )
+                    }
+                  >
+                    Request correction
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={
+                      state.activeRole !== "accounts_payable" ||
+                      candidate.paymentStatus !== "ready"
+                    }
+                    onClick={() =>
+                      void execute(
+                        {
+                          type: "export_operational_payment_readiness",
+                          invoiceId: candidate.id,
+                        },
+                        "Payment-readiness record exported; no payment executed",
+                      )
+                    }
+                  >
+                    Export payment readiness
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={
+                      state.activeRole !== "accounts_payable" ||
+                      candidate.invoiceType === "credit" ||
+                      candidate.paymentStatus !== "exported" ||
+                      operationalInvoices.some(
+                        (item) =>
+                          item.originalInvoiceId === candidate.id,
+                      )
+                    }
+                    onClick={() =>
+                      void execute(
+                        {
+                          type: "record_operational_credit",
+                          invoiceId: candidate.id,
+                          creditNumber: `CR-${candidate.invoiceNumber}`,
+                          creditCents: Math.min(
+                            2_500,
+                            candidate.totalCents,
+                          ),
+                          reason:
+                            "Supplier issued a documented service-level credit against the exported invoice.",
+                          uploadedDocument: `CR-${candidate.invoiceNumber}.pdf`,
+                        },
+                        "Supplier credit recorded and linked",
+                      )
+                    }
+                  >
+                    Record supplier credit
+                  </Button>
+                </div>
+              </div>
+            );
+          })}
+        </CardContent>
+      </Card>
       {!invoice ? (
         <Card><CardContent className="p-5"><p className="text-sm text-[var(--muted-foreground)]">Complete the featured receipt, then upload the fictional invoice and run the three-way comparison.</p><Button className="mt-4" disabled={state.stage !== "fully_received"} onClick={() => void execute({ type: "run_invoice_match" }, "Three-way match found $320 freight variance")}>Upload and run three-way match</Button></CardContent></Card>
       ) : (
@@ -1183,7 +2520,7 @@ function InvoiceView({ state, execute }: { state: DemoState; execute: ExecuteCom
           <Card data-tour-id="invoice-exception" className="border-rose-200 bg-gradient-to-br from-white to-rose-50"><CardContent className="p-5"><div className="flex gap-3"><AlertTriangle className="size-5 text-rose-600" /><div><h2 className="font-black">Exception — Freight variance requires review</h2><p className="mt-1 text-sm text-[var(--muted-foreground)]">{invoice.varianceReason}</p><p className="mt-3 text-xs font-bold text-rose-700">Human approval remains required. Payment is on hold.</p></div></div></CardContent></Card>
           <div className="flex flex-wrap gap-2">
             <Button disabled={state.stage !== "invoice_exception"} onClick={() => void execute({ type: "resolve_invoice_exception", decision: "route", justification: "" }, "Exception routed to Finance")}>Route for exception approval</Button>
-            <Button variant="secondary" disabled={!["invoice_exception", "exception_routed"].includes(state.stage)} onClick={() => void execute({ type: "switch_role", role: "finance_reviewer" }, "Switched to Finance Reviewer")}>Switch to Finance</Button>
+            {state.presenterMode ? <Button variant="secondary" disabled={!["invoice_exception", "exception_routed"].includes(state.stage)} onClick={() => void execute({ type: "switch_role", role: "finance_reviewer" }, "Switched to Finance Reviewer")}>Switch to Finance</Button> : null}
             <Button variant="secondary" disabled={state.stage !== "exception_routed"} onClick={() => void execute({ type: "resolve_invoice_exception", decision: "accept", justification: "Carrier evidence reviewed by Finance." }, "Variance accepted by Finance")}>Accept with justification</Button>
             <Button variant="secondary" disabled={!["invoice_exception", "exception_routed"].includes(state.stage)} onClick={() => void execute({ type: "resolve_invoice_exception", decision: "corrected_invoice", justification: "" }, "Corrected invoice requested")}>Request corrected invoice</Button>
             <Button
@@ -1668,8 +3005,11 @@ function PrivateDocumentUpload({
   tenantId: string;
   parentEntityId: string;
 }) {
+  const { environmentKind } = useDemo();
+  const pilotMode = environmentKind === "secure_pilot";
   const [file, setFile] = useState<File | null>(null);
   const [acknowledged, setAcknowledged] = useState(false);
+  const [approvalReference, setApprovalReference] = useState("");
   const [status, setStatus] = useState("");
   const [uploadedVersionId, setUploadedVersionId] = useState<string | null>(
     null,
@@ -1684,6 +3024,19 @@ function PrivateDocumentUpload({
     form.append("tenantId", tenantId);
     form.append("parentEntityType", "request");
     form.append("parentEntityId", parentEntityId);
+    form.append(
+      "dataClassification",
+      pilotMode ? "approved_pilot_procurement" : "synthetic_demo",
+    );
+    form.append(
+      pilotMode
+        ? "prohibitedDataAttestation"
+        : "syntheticDataAttestation",
+      "true",
+    );
+    if (pilotMode) {
+      form.append("pilotDataApprovalReference", approvalReference.trim());
+    }
     form.append("file", file);
     try {
       const response = await fetch("/api/phase-two/documents", {
@@ -1705,6 +3058,7 @@ function PrivateDocumentUpload({
       );
       setUploadedVersionId(result.versionId ?? null);
       setFile(null);
+      setAcknowledged(false);
     } catch (error) {
       setStatus(
         error instanceof Error ? error.message : "Private upload failed.",
@@ -1761,6 +3115,18 @@ function PrivateDocumentUpload({
         PDF, DOCX, XLSX, CSV, PNG, or JPG · 25 MB maximum · executables,
         archives, macros, and password-protected files are rejected.
       </p>
+      {pilotMode && (
+        <label className="mt-3 block text-[11px] font-bold">
+          Approved pilot-data reference
+          <input
+            value={approvalReference}
+            maxLength={160}
+            onChange={(event) => setApprovalReference(event.target.value)}
+            placeholder="PILOT-APPROVAL-2026-001"
+            className="mt-1 h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-xs"
+          />
+        </label>
+      )}
       <input
         className="mt-3 block w-full text-xs"
         type="file"
@@ -1775,12 +3141,19 @@ function PrivateDocumentUpload({
           onChange={(event) => setAcknowledged(event.target.checked)}
           className="size-4"
         />
-        I confirm this file contains fictional demonstration data only.
+        {pilotMode
+          ? "I confirm this is approved procurement data and contains no member, consumer-account, card, payment-execution, or unrelated regulated data."
+          : "I confirm this file contains fictional demonstration data only."}
       </label>
       <Button
         className="mt-3"
         size="sm"
-        disabled={!file || !acknowledged || working}
+        disabled={
+          !file ||
+          !acknowledged ||
+          (pilotMode && approvalReference.trim().length < 8) ||
+          working
+        }
         onClick={() => void upload()}
       >
         {working ? "Scanning and storing…" : "Upload private evidence"}
@@ -1814,22 +3187,58 @@ function PrivateDocumentUpload({
   );
 }
 
+const controlledImportTypes: ReadonlyArray<{
+  value: ImportEntityType;
+  label: string;
+}> = [
+  { value: "vendor_master", label: "Supplier master" },
+  { value: "catalog", label: "Catalog" },
+  { value: "opening_inventory", label: "Opening inventory" },
+  { value: "budget", label: "Budget" },
+  { value: "purchase_request", label: "Purchase requests" },
+  { value: "purchase_order", label: "Purchase orders" },
+  { value: "receipt", label: "Receipts" },
+  { value: "invoice", label: "Invoices" },
+  { value: "contract", label: "Contracts" },
+];
+
 function ControlledImportUpload({ tenantId }: { tenantId: string }) {
+  const { environmentKind } = useDemo();
+  const pilotMode = environmentKind === "secure_pilot";
   const [file, setFile] = useState<File | null>(null);
-  const [importType, setImportType] = useState<
-    "vendor_master" | "catalog" | "opening_inventory"
-  >("vendor_master");
+  const [acknowledged, setAcknowledged] = useState(false);
+  const [approvalReference, setApprovalReference] = useState("");
+  const [importType, setImportType] =
+    useState<ImportEntityType>("vendor_master");
+  const [sourceSystem, setSourceSystem] = useState("Unknown legacy source");
+  const [mappingProfile, setMappingProfile] = useState("");
   const [status, setStatus] = useState("");
   const [working, setWorking] = useState(false);
 
   async function stage() {
-    if (!file) return;
+    if (!file || !acknowledged) return;
     setWorking(true);
     setStatus("");
     const form = new FormData();
     form.append("tenantId", tenantId);
     form.append("importType", importType);
-    form.append("sourceSystem", "Synthetic controlled upload");
+    form.append("sourceSystem", sourceSystem.trim() || "Unknown legacy source");
+    if (mappingProfile.trim()) {
+      form.append("mappingProfile", mappingProfile.trim());
+    }
+    form.append(
+      "dataClassification",
+      pilotMode ? "approved_pilot_procurement" : "synthetic_demo",
+    );
+    form.append(
+      pilotMode
+        ? "prohibitedDataAttestation"
+        : "syntheticDataAttestation",
+      "true",
+    );
+    if (pilotMode) {
+      form.append("pilotDataApprovalReference", approvalReference.trim());
+    }
     form.append("file", file);
     try {
       const response = await fetch("/api/phase-two/imports", {
@@ -1844,12 +3253,20 @@ function ControlledImportUpload({ tenantId }: { tenantId: string }) {
         validRowCount?: number;
         errorRowCount?: number;
         sha256?: string;
+        mappingProfile?: {
+          profileId: string;
+          version: number;
+          entityType: ImportEntityType;
+        };
       };
-      if (!response.ok) throw new Error(result.message ?? "Import staging failed.");
+      if (!response.ok) {
+        throw new Error(result.message ?? "Import staging failed.");
+      }
       setStatus(
-        `Batch ${result.batchId} · ${result.lifecycleState} · ${result.validRowCount}/${result.rowCount} valid rows · ${result.errorRowCount} errors · SHA-256 ${result.sha256}`,
+        `Batch ${result.batchId} · ${result.lifecycleState} · ${result.validRowCount}/${result.rowCount} valid rows · ${result.errorRowCount} errors · mapping ${result.mappingProfile?.profileId ?? "starter"} v${result.mappingProfile?.version ?? 1} · SHA-256 ${result.sha256}`,
       );
       setFile(null);
+      setAcknowledged(false);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Import staging failed.");
     } finally {
@@ -1861,26 +3278,31 @@ function ControlledImportUpload({ tenantId }: { tenantId: string }) {
     <div className="mt-4 rounded-xl border border-[var(--border)] p-3">
       <p className="text-xs font-black">Stage a controlled import</p>
       <p className="mt-1 text-[11px] text-[var(--muted-foreground)]">
-        CSV or macro-free XLSX · formulas rejected · duplicates flagged without
-        automatic merge · no member or consumer financial fields.
+        Source-neutral CSV or macro-free XLSX · formulas rejected · duplicates
+        flagged without automatic merge · no member or consumer financial
+        fields. Common column names auto-map when no profile is supplied.
       </p>
+      {pilotMode && (
+        <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-[11px] font-bold leading-5 text-amber-950">
+          Secure-pilot intake accepts only approved procurement data. Member,
+          consumer-account, card, payment-execution, and unrelated regulated
+          data are prohibited.
+        </div>
+      )}
       <div className="mt-3 grid gap-2 sm:grid-cols-2">
         <select
           aria-label="Import type"
           value={importType}
           onChange={(event) =>
-            setImportType(
-              event.target.value as
-                | "vendor_master"
-                | "catalog"
-                | "opening_inventory",
-            )
+            setImportType(event.target.value as ImportEntityType)
           }
           className="h-10 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-xs"
         >
-          <option value="vendor_master">Vendor master</option>
-          <option value="catalog">Catalog</option>
-          <option value="opening_inventory">Opening inventory</option>
+          {controlledImportTypes.map((type) => (
+            <option key={type.value} value={type.value}>
+              {type.label}
+            </option>
+          ))}
         </select>
         <input
           type="file"
@@ -1890,10 +3312,75 @@ function ControlledImportUpload({ tenantId }: { tenantId: string }) {
           className="text-xs"
         />
       </div>
+      <label className="mt-3 block text-[11px] font-bold">
+        Source label
+        <input
+          value={sourceSystem}
+          maxLength={160}
+          onChange={(event) => setSourceSystem(event.target.value)}
+          placeholder="Unknown legacy source"
+          className="mt-1 h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-xs"
+        />
+      </label>
+      {pilotMode && (
+        <label className="mt-3 block text-[11px] font-bold">
+          Approved pilot-data reference
+          <input
+            value={approvalReference}
+            maxLength={160}
+            onChange={(event) => setApprovalReference(event.target.value)}
+            placeholder="PILOT-APPROVAL-2026-001"
+            className="mt-1 h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-xs"
+          />
+        </label>
+      )}
+      <details className="mt-3 rounded-xl border border-[var(--border)] p-3">
+        <summary className="cursor-pointer text-[11px] font-black">
+          Optional versioned mapping profile
+        </summary>
+        <p className="mt-2 text-[11px] leading-5 text-[var(--muted-foreground)]">
+          Leave this blank to use Catalyst&apos;s source-neutral aliases. A
+          customer-specific JSON profile can later map its actual headers
+          without changing the transaction core.
+        </p>
+        <textarea
+          value={mappingProfile}
+          maxLength={60_000}
+          onChange={(event) => setMappingProfile(event.target.value)}
+          aria-label="Optional versioned mapping profile JSON"
+          placeholder='{"profileId":"customer-v1","version":1,"entityType":"vendor_master",...}'
+          className="mt-2 min-h-32 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3 font-mono text-[11px]"
+        />
+        <Button
+          className="mt-2"
+          size="sm"
+          variant="secondary"
+          disabled={!mappingProfile}
+          onClick={() => setMappingProfile("")}
+        >
+          Use starter auto-mapping
+        </Button>
+      </details>
+      <label className="mt-3 flex min-h-6 items-center gap-2 text-[11px] font-bold">
+        <input
+          type="checkbox"
+          checked={acknowledged}
+          onChange={(event) => setAcknowledged(event.target.checked)}
+          className="size-4"
+        />
+        {pilotMode
+          ? "I confirm this is approved procurement data and contains no member, consumer-account, card, payment-execution, or unrelated regulated data."
+          : "I confirm this import contains synthetic demonstration data only."}
+      </label>
       <Button
         className="mt-3"
         size="sm"
-        disabled={!file || working}
+        disabled={
+          !file ||
+          !acknowledged ||
+          (pilotMode && approvalReference.trim().length < 8) ||
+          working
+        }
         onClick={() => void stage()}
       >
         {working ? "Quarantining and validating…" : "Stage and validate"}
@@ -1939,7 +3426,7 @@ function GenericView({ section, state }: { section: string; state: DemoState }) 
     contracts: ["Obligation intelligence", "Renewal timing, notice dates, owner context, and fictional agreement values.", ["Contract", "Name", "Vendor", "Value", "Notice deadline", "End date", "Status"], state.contracts.map((contract) => [contract.id, contract.name, state.vendors.find((vendor) => vendor.id === contract.vendorId)?.displayName ?? contract.vendorId, money(contract.valueCents), contract.noticeDeadline, contract.endDate, contract.status])],
     analytics: ["Spend and savings", `Calendar-year ${state.sessionDate.slice(0, 4)} posted invoice actuals, open commitments, available budget, and utilization.`, ["Department", "Budget", "Posted actual", "Open commitments", "Available", "Utilization"], state.budgets.map((budget) => { const department = state.departments.find((candidate) => candidate.id === budget.departmentId)!; const available = budget.revisedBudgetCents - budget.actualSpendCents - budget.committedCents; return [department.name, money(budget.revisedBudgetCents), money(budget.actualSpendCents), money(budget.committedCents), money(available), `${(((budget.actualSpendCents + budget.committedCents) / budget.revisedBudgetCents) * 100).toFixed(1)}%`]; })],
     administration: ["Organization governance", "Fictional users, roles, approval authority, departments, and locations.", ["User", "Title", "Role", "Department", "Location", "Authority"], state.users.map((user) => [user.name, user.jobTitle, titleCase(user.role), state.departments.find((department) => department.id === user.departmentId)?.name ?? user.departmentId, state.locations.find((location) => location.id === user.locationId)?.name ?? user.locationId, money(user.approvalAuthorityCents)])],
-    settings: ["Demo configuration", "Central organization theme, terminology, accessibility, and tutorial preparation.", ["Setting", "Value", "Scope"], [["Organization", state.organization.organizationName, "White-label"], ["Primary color", state.organization.primaryColor, "Theme"], ["Support", state.organization.supportContact, "Organization"], ["Tutorial mode", "Preview only", "Future phase"], ["Locale", state.organization.locale, "Formatting"], ["Timezone", state.organization.timezone, "Formatting"]]],
+    settings: ["Demo configuration", "Central organization theme, terminology, accessibility, and tutorial preparation.", ["Setting", "Value", "Scope"], [["Organization", state.organization.organizationName, "White-label"], ["Primary color", state.organization.primaryColor, "Theme"], ["Support", state.organization.supportContact, "Organization"], ["Tutorial mode", "Preview only", "Future Activation"], ["Locale", state.organization.locale, "Formatting"], ["Timezone", state.organization.timezone, "Formatting"]]],
   };
   const [title, description, columns, rows] = config[section] ?? ["Connected workspace", "Controlled fictional records for the product demonstration.", ["Record", "Status"], [["Featured workflow", state.stage]]];
   return <><SectionHeader eyebrow={title} title={titleCase(section)} description={description} /><DataTable columns={columns} rows={rows} /></>;
@@ -1954,6 +3441,7 @@ export function PhaseTwoPage({ section }: { section: string }) {
     pending,
     persistence,
     durability,
+    operationalReadiness,
     revision,
     error: persistenceError,
   } = useDemo();
@@ -1999,15 +3487,16 @@ export function PhaseTwoPage({ section }: { section: string }) {
       >
         <span className="font-bold">
           {durability === "authoritative"
-            ? `Supabase authoritative state · revision ${revision}`
+            ? `Authoritative transaction kernel ready · revision ${revision}`
             : durability === "temporary"
-              ? `Temporary server fallback · revision ${revision} · resets when the server restarts`
-              : "Read-only deterministic fallback · authoritative state unavailable"}
+              ? `Temporary development preview · revision ${revision} · not durable`
+              : "Controlled actions blocked · authoritative transaction checks did not pass"}
         </span>
         <span>
           {pending
             ? "Saving controlled command…"
-            : persistenceError ?? `Persistence: ${persistence}`}
+            : persistenceError ??
+              `${operationalReadiness.mode.replaceAll("_", " ")} · persistence: ${persistence}`}
         </span>
       </div>
       {state.presenterMode && (
@@ -2046,17 +3535,28 @@ export function PhaseTwoPage({ section }: { section: string }) {
           <select id="demo-role" value={state.activeRole} disabled={pending || durability === "read_only"} onChange={(event) => void execute({ type: "switch_role", role: event.target.value as DemoRole }, "Active role changed")} className="h-9 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-xs font-bold">
             {roles.map((role) => <option key={role} value={role}>{titleCase(role)}</option>)}
           </select>
-          <select aria-label="Jump to workflow stage" defaultValue="" disabled={pending || durability === "read_only"} onChange={(event) => { if (event.target.value) { void execute({ type: "jump_to_stage", stage: event.target.value as WorkflowStage }, `Loaded ${titleCase(event.target.value)}`); } }} className="h-9 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-xs font-bold">
-            <option value="">Jump to stage…</option>
-            {["draft", "submitted", "approved", "po_draft", "acknowledged", "fully_received", "invoice_exception", "exception_routed"].map((stage) => <option key={stage} value={stage}>{titleCase(stage)}</option>)}
-          </select>
           <Button variant="secondary" size="sm" disabled={pending || durability === "read_only"} onClick={() => void execute({ type: "reset_demo" }, "Demo baseline restored")}><RefreshCw className="size-3.5" />Reset</Button>
         </div>
       </div>
       )}
-      <WorkflowRail stage={state.stage} />
+      <WorkflowRail
+        stage={state.stage}
+        presenter={state.presenterMode}
+        pending={pending}
+        readOnly={durability === "read_only"}
+        error={persistenceError}
+        onJump={(stage, label) =>
+          void execute({ type: "jump_to_stage", stage }, `Loaded ${label}`)
+        }
+      />
       <DecisionGuide section={section} />
-      {section === "dashboard" ? <DashboardView state={state} /> : section === "purchase-requests" ? <RequestView state={state} execute={execute} /> : section === "approvals" ? <ApprovalView state={state} execute={execute} /> : section === "purchase-orders" ? <PurchaseOrderView state={state} execute={execute} /> : section === "receiving" ? <ReceivingView state={state} execute={execute} /> : section === "invoices" ? <InvoiceView state={state} execute={execute} /> : section === "analytics" ? <CertifiedKpiDashboard state={state} /> : section === "audit-center" ? <AuditView state={state} execute={execute} activeTenantId={activeTenantId} durableArtifacts={durability === "authoritative"} /> : section === "administration" ? <GovernanceView state={state} execute={execute} /> : section === "ai-procurement" ? <AiWorkspace /> : <GenericView section={section} state={state} />}
+      <fieldset
+        disabled={durability === "read_only"}
+        aria-disabled={durability === "read_only"}
+        className="contents"
+      >
+        {section === "dashboard" ? <DashboardView state={state} /> : section === "purchase-requests" ? <RequestView state={state} execute={execute} /> : section === "approvals" ? <ApprovalView state={state} execute={execute} /> : section === "purchase-orders" ? <PurchaseOrderView state={state} execute={execute} /> : section === "receiving" ? <ReceivingView state={state} execute={execute} /> : section === "invoices" ? <InvoiceView state={state} execute={execute} /> : section === "analytics" ? <CertifiedKpiDashboard state={state} /> : section === "audit-center" ? <AuditView state={state} execute={execute} activeTenantId={activeTenantId} durableArtifacts={durability === "authoritative"} /> : section === "administration" ? <GovernanceView state={state} execute={execute} /> : section === "ai-procurement" ? <AiWorkspace /> : <GenericView section={section} state={state} />}
+      </fieldset>
       {message && (
         <div role="status" className="fixed bottom-5 right-5 z-50 flex max-w-sm items-start gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface-elevated)] p-4 shadow-[var(--shadow-elevated)]">
           <Check className="mt-0.5 size-4 text-emerald-600" />

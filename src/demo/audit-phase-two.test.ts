@@ -7,6 +7,7 @@ import {
 } from "@/analytics/kpi-catalog";
 import { phaseTwoCommandRequestSchema } from "@/phase-two/commands";
 import {
+  assertNoProhibitedImportCell,
   controlledImportCellValue,
   inspectControlledXlsxArchive,
   parseControlledCsv,
@@ -74,6 +75,9 @@ describe("Audit Phase 2 controls", () => {
         tenantId: "org-y12-demo",
         expectedRevision: 3,
         idempotencyKey: crypto.randomUUID(),
+        correlationId: crypto.randomUUID(),
+        requestedAt: new Date().toISOString(),
+        rationale: "Authorized qualification role switch.",
         command: { type: "switch_role", role: "auditor" },
       }).success,
     ).toBe(true);
@@ -82,6 +86,9 @@ describe("Audit Phase 2 controls", () => {
         tenantId: "org-y12-demo",
         expectedRevision: -1,
         idempotencyKey: "replay-me",
+        correlationId: "not-a-correlation",
+        requestedAt: "yesterday",
+        rationale: "short",
         command: { type: "switch_role", role: "owner" },
       }).success,
     ).toBe(false);
@@ -101,6 +108,12 @@ describe("Audit Phase 2 controls", () => {
     expect(() => controlledImportCellValue('=HYPERLINK("bad")')).toThrow(
       "FORMULAS_NOT_ALLOWED",
     );
+    expect(() =>
+      assertNoProhibitedImportCell("Applicant SSN 123-45-6789"),
+    ).toThrow("PROHIBITED_DATA_VALUE");
+    expect(() =>
+      assertNoProhibitedImportCell("4111 1111 1111 1111"),
+    ).toThrow("PROHIBITED_DATA_VALUE");
   });
 
   it("rejects formulas and active content inside XLSX archives", () => {
@@ -287,6 +300,10 @@ describe("Audit Phase 2 controls", () => {
       expect(metric.owner).not.toHaveLength(0);
       expect(metric.sourceLineage.length).toBeGreaterThan(0);
       expect(metric.targetLabel).toBe("Synthetic demo target");
+      expect(metric.targetStatus).toBe("synthetic_reference");
+      expect(metric.targetBasis).toContain("not a customer benchmark");
+      expect(metric.accountableDecision).not.toHaveLength(0);
+      expect(metric.minimumSampleSize).toBeGreaterThan(0);
       expect(metric.drilldownPath).toContain(metric.id);
     }
     const results = calculateCertifiedKpis(state);
@@ -294,6 +311,15 @@ describe("Audit Phase 2 controls", () => {
     expect(results.every((metric) => metric.coverage.includes("100%"))).toBe(
       true,
     );
+    expect(
+      results.every(
+        (metric) =>
+          metric.asOf === "2026-07-24T12:00:00.000Z" &&
+          metric.filters.tenant === state.organization.organizationId &&
+          metric.recordCount === metric.contributingRecords.length &&
+          metric.reconciliationStatus === "reconciled",
+      ),
+    ).toBe(true);
   });
 });
 

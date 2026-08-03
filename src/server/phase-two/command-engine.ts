@@ -11,6 +11,7 @@ import {
   createFeaturedPurchaseOrder,
   decidePurchaseOrderRevision,
   decideApproval,
+  delegateApproval,
   decideVendorException,
   activateConfigurationVersion,
   approveConfigurationVersion,
@@ -27,6 +28,11 @@ import {
   recordVendorAcknowledgment,
   requestVendorException,
   retryNotificationDelivery,
+  sendApprovalReminder,
+  escalateApproval,
+  bulkApproveLowRisk,
+  cancelFeaturedPurchaseOrder,
+  closeFeaturedPurchaseOrder,
   resetDemo,
   reverseFeaturedReceipt,
   reverseImportBatch,
@@ -40,15 +46,157 @@ import {
   toggleNotice,
   submitConfigurationForReview,
   validateConfigurationVersion,
+  createOperationalRequest,
+  updateOperationalRequest,
+  cloneOperationalRequest,
+  submitOperationalRequest,
+  withdrawOperationalRequest,
+  decideOperationalApproval,
+  createOperationalPurchaseOrder,
+  issueOperationalPurchaseOrder,
+  acknowledgeOperationalPurchaseOrder,
+  recordOperationalReceipt,
+  recordOperationalInvoice,
+  matchOperationalInvoice,
+  recordOperationalCredit,
+  resolveOperationalInvoice,
+  exportOperationalPaymentReadiness,
+  cancelOperationalPurchaseOrder,
+  closeOperationalPurchaseOrder,
+  reopenOperationalPurchaseOrder,
+  type OperationalActorContext,
 } from "@/demo/workflow";
 import type { PhaseTwoCommand } from "@/phase-two/commands";
 
 export function executePhaseTwoCommand(
   current: DemoState,
   command: PhaseTwoCommand,
+  actor?: OperationalActorContext,
 ): DemoState {
   let next: DemoState;
   switch (command.type) {
+    case "create_operational_request":
+      if (!actor) throw new Error("COMMAND_ACTOR_CONTEXT_REQUIRED");
+      next = createOperationalRequest(current, command, actor);
+      break;
+    case "update_operational_request":
+      if (!actor) throw new Error("COMMAND_ACTOR_CONTEXT_REQUIRED");
+      next = updateOperationalRequest(current, command, actor);
+      break;
+    case "clone_operational_request":
+      if (!actor) throw new Error("COMMAND_ACTOR_CONTEXT_REQUIRED");
+      next = cloneOperationalRequest(
+        current,
+        command.sourceRequestId,
+        command.requiredDate,
+        actor,
+      );
+      break;
+    case "submit_operational_request":
+      if (!actor) throw new Error("COMMAND_ACTOR_CONTEXT_REQUIRED");
+      next = submitOperationalRequest(current, command.requestId, actor);
+      break;
+    case "withdraw_operational_request":
+      if (!actor) throw new Error("COMMAND_ACTOR_CONTEXT_REQUIRED");
+      next = withdrawOperationalRequest(
+        current,
+        command.requestId,
+        command.reason,
+        actor,
+      );
+      break;
+    case "decide_operational_approval":
+      if (!actor) throw new Error("COMMAND_ACTOR_CONTEXT_REQUIRED");
+      next = decideOperationalApproval(
+        current,
+        command.approvalId,
+        command.decision,
+        command.comments,
+        actor,
+      );
+      break;
+    case "create_operational_purchase_order":
+      if (!actor) throw new Error("COMMAND_ACTOR_CONTEXT_REQUIRED");
+      next = createOperationalPurchaseOrder(current, command, actor);
+      break;
+    case "issue_operational_purchase_order":
+      if (!actor) throw new Error("COMMAND_ACTOR_CONTEXT_REQUIRED");
+      next = issueOperationalPurchaseOrder(
+        current,
+        command.purchaseOrderId,
+        actor,
+      );
+      break;
+    case "acknowledge_operational_purchase_order":
+      if (!actor) throw new Error("COMMAND_ACTOR_CONTEXT_REQUIRED");
+      next = acknowledgeOperationalPurchaseOrder(
+        current,
+        command.purchaseOrderId,
+        command.acknowledgmentReference,
+        actor,
+      );
+      break;
+    case "record_operational_receipt":
+      if (!actor) throw new Error("COMMAND_ACTOR_CONTEXT_REQUIRED");
+      next = recordOperationalReceipt(current, command, actor);
+      break;
+    case "record_operational_invoice":
+      if (!actor) throw new Error("COMMAND_ACTOR_CONTEXT_REQUIRED");
+      next = recordOperationalInvoice(current, command, actor);
+      break;
+    case "match_operational_invoice":
+      if (!actor) throw new Error("COMMAND_ACTOR_CONTEXT_REQUIRED");
+      next = matchOperationalInvoice(current, command, actor);
+      break;
+    case "record_operational_credit":
+      if (!actor) throw new Error("COMMAND_ACTOR_CONTEXT_REQUIRED");
+      next = recordOperationalCredit(current, command, actor);
+      break;
+    case "resolve_operational_invoice":
+      if (!actor) throw new Error("COMMAND_ACTOR_CONTEXT_REQUIRED");
+      next = resolveOperationalInvoice(
+        current,
+        command.invoiceId,
+        command.decision,
+        command.justification,
+        actor,
+      );
+      break;
+    case "export_operational_payment_readiness":
+      if (!actor) throw new Error("COMMAND_ACTOR_CONTEXT_REQUIRED");
+      next = exportOperationalPaymentReadiness(
+        current,
+        command.invoiceId,
+        actor,
+      );
+      break;
+    case "cancel_operational_purchase_order":
+      if (!actor) throw new Error("COMMAND_ACTOR_CONTEXT_REQUIRED");
+      next = cancelOperationalPurchaseOrder(
+        current,
+        command.purchaseOrderId,
+        command.reason,
+        actor,
+      );
+      break;
+    case "close_operational_purchase_order":
+      if (!actor) throw new Error("COMMAND_ACTOR_CONTEXT_REQUIRED");
+      next = closeOperationalPurchaseOrder(
+        current,
+        command.purchaseOrderId,
+        command.reason,
+        actor,
+      );
+      break;
+    case "reopen_operational_purchase_order":
+      if (!actor) throw new Error("COMMAND_ACTOR_CONTEXT_REQUIRED");
+      next = reopenOperationalPurchaseOrder(
+        current,
+        command.purchaseOrderId,
+        command.reason,
+        actor,
+      );
+      break;
     case "analyze_request":
       next = analyzeFeaturedRequest(current);
       break;
@@ -84,6 +232,33 @@ export function executePhaseTwoCommand(
       break;
     case "decide_approval":
       next = decideApproval(current, command.decision, command.comments);
+      break;
+    case "delegate_approval":
+      next = delegateApproval(current, {
+        approvalId: command.approvalId,
+        delegateRole: command.delegateRole,
+        delegationType: command.delegationType,
+        startsOn: command.startsOn,
+        expiresOn: command.expiresOn,
+        reason: command.reason,
+      });
+      break;
+    case "send_approval_reminder":
+      next = sendApprovalReminder(current, command.approvalId);
+      break;
+    case "escalate_approval":
+      next = escalateApproval(
+        current,
+        command.approvalId,
+        command.reason,
+      );
+      break;
+    case "bulk_decide_approvals":
+      next = bulkApproveLowRisk(
+        current,
+        command.approvalIds,
+        command.rationale,
+      );
       break;
     case "create_purchase_order":
       next = createFeaturedPurchaseOrder(current);
@@ -122,6 +297,12 @@ export function executePhaseTwoCommand(
       break;
     case "issue_po_revision":
       next = issuePurchaseOrderRevision(current, command.revisionId);
+      break;
+    case "cancel_purchase_order":
+      next = cancelFeaturedPurchaseOrder(current, command.reason);
+      break;
+    case "close_purchase_order":
+      next = closeFeaturedPurchaseOrder(current, command.reason);
       break;
     case "run_invoice_match":
       next = runThreeWayMatch(current);

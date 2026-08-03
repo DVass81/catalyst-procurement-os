@@ -1,0 +1,102 @@
+name: catalyst-functional-test
+region: nyc
+services:
+  - name: web
+    github:
+      repo: DVass81/catalyst-procurement-os
+      branch: codex/audit-recovery-87
+      deploy_on_push: true
+    dockerfile_path: Dockerfile
+    http_port: 3000
+    instance_count: 1
+    instance_size_slug: apps-s-1vcpu-1gb-fixed
+    health_check:
+      http_path: /api/health
+      initial_delay_seconds: 20
+      period_seconds: 30
+      timeout_seconds: 5
+      success_threshold: 1
+      failure_threshold: 3
+    envs:
+      - key: NODE_ENV
+        value: production
+        scope: RUN_TIME
+      - key: APP_BASE_URL
+        value: ${APP_URL}
+        scope: RUN_TIME
+      - key: CATALYST_ENVIRONMENT_KIND
+        value: functional_test
+        scope: RUN_TIME
+      - key: CATALYST_RELEASE_CHANNEL
+        value: functional-test
+        scope: RUN_TIME
+      - key: CATALYST_SYNTHETIC_ONLY
+        value: "1"
+        scope: RUN_TIME
+      - key: CATALYST_PRESENTER_SIMULATION
+        value: "0"
+        scope: RUN_TIME
+      - key: CATALYST_RESET_ENABLED
+        value: "1"
+        scope: RUN_TIME
+      - key: DEMO_AUTH_BYPASS
+        value: "0"
+        scope: RUN_TIME
+      - key: CATALYST_MFA_REQUIRED
+        value: "1"
+        scope: RUN_TIME
+      - key: CATALYST_AUTH_LINK_MODE
+        value: scanner-resistant
+        scope: RUN_TIME
+      - key: CATALYST_EMAIL_PROVIDER
+        value: resend
+        scope: RUN_TIME
+      - key: RESEND_FROM_EMAIL
+        value: Catalyst Access <no-reply@auth.iccinternational.com>
+        scope: RUN_TIME
+      - key: CATALYST_AI_MODE
+        value: deterministic
+        scope: RUN_TIME
+      - key: CATALYST_RELEASE_COMMIT
+        value: ${_self.COMMIT_HASH}
+        scope: RUN_TIME
+      - key: CATALYST_MIGRATION_LEDGER_SHA256
+        value: __MIGRATION_LEDGER_SHA256__
+        scope: RUN_TIME
+      - key: CATALYST_ENVIRONMENT_FINGERPRINT_SHA256
+        value: __ENVIRONMENT_FINGERPRINT_SHA256__
+        scope: RUN_TIME
+      - key: CATALYST_APPROVED_CONFIGURATION_SHA256
+        value: __APPROVED_CONFIGURATION_SHA256__
+        scope: RUN_TIME
+      - key: CATALYST_RUBRIC_VERSION
+        value: august-2-regression-87-v1
+        scope: RUN_TIME
+      - key: CATALYST_DATASET_VERSION
+        value: august-2-six-workflow-v1
+        scope: RUN_TIME
+      - key: SUPABASE_URL
+        type: SECRET
+        scope: RUN_TIME
+      - key: SUPABASE_PUBLISHABLE_KEY
+        type: SECRET
+        scope: RUN_TIME
+      - key: SUPABASE_SECRET_KEY
+        type: SECRET
+        scope: RUN_TIME
+      - key: ACTION_CONFIRMATION_SECRET
+        type: SECRET
+        scope: RUN_TIME
+      - key: RESEND_API_KEY
+        type: SECRET
+        scope: RUN_TIME
+      - key: NOTIFICATION_WORKER_SECRET
+        type: SECRET
+        scope: RUN_TIME
+ingress:
+  rules:
+    - component:
+        name: web
+      match:
+        path:
+          prefix: /

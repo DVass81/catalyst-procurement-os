@@ -112,8 +112,13 @@ export function validateDemoIntegrity(state: DemoState) {
       issue(issues, "orphan_invoice", invoice.id, "Invoice has no purchase order.");
       continue;
     }
-    if (invoice.subtotalCents !== purchaseOrder.subtotalCents) {
-      issue(issues, "invoice_subtotal_mismatch", invoice.id, "Invoice subtotal does not reconcile to the PO.");
+    const invoiceLineTotal = invoice.lines.reduce(
+      (total, line) =>
+        total + line.purchaseQuantity * line.unitPriceCents,
+      0,
+    );
+    if (invoice.subtotalCents !== invoiceLineTotal) {
+      issue(issues, "invoice_line_total_mismatch", invoice.id, "Invoice subtotal does not equal its line extensions.");
     }
     if (
       invoice.totalCents !==
@@ -122,7 +127,17 @@ export function validateDemoIntegrity(state: DemoState) {
       issue(issues, "invoice_total_mismatch", invoice.id, "Invoice total does not reconcile.");
     }
     if (invoice.matchStatus === "exception" && invoice.varianceCents <= 0) {
-      issue(issues, "exception_without_variance", invoice.id, "Invoice exception has no variance.");
+      if (invoice.exceptionStatus !== "duplicate_invoice") {
+        issue(issues, "exception_without_variance", invoice.id, "Invoice exception has no variance.");
+      }
+    }
+    if (
+      invoice.matchStatus === "matched" &&
+      invoice.totalCents !== purchaseOrder.totalCents &&
+      invoice.exceptionStatus !== "accepted_with_justification" &&
+      invoice.invoiceType !== "credit"
+    ) {
+      issue(issues, "matched_invoice_po_mismatch", invoice.id, "A matched invoice does not reconcile to its purchase order.");
     }
   }
 

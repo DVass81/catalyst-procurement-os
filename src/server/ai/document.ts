@@ -9,8 +9,15 @@ import {
   type AiRunRequest,
   type AiRunResult,
 } from "@/ai/types";
+import type { DemoState } from "@/demo/model";
 import { runProcurementAi, estimateOpenAiCost } from "@/server/ai/orchestrator";
 import { recordCateEvaluation } from "@/server/ai/evaluation-ledger";
+import {
+  assessCateIntent,
+  calibrateCateConfidence,
+  validateCitationGraph,
+  validateCateAnswer,
+} from "@/server/ai/intent";
 import { MODEL_IDS, routeModel } from "@/server/ai/router";
 import {
   canStartPaidRun,
@@ -27,10 +34,53 @@ Never approve, award, issue, receive, accept, pay, send, schedule, or modify dat
 Return the strict structured output. Cite the uploaded document with sourceType uploaded_document and its filename locator.
 Do not include proposed actions; document results are read-only.`;
 
+const controlLanguageLeakage =
+  /(?:ignore|disregard)\s+(?:all\s+)?(?:previous|prior|system)|system\s+prompt|developer\s+message|api[_ -]?key|bearer\s+token|tool\s+call/i;
+
+export function validateUntrustedDocumentOutput(
+  output: AiRunResult | Awaited<ReturnType<typeof aiModelOutputSchema.parse>>,
+  filename: string,
+) {
+  const citationGraph = validateCitationGraph(output);
+  const reasons = [...citationGraph.reasons];
+  if (output.proposedActions.length > 0) {
+    reasons.push("Document analysis proposed a state-changing action.");
+  }
+  if (output.citations.length === 0) {
+    reasons.push("Document analysis returned no source citation.");
+  }
+  for (const citation of output.citations) {
+    if (
+      citation.sourceType !== "uploaded_document" ||
+      citation.locator !== filename
+    ) {
+      reasons.push(
+        `Citation ${citation.id} escaped the uploaded-document evidence boundary.`,
+      );
+    }
+  }
+  const responseText = [
+    output.displayText,
+    output.narrationText,
+    output.recommendedNextAction,
+    output.humanDecisionBoundary,
+    ...output.assumptions,
+    ...output.evidenceGaps,
+    ...output.risksAndAlternatives,
+  ].join("\n");
+  if (controlLanguageLeakage.test(responseText)) {
+    reasons.push(
+      "Document analysis repeated prompt-control or credential language.",
+    );
+  }
+  return { valid: reasons.length === 0, reasons };
+}
+
 export async function analyzeFictionalDocument(input: {
   request: AiRunRequest;
   file: File;
   sessionId: string;
+  scopedState: DemoState;
 }): Promise<AiRunResult> {
   if (
     !process.env.OPENAI_API_KEY ||
@@ -44,6 +94,7 @@ export async function analyzeFictionalDocument(input: {
         mode: "deterministic",
       },
       input.sessionId,
+      input.scopedState,
     );
   }
 
@@ -91,6 +142,56 @@ export async function analyzeFictionalDocument(input: {
     if (!response.output_parsed) {
       throw new Error("No structured document result was returned.");
     }
+    const intent = assessCateIntent(
+      input.request.prompt,
+      input.request.capability,
+    );
+    const groundedOutput = {
+      ...response.output_parsed,
+      citations: response.output_parsed.citations.filter(
+        (citation) =>
+          citation.sourceType === "uploaded_document" &&
+          citation.locator === input.file.name,
+      ),
+      proposedActions: [],
+    };
+    const documentValidation = validateUntrustedDocumentOutput(
+      groundedOutput,
+      input.file.name,
+    );
+    if (!documentValidation.valid) {
+      return runProcurementAi(
+        {
+          ...input.request,
+          prompt: `${input.request.prompt} The fictional attachment is named ${input.file.name}. The live document answer failed the untrusted-document evidence boundary, so use only the authoritative tenant evidence and disclose that limitation.`,
+          capability: intent.resolvedCapability,
+          mode: "deterministic",
+        },
+        input.sessionId,
+        input.scopedState,
+      );
+    }
+    const answerAssessment = validateCateAnswer({
+      intent,
+      output: groundedOutput,
+      outputClass: "generative_interpretation",
+    });
+    if (!answerAssessment.questionAnswered) {
+      return runProcurementAi(
+        {
+          ...input.request,
+          prompt: `${input.request.prompt} The fictional attachment is named ${input.file.name}. The live document answer did not pass the question-answered and citation gate, so use only the authoritative tenant evidence and disclose that limitation.`,
+          capability: intent.resolvedCapability,
+          mode: "deterministic",
+        },
+        input.sessionId,
+        input.scopedState,
+      );
+    }
+    const calibratedOutput = calibrateCateConfidence(
+      groundedOutput,
+      answerAssessment,
+    );
     const inputTokens = response.usage?.input_tokens ?? 0;
     const outputTokens = response.usage?.output_tokens ?? 0;
     const usage = createUsageEvent({
@@ -111,8 +212,19 @@ export async function analyzeFictionalDocument(input: {
       route: routed.route,
       model,
       providerMode: "live",
-      ...response.output_parsed,
-      proposedActions: [],
+      ...calibratedOutput,
+      intentAssessment: intent,
+      answerAssessment,
+      claims: [
+        {
+          id: `document-claim-${intent.intentId}`,
+          text: calibratedOutput.displayText,
+          classification: "inference",
+          sourceCitationIds: calibratedOutput.citations.map(
+            (citation) => citation.id,
+          ),
+        },
+      ],
       usage,
       tourStepToResume: input.request.tourStepToResume,
     };

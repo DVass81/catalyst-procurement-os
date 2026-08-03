@@ -14,6 +14,9 @@
 
 # testing
 /coverage
+/outputs/
+/.codex-spreadsheet/
+/pytest-cache-files-*/
 
 # next.js
 /.next/
@@ -34,6 +37,8 @@ yarn-error.log*
 .pnpm-debug.log*
 /pnpm-lock.yaml
 /pnpm-workspace.yaml
+/.pnpm-store/
+/supabase/.temp/
 
 # env files (can opt-in for committing if needed)
 .env*

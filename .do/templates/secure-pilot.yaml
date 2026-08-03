@@ -1,0 +1,162 @@
+name: catalyst-secure-pilot
+region: nyc
+services:
+  - name: web
+    image:
+      registry_type: DOCR
+      registry: ""
+      repository: catalyst-procurement-os
+      digest: __QUALIFIED_IMAGE_DIGEST__
+    http_port: 3000
+    instance_count: 2
+    instance_size_slug: apps-s-1vcpu-1gb-fixed
+    health_check:
+      http_path: /api/health
+      initial_delay_seconds: 20
+      period_seconds: 30
+      timeout_seconds: 5
+      success_threshold: 1
+      failure_threshold: 3
+    envs:
+      - key: NODE_ENV
+        value: production
+        scope: RUN_TIME
+      - key: APP_BASE_URL
+        value: ${APP_URL}
+        scope: RUN_TIME
+      - key: CATALYST_ENVIRONMENT_KIND
+        value: secure_pilot
+        scope: RUN_TIME
+      - key: CATALYST_RELEASE_CHANNEL
+        value: secure-pilot
+        scope: RUN_TIME
+      - key: CATALYST_SYNTHETIC_ONLY
+        value: "0"
+        scope: RUN_TIME
+      - key: CATALYST_PRESENTER_SIMULATION
+        value: "0"
+        scope: RUN_TIME
+      - key: CATALYST_RESET_ENABLED
+        value: "0"
+        scope: RUN_TIME
+      - key: DEMO_AUTH_BYPASS
+        value: "0"
+        scope: RUN_TIME
+      - key: CATALYST_SSO_MODE
+        value: saml
+        scope: RUN_TIME
+      - key: CATALYST_SSO_ENABLED
+        value: "1"
+        scope: RUN_TIME
+      - key: CATALYST_SCIM_ENABLED
+        value: "1"
+        scope: RUN_TIME
+      - key: CATALYST_MFA_REQUIRED
+        value: "1"
+        scope: RUN_TIME
+      - key: CATALYST_PRIVILEGED_AUTH_MODE
+        value: phishing-resistant
+        scope: RUN_TIME
+      - key: CATALYST_PHISHING_RESISTANT_CLAIM_VALUE
+        value: phishing_resistant
+        scope: RUN_TIME
+      - key: SUPABASE_PITR_ENABLED
+        value: "1"
+        scope: RUN_TIME
+      - key: SUPABASE_STORAGE_BACKUP_ENABLED
+        value: "1"
+        scope: RUN_TIME
+      - key: AWS_EVIDENCE_OBJECT_LOCK_MODE
+        value: COMPLIANCE
+        scope: RUN_TIME
+      - key: CATALYST_DOCUMENT_SCAN_MODE
+        value: live
+        scope: RUN_TIME
+      - key: CATALYST_DLP_SCAN_MODE
+        value: live
+        scope: RUN_TIME
+      - key: CATALYST_MALWARE_SCANNER_ZERO_RETENTION
+        value: "1"
+        scope: RUN_TIME
+      - key: CATALYST_RELEASE_COMMIT
+        value: __QUALIFIED_GIT_COMMIT__
+        scope: RUN_TIME
+      - key: CATALYST_IMAGE_DIGEST
+        value: __QUALIFIED_IMAGE_DIGEST__
+        scope: RUN_TIME
+      - key: CATALYST_MIGRATION_LEDGER_SHA256
+        value: __MIGRATION_LEDGER_SHA256__
+        scope: RUN_TIME
+      - key: CATALYST_ENVIRONMENT_FINGERPRINT_SHA256
+        value: __ENVIRONMENT_FINGERPRINT_SHA256__
+        scope: RUN_TIME
+      - key: CATALYST_APPROVED_CONFIGURATION_SHA256
+        value: __APPROVED_CONFIGURATION_SHA256__
+        scope: RUN_TIME
+      - key: CATALYST_RUBRIC_VERSION
+        value: p95-pilot-readiness-v1
+        scope: RUN_TIME
+      - key: CATALYST_DATASET_VERSION
+        value: p95-synthetic-qualification-v1
+        scope: RUN_TIME
+      - key: SUPABASE_URL
+        type: SECRET
+        scope: RUN_TIME
+      - key: SUPABASE_PUBLISHABLE_KEY
+        type: SECRET
+        scope: RUN_TIME
+      - key: SUPABASE_SECRET_KEY
+        type: SECRET
+        scope: RUN_TIME
+      - key: ACTION_CONFIRMATION_SECRET
+        type: SECRET
+        scope: RUN_TIME
+      - key: CATALYST_SSO_ALLOWED_DOMAINS
+        type: SECRET
+        scope: RUN_TIME
+      - key: CATALYST_SCIM_BEARER_SECRET
+        type: SECRET
+        scope: RUN_TIME
+      - key: CATALYST_INTEGRATION_KEYS_JSON
+        type: SECRET
+        scope: RUN_TIME
+      - key: CATALYST_OPERATIONS_PROBE_SECRET
+        type: SECRET
+        scope: RUN_TIME
+      - key: CATALYST_BANKING_FINGERPRINT_SECRET
+        type: SECRET
+        scope: RUN_TIME
+      - key: EVIDENCE_REPLICATION_WORKER_SECRET
+        type: SECRET
+        scope: RUN_TIME
+      - key: AWS_REGION
+        type: SECRET
+        scope: RUN_TIME
+      - key: AWS_ACCESS_KEY_ID
+        type: SECRET
+        scope: RUN_TIME
+      - key: AWS_SECRET_ACCESS_KEY
+        type: SECRET
+        scope: RUN_TIME
+      - key: AWS_S3_EVIDENCE_BUCKET
+        type: SECRET
+        scope: RUN_TIME
+      - key: AWS_S3_EVIDENCE_KMS_KEY_ID
+        type: SECRET
+        scope: RUN_TIME
+      - key: AWS_KMS_BANKING_KEY_ID
+        type: SECRET
+        scope: RUN_TIME
+      - key: CATALYST_MALWARE_SCANNER_URL
+        type: SECRET
+        scope: RUN_TIME
+      - key: CATALYST_MALWARE_SCANNER_SECRET
+        type: SECRET
+        scope: RUN_TIME
+ingress:
+  rules:
+    - component:
+        name: web
+      match:
+        path:
+          prefix: /

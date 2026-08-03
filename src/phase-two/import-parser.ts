@@ -15,6 +15,34 @@ export function controlledImportCellValue(value: unknown) {
   return text;
 }
 
+function passesLuhn(value: string) {
+  const digits = value.replace(/\D/g, "");
+  if (digits.length < 13 || digits.length > 19) return false;
+  let total = 0;
+  let doubleDigit = false;
+  for (let index = digits.length - 1; index >= 0; index -= 1) {
+    let digit = Number(digits[index]);
+    if (doubleDigit) {
+      digit *= 2;
+      if (digit > 9) digit -= 9;
+    }
+    total += digit;
+    doubleDigit = !doubleDigit;
+  }
+  return total % 10 === 0;
+}
+
+export function assertNoProhibitedImportCell(value: string) {
+  if (/\b\d{3}-\d{2}-\d{4}\b/.test(value)) {
+    throw new Error("PROHIBITED_DATA_VALUE");
+  }
+  for (const candidate of value.match(/\b(?:\d[ -]?){13,19}\b/g) ?? []) {
+    if (passesLuhn(candidate)) {
+      throw new Error("PROHIBITED_DATA_VALUE");
+    }
+  }
+}
+
 export function parseControlledCsv(bytes: Buffer) {
   if (bytes.includes(0)) throw new Error("IMPORT_CONTENT_REJECTED");
   const text = bytes.toString("utf8").replace(/^\uFEFF/, "");
@@ -88,7 +116,7 @@ export function inspectControlledXlsxArchive(bytes: Buffer) {
     if (error instanceof Error && error.message.startsWith("IMPORT_")) {
       throw error;
     }
-    throw new Error("IMPORT_ARCHIVE_REJECTED");
+    throw new Error("IMPORT_ARCHIVE_REJECTED", { cause: error });
   }
   for (const worksheet of Object.values(worksheets)) {
     if (/<f(?:\s|>)/i.test(strFromU8(worksheet))) {
