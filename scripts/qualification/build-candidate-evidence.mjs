@@ -80,7 +80,7 @@ mkdirSync(outputDirectory, { recursive: true });
 const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
 const sbom = execFileSync(
   npmCommand,
-  ["sbom", "--sbom-format", "cyclonedx"],
+  ["sbom", "--package-lock-only", "--omit=dev", "--sbom-format", "cyclonedx"],
   {
     encoding: "utf8",
     shell: process.platform === "win32",
