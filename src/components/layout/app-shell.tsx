@@ -46,7 +46,7 @@ import { tenantThemes, type TenantId } from "@/config/organizations";
 import { PresenterDock } from "@/components/presenter/presenter-dock";
 import {
   currentUser,
-  notifications,
+  notifications as previewNotifications,
   searchRecords,
 } from "@/data/mock-data";
 import { cn, titleCase } from "@/lib/utils";
@@ -561,18 +561,40 @@ function OrganizationMenu() {
 
 function NotificationMenu() {
   const { state } = useDemo();
-  if (!state.presenterMode) {
-    return (
-      <Button
-        variant="ghost"
-        size="icon"
-        disabled
-        aria-label="No authorized notifications available"
-      >
-        <Bell className="size-[18px]" />
-      </Button>
-    );
-  }
+  const [authorizedNotifications, setAuthorizedNotifications] = useState<
+    Array<{
+      id: string;
+      title: string;
+      description: string;
+      href: string;
+      occurredAt: string;
+      read: boolean;
+    }>
+  >([]);
+  useEffect(() => {
+    if (state.presenterMode) return;
+    let active = true;
+    void fetch("/api/notifications", {
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    })
+      .then(async (response) => {
+        if (!response.ok) return { notifications: [] };
+        return (await response.json()) as {
+          notifications?: typeof authorizedNotifications;
+        };
+      })
+      .then((result) => {
+        if (active) setAuthorizedNotifications(result.notifications ?? []);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [state.presenterMode]);
+  const notifications = state.presenterMode
+    ? previewNotifications
+    : authorizedNotifications;
   const unread = notifications.filter((notification) => !notification.read).length;
   return (
     <DropdownMenu.Root>
@@ -816,7 +838,14 @@ export function AppShell({
 }) {
   const pathname = usePathname();
   const guide = useCatalystGuide();
-  const { durability, error, hydrated, persistence, state } = useDemo();
+  const {
+    durability,
+    environmentKind,
+    error,
+    hydrated,
+    persistence,
+    state,
+  } = useDemo();
   const organization = state.organization;
   const [mobileOpen, setMobileOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -917,10 +946,21 @@ export function AppShell({
             )}
           </div>
         )}
+        {environmentKind === "functional_test" && (
+          <div
+            role="status"
+            className="sticky top-0 z-30 flex min-h-10 items-center justify-center gap-2 border-b border-sky-300 bg-sky-50 px-3 py-2 text-center text-[10px] font-black uppercase tracking-[0.08em] text-sky-950 sm:text-xs"
+          >
+            <ShieldCheck className="size-4 shrink-0" aria-hidden="true" />
+            Authenticated functional test â€” synthetic data â€” fixed role
+          </div>
+        )}
         <header
           className={cn(
             "sticky z-20 flex h-[var(--topbar-height)] items-center border-b border-[var(--border)] bg-[color-mix(in_srgb,var(--surface)_92%,transparent)] px-4 backdrop-blur-xl sm:px-6 lg:px-8",
-            stagingBypass ? "top-10" : "top-0",
+            stagingBypass || environmentKind === "functional_test"
+              ? "top-10"
+              : "top-0",
           )}
         >
           <div className="flex min-w-0 flex-1 items-center gap-3">
@@ -973,14 +1013,16 @@ export function AppShell({
           </div>
 
           <div className="flex items-center gap-1 sm:gap-1.5">
-            <button
-              data-tour-id="start-guided-demo"
-              onClick={() => guide.setOpen(true)}
-              className="hidden h-10 items-center gap-2 rounded-xl bg-[#cf4427] px-3 text-xs font-black text-white shadow-[0_8px_24px_rgba(207,68,39,.22)] transition hover:-translate-y-0.5 hover:bg-[#b83a22] xl:flex"
-            >
-              <Headphones className="size-4" />
-              Guided demo
-            </button>
+            {environmentKind !== "functional_test" ? (
+              <button
+                data-tour-id="start-guided-demo"
+                onClick={() => guide.setOpen(true)}
+                className="hidden h-10 items-center gap-2 rounded-xl bg-[#cf4427] px-3 text-xs font-black text-white shadow-[0_8px_24px_rgba(207,68,39,.22)] transition hover:-translate-y-0.5 hover:bg-[#b83a22] xl:flex"
+              >
+                <Headphones className="size-4" />
+                Guided demo
+              </button>
+            ) : null}
             <button
               onClick={() => setSearchOpen(true)}
               className="hidden h-10 w-56 items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface-subtle)] px-3 text-left text-xs text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-muted)] md:flex"

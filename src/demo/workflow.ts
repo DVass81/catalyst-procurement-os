@@ -165,6 +165,8 @@ export interface OperationalActorContext {
   departmentIds: string[];
   locationIds: string[];
   approvalLimitCents?: number;
+  supplierIds?: string[];
+  simulation?: boolean;
 }
 
 interface OperationalRequestLineInput {
@@ -607,7 +609,7 @@ function operationalApprovalRoles(request: PurchaseRequest): DemoRole[][] {
   if (hasTechnology) groups.push(["it_reviewer"]);
   groups.push(["purchasing_manager", "finance_reviewer"]);
   if (request.requestChannel === "emergency") {
-    groups.push(["compliance_reviewer"]);
+    groups.push(["auditor"]);
   }
   return groups;
 }
@@ -631,11 +633,12 @@ export function submitOperationalRequest(
   }
   assertActorScope(actor, request.departmentId, request.locationId);
   const groups = operationalApprovalRoles(request);
+  const submissionRevision = request.revision + 1;
   const approvals: Approval[] = groups.flatMap((roles, groupIndex) =>
     roles.map((role, roleIndex) => {
       const approver = next.users.find((user) => user.role === role);
       return {
-        id: `approval-${request.id}-${groupIndex + 1}-${roleIndex + 1}`,
+        id: `approval-${request.id}-r${submissionRevision}-${groupIndex + 1}-${roleIndex + 1}`,
         requestId: request.id,
         sequence: groupIndex + 1,
         routingMode: roles.length > 1 ? "parallel" : "sequential",
@@ -774,6 +777,22 @@ export function decideOperationalApproval(
   if (queue) queue.status = "completed";
 
   if (decision === "return") {
+    for (const superseded of next.approvals.filter(
+      (item) =>
+        item.requestId === request.id &&
+        item.id !== approval.id &&
+        ["pending", "not_started"].includes(item.status),
+    )) {
+      superseded.status = "rejected";
+      superseded.completedDate = next.sessionDate;
+      superseded.decision = "route_superseded_by_return";
+      superseded.comments =
+        "The active approval route was superseded when the request was returned for changes.";
+      const supersededQueue = next.workQueueItems.find(
+        (item) => item.id === `queue-${superseded.id}`,
+      );
+      if (supersededQueue) supersededQueue.status = "completed";
+    }
     request.status = "returned";
     request.fieldsLocked = false;
     request.revision += 1;
@@ -781,10 +800,12 @@ export function decideOperationalApproval(
     request.status = "rejected";
   } else {
     const group = approval.routingGroup ?? approval.sequence;
+    const routePrefix = approval.id.replace(/-\d+-\d+$/, "");
     const groupComplete = next.approvals
       .filter(
         (item) =>
           item.requestId === request.id &&
+          item.id.startsWith(`${routePrefix}-`) &&
           (item.routingGroup ?? item.sequence) === group,
       )
       .every((item) => item.status === "approved");
@@ -793,6 +814,7 @@ export function decideOperationalApproval(
         .filter(
           (item) =>
             item.requestId === request.id &&
+            item.id.startsWith(`${routePrefix}-`) &&
             (item.routingGroup ?? item.sequence) > group,
         )
         .sort(
@@ -804,6 +826,7 @@ export function decideOperationalApproval(
         for (const item of next.approvals.filter(
           (candidate) =>
             candidate.requestId === request.id &&
+            candidate.id.startsWith(`${routePrefix}-`) &&
             (candidate.routingGroup ?? candidate.sequence) === nextGroup,
         )) {
           item.status = "pending";
@@ -892,8 +915,15 @@ export function createOperationalPurchaseOrder(
       "This request already has a purchase order.",
     );
   }
-  const approvals = next.approvals.filter(
+  const requestApprovals = next.approvals.filter(
     (approval) => approval.requestId === request.id,
+  );
+  const latestRouteRevision = requestApprovals.reduce((latest, approval) => {
+    const revision = Number(approval.id.match(/-r(\d+)-\d+-\d+$/)?.[1] ?? 0);
+    return Math.max(latest, revision);
+  }, 0);
+  const approvals = requestApprovals.filter((approval) =>
+    approval.id.includes(`-r${latestRouteRevision}-`),
   );
   if (
     approvals.length === 0 ||
@@ -1041,10 +1071,7 @@ export function acknowledgeOperationalPurchaseOrder(
   acknowledgmentReference: string,
   actor: OperationalActorContext,
 ) {
-  requireOperationalRole(actor, [
-    "purchasing_specialist",
-    "purchasing_manager",
-  ]);
+  requireOperationalRole(actor, ["supplier_user"]);
   const next = clone(state);
   const purchaseOrder = next.purchaseOrders.find(
     (candidate) => candidate.id === purchaseOrderId,
@@ -1052,6 +1079,14 @@ export function acknowledgeOperationalPurchaseOrder(
   if (!purchaseOrder || purchaseOrder.status !== "issued") {
     throw new WorkflowError(
       "An issued operational purchase order is required.",
+    );
+  }
+  if (
+    !actor.simulation &&
+    !actor.supplierIds?.includes(purchaseOrder.vendorId)
+  ) {
+    throw new WorkflowError(
+      "The supplier identity is not assigned to this purchase order.",
     );
   }
   purchaseOrder.status = "acknowledged";
@@ -1063,7 +1098,7 @@ export function acknowledgeOperationalPurchaseOrder(
     "po.operational_acknowledged",
     "purchase_order",
     purchaseOrder.id,
-    "Supplier acknowledgment evidence was recorded without granting supplier authority.",
+    "The assigned supplier recorded acknowledgment evidence through its isolated workspace.",
     "issued",
     acknowledgmentReference.trim(),
   );
@@ -1204,8 +1239,16 @@ export function recordOperationalReceipt(
         `Accepted quantity exceeds the purchase order for ${ordered.description}.`,
       );
     }
+    const serviceAcceptanceRequired =
+      request?.requestChannel === "service" ||
+      (request?.requestChannel === "recurring" &&
+        request.lines.some((requestLine) =>
+          /service|support|software|subscription|renewal|monitoring/i.test(
+            requestLine.description,
+          ),
+        ));
     if (
-      request?.requestChannel === "service" &&
+      serviceAcceptanceRequired &&
       line.acceptedQuantity > 0 &&
       (!line.serviceAccepted ||
         !line.serviceAcceptanceEvidence?.trim())

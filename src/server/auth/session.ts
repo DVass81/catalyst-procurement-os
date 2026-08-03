@@ -2,6 +2,7 @@ import "server-only";
 
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 
+import { assessRuntimeEnvironment } from "@/config/runtime-environment";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
@@ -254,7 +255,7 @@ async function loadSessionForUser(input: {
     supplierAssignments: (supplierResult.data ?? []) as SupplierAssignmentRow[],
     policies: (policyResult.data ?? []) as IdentityPolicyRow[],
   });
-  return fromUser(
+  const session = fromUser(
     user,
     assignments,
     input.assuranceLevel,
@@ -263,6 +264,27 @@ async function loadSessionForUser(input: {
     input.authentication,
     input.mode,
   );
+  const environment = assessRuntimeEnvironment();
+  if (environment.kind !== "functional_test") return session;
+
+  if (session.mode !== "supabase" || session.tenantIds.length !== 1) {
+    return null;
+  }
+  const tenantId = session.tenantIds[0]!;
+  const directRoles = session.authorities[tenantId]?.roles.filter(
+    (assignment) => assignment.assignmentType === "direct",
+  );
+  const hasSimulatedAuthority = session.authorities[tenantId]?.roles.some(
+    (assignment) => assignment.assignmentType === "presenter_simulation",
+  );
+  if (!directRoles || directRoles.length !== 1 || hasSimulatedAuthority) {
+    return null;
+  }
+  return {
+    ...session,
+    role: directRoles[0]!.role,
+    presenter: false,
+  };
 }
 
 function createLocalPreviewSession(): AppSession {

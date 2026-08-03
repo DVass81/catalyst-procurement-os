@@ -33,7 +33,11 @@ if (status) {
 }
 
 const branch = git("branch", "--show-current");
-if (branch !== "codex/pilot-readiness-95" && branch !== "main") {
+if (
+  branch !== "codex/pilot-readiness-95" &&
+  branch !== "codex/audit-recovery-87" &&
+  branch !== "main"
+) {
   throw new Error(`Candidate evidence is not allowed from branch ${branch}.`);
 }
 
@@ -83,6 +87,7 @@ const sbom = execFileSync(
 );
 writeFileSync(sbomPath, sbom, "utf8");
 
+const recovery87 = branch === "codex/audit-recovery-87";
 const evidence = {
   schema: "catalyst.candidate-source-evidence.v1",
   createdAt: new Date().toISOString(),
@@ -104,8 +109,12 @@ const evidence = {
     deployedMigrationLedgerSha256: null,
   },
   qualification: {
-    rubricVersion: "p95-pilot-readiness-v1",
-    datasetVersion: "p95-synthetic-qualification-v1",
+    rubricVersion: recovery87
+      ? "august-2-regression-87-v1"
+      : "p95-pilot-readiness-v1",
+    datasetVersion: recovery87
+      ? "august-2-six-workflow-v1"
+      : "p95-synthetic-qualification-v1",
     independentEvidenceIncluded: false,
     releaseQualified: false,
   },

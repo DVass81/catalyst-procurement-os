@@ -43,12 +43,17 @@ function validate(
 export function assessRuntimeReleaseIdentity(
   environment: RuntimeEnvironment = process.env,
   required = true,
+  expected: {
+    rubricVersion?: string;
+    datasetVersion?: string;
+    imageDigestRequired?: boolean;
+  } = {},
 ): RuntimeReleaseIdentity {
   const issues: string[] = [];
   const commit = required
     ? validate(environment, "CATALYST_RELEASE_COMMIT", gitCommitPattern, issues)
     : environment.CATALYST_RELEASE_COMMIT?.trim() || null;
-  const imageDigest = required
+  const imageDigest = required && expected.imageDigestRequired !== false
     ? validate(
         environment,
         "CATALYST_IMAGE_DIGEST",
@@ -83,10 +88,18 @@ export function assessRuntimeReleaseIdentity(
   const rubricVersion = environment.CATALYST_RUBRIC_VERSION?.trim() || null;
   const datasetVersion = environment.CATALYST_DATASET_VERSION?.trim() || null;
 
-  if (required && rubricVersion !== PILOT_READINESS_RUBRIC_VERSION) {
+  if (
+    required &&
+    rubricVersion !==
+      (expected.rubricVersion ?? PILOT_READINESS_RUBRIC_VERSION)
+  ) {
     issues.push("catalyst_rubric_version_does_not_match_fixed_rubric");
   }
-  if (required && datasetVersion !== PILOT_READINESS_DATASET_VERSION) {
+  if (
+    required &&
+    datasetVersion !==
+      (expected.datasetVersion ?? PILOT_READINESS_DATASET_VERSION)
+  ) {
     issues.push("catalyst_dataset_version_does_not_match_fixed_dataset");
   }
 

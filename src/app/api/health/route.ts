@@ -67,6 +67,19 @@ export async function GET() {
           ? "approved-pilot-procurement-data"
           : "unspecified",
       accessMode: environment.accessMode,
+      presenterSimulation:
+        process.env.CATALYST_PRESENTER_SIMULATION === "1",
+      controlledReset:
+        process.env.CATALYST_RESET_ENABLED === "1" &&
+        environment.kind !== "secure_pilot",
+      authenticationLinkMode:
+        process.env.CATALYST_AUTH_LINK_MODE ?? "standard",
+      mfaPolicy:
+        process.env.CATALYST_MFA_REQUIRED === "1"
+          ? environment.kind === "functional_test"
+            ? "privileged-protected-actions"
+            : "required"
+          : "not-required",
       bypassStatus: environment.bypass.status,
       bypassExpiresAt: environment.bypass.expiresAt,
       capabilities: {
@@ -79,7 +92,10 @@ export async function GET() {
             ? "live-with-deterministic-fallback"
             : "deterministic-fallback",
         documentScanning: "simulated",
-        transactionalEmail: "simulated",
+        transactionalEmail:
+          process.env.CATALYST_EMAIL_PROVIDER === "resend"
+            ? "resend-custom-smtp"
+            : "simulated",
         paymentExecution: "not-implemented",
       },
     },

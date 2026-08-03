@@ -204,6 +204,7 @@ export async function POST(request: Request) {
       authority,
       assuranceLevel: session.assuranceLevel,
       securePilot: environment.kind === "secure_pilot",
+      functionalTest: environment.kind === "functional_test",
       phishingResistant: session.phishingResistant,
       presenter: session.presenter,
       syntheticOnly: process.env.CATALYST_SYNTHETIC_ONLY === "1",

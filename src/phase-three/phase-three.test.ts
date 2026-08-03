@@ -434,7 +434,7 @@ describe("commercialization foundation", () => {
       execute(
         {
           type: "phase3_supplier_decide",
-          applicationId: "supplier-application-volunteer",
+          applicationId: "supplier-application-ridgeline",
           decision: "approve",
           rationale:
             "The purchasing manager reviewed the submitted evidence and requested approval.",

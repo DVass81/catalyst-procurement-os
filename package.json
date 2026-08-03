@@ -15,6 +15,7 @@
     "deployment:validate": "node scripts/qualification/validate-deployment-templates.mjs",
     "candidate:evidence": "node scripts/qualification/build-candidate-evidence.mjs",
     "deployment:specs": "node scripts/qualification/render-deployment-specs.mjs",
+    "functional-test:provision-users": "node scripts/qualification/provision-functional-test-users.mjs",
     "check": "npm run secret:scan && npm run migration:validate && npm run deployment:validate && npm run lint && npm run typecheck && npm run test && npm run build"
   },
   "dependencies": {

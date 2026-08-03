@@ -14,6 +14,7 @@ import { activeRoleAssignments } from "@/server/auth/authority";
 import { getAppSession } from "@/server/auth/session";
 
 const commercializationSections = [
+  "rfqs",
   "integration-center",
   "enterprise-access",
   "supplier-onboarding",

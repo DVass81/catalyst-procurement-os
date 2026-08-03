@@ -29,12 +29,19 @@ export async function GET() {
       .map((assignment) => assignment.role),
   }));
   const environment = assessRuntimeEnvironment();
+  const fixedRole =
+    environment.kind === "functional_test" && tenants.length === 1
+      ? tenants[0]?.roles.length === 1
+        ? tenants[0].roles[0]
+        : null
+      : null;
   return NextResponse.json(
     {
       tenantIds: session.tenantIds,
       defaultTenantId: session.tenantIds[0] ?? null,
       tenants,
       presenter: session.presenter,
+      fixedRole,
       securityAssurance: {
         assuranceLevel: session.assuranceLevel,
         phishingResistant: session.phishingResistant,

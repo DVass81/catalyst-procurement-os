@@ -188,7 +188,7 @@ const contactNames = [
 
 export const seedVendors: Vendor[] = Array.from({ length: 40 }, (_, index) => {
   const name = namedVendors[index]!;
-  const isElevated = index === 1 || index % 13 === 0;
+  const isElevated = index === 1 || (index > 0 && index % 13 === 0);
   return {
     id: `vendor-${String(index + 1).padStart(3, "0")}`,
     legalName: `${name}, LLC`,

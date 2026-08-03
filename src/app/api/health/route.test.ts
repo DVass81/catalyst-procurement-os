@@ -35,6 +35,15 @@ const originalEnvironment = {
   supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
   supabaseKey: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
   supabaseSecret: process.env.SUPABASE_SECRET_KEY,
+  presenterSimulation: process.env.CATALYST_PRESENTER_SIMULATION,
+  resetEnabled: process.env.CATALYST_RESET_ENABLED,
+  mfaRequired: process.env.CATALYST_MFA_REQUIRED,
+  emailProvider: process.env.CATALYST_EMAIL_PROVIDER,
+  authLinkMode: process.env.CATALYST_AUTH_LINK_MODE,
+  resendFrom: process.env.RESEND_FROM_EMAIL,
+  resendKey: process.env.RESEND_API_KEY,
+  workerSecret: process.env.NOTIFICATION_WORKER_SECRET,
+  appBaseUrl: process.env.APP_BASE_URL,
 };
 
 function restoreEnvironment(
@@ -112,6 +121,18 @@ afterEach(() => {
     "SUPABASE_SECRET_KEY",
     originalEnvironment.supabaseSecret,
   );
+  restoreEnvironment(
+    "CATALYST_PRESENTER_SIMULATION",
+    originalEnvironment.presenterSimulation,
+  );
+  restoreEnvironment("CATALYST_RESET_ENABLED", originalEnvironment.resetEnabled);
+  restoreEnvironment("CATALYST_MFA_REQUIRED", originalEnvironment.mfaRequired);
+  restoreEnvironment("CATALYST_EMAIL_PROVIDER", originalEnvironment.emailProvider);
+  restoreEnvironment("CATALYST_AUTH_LINK_MODE", originalEnvironment.authLinkMode);
+  restoreEnvironment("RESEND_FROM_EMAIL", originalEnvironment.resendFrom);
+  restoreEnvironment("RESEND_API_KEY", originalEnvironment.resendKey);
+  restoreEnvironment("NOTIFICATION_WORKER_SECRET", originalEnvironment.workerSecret);
+  restoreEnvironment("APP_BASE_URL", originalEnvironment.appBaseUrl);
 });
 
 describe("Phase 3 health evidence", () => {
@@ -182,6 +203,54 @@ describe("Phase 3 health evidence", () => {
       releaseIdentity: {
         required: false,
         ready: true,
+      },
+    });
+  });
+
+  it("reports the isolated authenticated functional-test contract", async () => {
+    process.env.CATALYST_RELEASE_CHANNEL = "functional-test";
+    process.env.CATALYST_ENVIRONMENT_KIND = "functional_test";
+    process.env.CATALYST_RELEASE_COMMIT = "a61eaafa1849eb02af8e28f5e12ac0e1fe77385a";
+    delete process.env.CATALYST_IMAGE_DIGEST;
+    process.env.CATALYST_MIGRATION_LEDGER_SHA256 = "c".repeat(64);
+    process.env.CATALYST_ENVIRONMENT_FINGERPRINT_SHA256 = "d".repeat(64);
+    process.env.CATALYST_APPROVED_CONFIGURATION_SHA256 = "e".repeat(64);
+    process.env.CATALYST_RUBRIC_VERSION = "august-2-regression-87-v1";
+    process.env.CATALYST_DATASET_VERSION = "august-2-six-workflow-v1";
+    process.env.CATALYST_SYNTHETIC_ONLY = "1";
+    process.env.DEMO_AUTH_BYPASS = "0";
+    process.env.CATALYST_PRESENTER_SIMULATION = "0";
+    process.env.CATALYST_RESET_ENABLED = "1";
+    process.env.CATALYST_MFA_REQUIRED = "1";
+    process.env.CATALYST_EMAIL_PROVIDER = "resend";
+    process.env.CATALYST_AUTH_LINK_MODE = "scanner-resistant";
+    process.env.RESEND_FROM_EMAIL =
+      "Catalyst Access <no-reply@auth.iccinternational.com>";
+    process.env.RESEND_API_KEY = "configured";
+    process.env.NOTIFICATION_WORKER_SECRET = "configured";
+    process.env.APP_BASE_URL = "https://functional-test.example.test";
+    process.env.SUPABASE_URL = "https://example.supabase.co";
+    process.env.SUPABASE_PUBLISHABLE_KEY = "publishable-test";
+    process.env.SUPABASE_SECRET_KEY = "secret-test";
+
+    const response = await GET();
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      status: "ok",
+      environmentKind: "functional_test",
+      releaseChannel: "functional-test",
+      accessMode: "invite-magic-link",
+      presenterSimulation: false,
+      controlledReset: true,
+      authenticationLinkMode: "scanner-resistant",
+      mfaPolicy: "privileged-protected-actions",
+      dataClassification: "synthetic-only",
+      releaseIdentity: {
+        ready: true,
+        imageDigest: "unqualified",
+        rubricVersion: "august-2-regression-87-v1",
+        datasetVersion: "august-2-six-workflow-v1",
       },
     });
   });

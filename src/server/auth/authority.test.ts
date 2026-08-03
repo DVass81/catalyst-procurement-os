@@ -162,6 +162,42 @@ describe("tenant identity authority", () => {
     ).toThrow("PRESENTER_SIMULATION_DENIED");
   });
 
+  it("requires functional-test MFA only for protected privileged-role actions", () => {
+    const requester: ActiveRoleAssignment = {
+      ...directManager,
+      role: "requester",
+    };
+    expect(
+      authorizePhaseTwoActor({
+        authority: authority([requester], {
+          requireAal2ForProtectedActions: false,
+        }),
+        assuranceLevel: "aal1",
+        functionalTest: true,
+        presenter: false,
+        syntheticOnly: true,
+        requestedRole: "requester",
+        presenterRole: "requester",
+        commandType: "withdraw_operational_request",
+      }),
+    ).toMatchObject({ activeRole: "requester", protectedAction: true });
+
+    expect(() =>
+      authorizePhaseThreeActor({
+        authority: authority([directManager], {
+          requireAal2ForProtectedActions: false,
+        }),
+        assuranceLevel: "aal1",
+        functionalTest: true,
+        presenter: false,
+        syntheticOnly: true,
+        requestedRole: "purchasing_manager",
+        presenterRole: "requester",
+        commandType: "phase3_rfq_award",
+      }),
+    ).toThrow("AAL2_REQUIRED");
+  });
+
   it("allows AAL1 only for an explicitly entitled synthetic presenter simulation", () => {
     const presenterAssignment: ActiveRoleAssignment = {
       ...directManager,

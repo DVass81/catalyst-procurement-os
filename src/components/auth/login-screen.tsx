@@ -16,6 +16,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { BrandMark } from "@/components/layout/brand-mark";
 import { organization } from "@/data/mock-data";
+import { readApiJson } from "@/lib/http/api-json";
 
 export function LoginScreen({
   initialMessage,
@@ -40,22 +41,17 @@ export function LoginScreen({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email }),
       });
-      const result = (await response.json()) as {
+      const result = await readApiJson<{
         message?: string;
-      };
-      if (!response.ok) {
-        setMessage(result.message ?? "Secure access is unavailable.");
-      } else {
-        setSent(true);
-        setMessage(
-          result.message ??
-            "Check your email and open the newest secure Catalyst sign-in link.",
-        );
-      }
-    } catch {
+      }>(response, "Secure access is unavailable.");
+      setSent(true);
       setMessage(
-        "Secure sign-in could not be reached. Check the connection and try again.",
+        result.message ??
+          "Check your email and open the newest secure Catalyst sign-in link.",
       );
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message :
+        "Secure sign-in could not be reached. Check the connection and try again.");
     } finally {
       setLoading(false);
     }
@@ -73,17 +69,17 @@ export function LoginScreen({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email }),
       });
-      const result = (await response.json()) as {
+      const result = await readApiJson<{
         message?: string;
         url?: string;
-      };
-      if (!response.ok || !result.url) {
+      }>(response, "Enterprise SSO is unavailable.");
+      if (!result.url) {
         setMessage(result.message ?? "Enterprise SSO is unavailable.");
         return;
       }
       window.location.assign(result.url);
-    } catch {
-      setMessage("Enterprise SSO could not be reached.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Enterprise SSO could not be reached.");
     } finally {
       setLoading(false);
     }

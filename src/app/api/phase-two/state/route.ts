@@ -7,7 +7,10 @@ import {
   type PhaseTwoStateEnvelope,
 } from "@/phase-two/commands";
 import { switchRole } from "@/demo/workflow";
-import { authorizePhaseTwoActor } from "@/server/auth/authority";
+import {
+  authorizePhaseTwoActor,
+  requireSupplierScope,
+} from "@/server/auth/authority";
 import { executePhaseTwoCommand } from "@/server/phase-two/command-engine";
 import {
   commitPhaseTwoState,
@@ -159,6 +162,7 @@ export async function GET(request: Request) {
   if (!tenantId || tenantId.length > 80) {
     return NextResponse.json(
       {
+        success: false,
         code: "INVALID_TENANT",
         correlationId,
         message: "A valid tenant is required.",
@@ -191,6 +195,7 @@ export async function GET(request: Request) {
     if (!activeRole) {
       return NextResponse.json(
         {
+          success: false,
           code: "ACTIVE_ROLE_REQUIRED",
           correlationId,
           message:
@@ -212,6 +217,11 @@ export async function GET(request: Request) {
       );
     const response = NextResponse.json(
       {
+        success: true,
+        code: "STATE_LOADED",
+        correlationId,
+        message: "The authoritative workspace state was loaded.",
+        resultingRevision: envelope.revision,
         ...envelope,
         state: projectStateForAuthorizedRole({
           state: envelope.state,
@@ -243,6 +253,7 @@ export async function GET(request: Request) {
   } catch (error) {
     return NextResponse.json(
       {
+        success: false,
         code: rejectionCode(error),
         correlationId,
         message: safeMessage(error),
@@ -262,6 +273,7 @@ export async function POST(request: Request) {
   if (!rate.allowed) {
     return NextResponse.json(
       {
+        success: false,
         code: "RATE_LIMITED",
         correlationId: requestCorrelationId,
         message: "Workflow command limit reached. Please wait a moment.",
@@ -281,6 +293,7 @@ export async function POST(request: Request) {
   if (!parsed.success) {
     return NextResponse.json(
       {
+        success: false,
         code: "INVALID_COMMAND",
         correlationId: requestCorrelationId,
         message: "The workflow command is invalid.",
@@ -291,6 +304,7 @@ export async function POST(request: Request) {
   if (parsed.data.command.type === "generate_audit_package") {
     return NextResponse.json(
       {
+        success: false,
         code: "CONTROLLED_ENDPOINT_REQUIRED",
         correlationId: requestCorrelationId,
         message:
@@ -333,6 +347,7 @@ export async function POST(request: Request) {
       authority,
       assuranceLevel: session.assuranceLevel,
       securePilot: environment.kind === "secure_pilot",
+      functionalTest: environment.kind === "functional_test",
       phishingResistant: session.phishingResistant,
       presenter: session.presenter,
       syntheticOnly: process.env.CATALYST_SYNTHETIC_ONLY === "1",
@@ -341,6 +356,30 @@ export async function POST(request: Request) {
       commandType: parsed.data.command.type,
     });
     rejectionActiveRole = actor.activeRole;
+    if (
+      actor.activeRole === "supplier_user" &&
+      !actor.simulation &&
+      parsed.data.command.type ===
+        "acknowledge_operational_purchase_order"
+    ) {
+      const purchaseOrderId = parsed.data.command.purchaseOrderId;
+      const purchaseOrder = current.state.purchaseOrders.find(
+        (candidate) => candidate.id === purchaseOrderId,
+      );
+      const supplierAssignment = authority.supplierAccess.find(
+        (assignment) => assignment.supplierId === purchaseOrder?.vendorId,
+      );
+      if (!purchaseOrder || !supplierAssignment) {
+        throw new Error("SUPPLIER_ACCESS_DENIED");
+      }
+      requireSupplierScope({
+        authority,
+        supplierOrganizationId:
+          supplierAssignment.supplierOrganizationId,
+        supplierId: purchaseOrder.vendorId,
+        requiredScope: "supplier_po:acknowledge",
+      });
+    }
     const sourceState =
       current.state.activeRole === actor.activeRole
         ? current.state
@@ -354,6 +393,10 @@ export async function POST(request: Request) {
         departmentIds: actor.assignment.departmentIds,
         locationIds: actor.assignment.locationIds,
         approvalLimitCents: actor.assignment.approvalLimitCents,
+        supplierIds: authority.supplierAccess.map(
+          (assignment) => assignment.supplierId,
+        ),
+        simulation: actor.simulation,
       },
     );
     const command: PhaseTwoPersistedCommand = {
@@ -380,6 +423,11 @@ export async function POST(request: Request) {
       if (!replay) throw new Error("REVISION_CONFLICT");
       return NextResponse.json(
         {
+          success: true,
+          code: "COMMAND_REPLAYED",
+          correlationId,
+          message: "The previously committed command result was returned.",
+          resultingRevision: replay.resultRevision,
           ...current,
           state: projectStateForAuthorizedRole({
             state: current.state,
@@ -447,7 +495,14 @@ export async function POST(request: Request) {
         auditRevision: committed.revision,
       },
     };
-    return NextResponse.json(response, {
+    return NextResponse.json({
+      success: true,
+      code: "COMMAND_COMMITTED",
+      correlationId,
+      message: "The governed command was committed.",
+      resultingRevision: committed.revision,
+      ...response,
+    }, {
       headers: {
         ...responseHeaders(correlationId),
         "X-Catalyst-Command-Replayed": committed.replayed ? "1" : "0",
@@ -489,6 +544,7 @@ export async function POST(request: Request) {
       } catch {
         return NextResponse.json(
           {
+            success: false,
             code: "REJECTION_EVIDENCE_UNAVAILABLE",
             correlationId,
             message:
@@ -503,6 +559,7 @@ export async function POST(request: Request) {
     }
     return NextResponse.json(
       {
+        success: false,
         code: rejectionCode(error),
         correlationId,
         message: safeMessage(error),

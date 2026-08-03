@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { BrandMark } from "@/components/layout/brand-mark";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { readApiJson } from "@/lib/http/api-json";
 
 type Factor = {
   id: string;
@@ -41,10 +42,9 @@ export function MfaScreen({
     let active = true;
     void fetch("/api/auth/mfa", { cache: "no-store" })
       .then(async (response) => {
-        const result = (await response.json()) as MfaStatus & {
+        const result = await readApiJson<MfaStatus & {
           message?: string;
-        };
-        if (!response.ok) throw new Error(result.message);
+        }>(response, "Multi-factor status could not be loaded.");
         if (!active) return;
         setStatus(result);
         const verifiedFactor = result.factors.find(
@@ -77,16 +77,12 @@ export function MfaScreen({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      const result = (await response.json()) as {
+      const result = await readApiJson<{
         factorId?: string;
         qrCode?: string;
         assuranceLevel?: string;
         message?: string;
-      };
-      if (!response.ok) {
-        setMessage(result.message ?? "Multi-factor action failed.");
-        return;
-      }
+      }>(response, "Multi-factor action failed.");
       if (result.factorId) setFactorId(result.factorId);
       if (result.qrCode) setQrCode(result.qrCode);
       setMessage(result.message ?? "Multi-factor security was updated.");

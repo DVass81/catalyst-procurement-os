@@ -1,6 +1,34 @@
 import type { DemoRole, DemoState } from "@/demo/model";
 import type { TenantAuthority } from "@/server/auth/authority";
 
+const internalRfqRoles = new Set<DemoRole>([
+  "purchasing_specialist",
+  "purchasing_manager",
+  "compliance_reviewer",
+  "auditor",
+  "system_administrator",
+]);
+
+function enforceInternalRfqConfidentiality(
+  state: DemoState,
+  activeRole: DemoRole,
+) {
+  if (!internalRfqRoles.has(activeRole)) {
+    state.phaseThree.rfqs = [];
+    return;
+  }
+  const sealedStates = new Set(["open", "responses_received", "bafo_open"]);
+  state.phaseThree.rfqs = state.phaseThree.rfqs.map((rfq) =>
+    sealedStates.has(rfq.lifecycleState)
+      ? {
+          ...rfq,
+          responses: [],
+          evaluations: [],
+        }
+      : rfq,
+  );
+}
+
 function supplierAssignments(authority: TenantAuthority) {
   const now = Date.now();
   return authority.supplierAccess.filter(
@@ -104,6 +132,14 @@ export function projectStateForAuthorizedRole(input: {
       .map((application) => application.id),
   );
   const visibleRfqIds = new Set(visibleRfqs.map((rfq) => rfq.id));
+  const visiblePurchaseOrders = next.purchaseOrders.filter(
+    (order) =>
+      supplierIds.has(order.vendorId) &&
+      order.status !== "awaiting_issuance",
+  );
+  const visiblePurchaseOrderIds = new Set(
+    visiblePurchaseOrders.map((order) => order.id),
+  );
   const visibleResponseIds = new Set(
     visibleRfqs.flatMap((rfq) =>
       rfq.responses.map((response) => response.id),
@@ -135,12 +171,14 @@ export function projectStateForAuthorizedRole(input: {
   next.approvals = [];
   next.approvalDelegations = [];
   next.quotes = [];
-  next.purchaseOrders = [];
+  next.purchaseOrders = visiblePurchaseOrders;
   next.purchaseOrderRevisions = [];
   next.receipts = [];
   next.invoices = [];
   next.inventoryTransactions = [];
-  next.auditEvents = [];
+  next.auditEvents = next.auditEvents.filter((event) =>
+    visiblePurchaseOrderIds.has(event.entityId),
+  );
   next.contracts = [];
   next.vendorRiskAssessments = next.vendorRiskAssessments.filter(
     (assessment) => supplierIds.has(assessment.vendorId),
@@ -150,7 +188,9 @@ export function projectStateForAuthorizedRole(input: {
   );
   next.configurationVersions = [];
   next.importBatches = [];
-  next.documents = [];
+  next.documents = next.documents.filter((document) =>
+    visiblePurchaseOrderIds.has(document.parentEntityId),
+  );
   next.workQueueItems = [];
   next.notifications = [];
   next.auditPackages = [];
@@ -238,6 +278,7 @@ function projectInternalState(input: {
     "operations_manager",
     "system_administrator",
   ]);
+  enforceInternalRfqConfidentiality(next, input.activeRole);
   if (tenantWideRoles.has(input.activeRole)) return next;
 
   const departmentScope = new Set(assignment.departmentIds);

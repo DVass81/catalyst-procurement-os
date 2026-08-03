@@ -128,6 +128,7 @@ async function requestWorkspaceContext() {
     tenantIds?: string[];
     defaultTenantId?: string | null;
     environmentKind?: CatalystEnvironmentKind;
+    fixedRole?: DemoState["activeRole"] | null;
   }>(response, "Workspace access is unavailable.");
 }
 
@@ -225,12 +226,20 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
         }
         tenantId = selectedTenant;
         tenantRef.current = tenantId;
-        const storedRole = window.localStorage.getItem(
-          `${ACTIVE_ROLE_KEY_PREFIX}${tenantId}`,
-        ) as DemoState["activeRole"] | null;
+        const storedRole =
+          workspace.environmentKind === "functional_test"
+            ? null
+            : (window.localStorage.getItem(
+                `${ACTIVE_ROLE_KEY_PREFIX}${tenantId}`,
+              ) as DemoState["activeRole"] | null);
+        if (workspace.environmentKind === "functional_test") {
+          window.localStorage.removeItem(
+            `${ACTIVE_ROLE_KEY_PREFIX}${tenantId}`,
+          );
+        }
         const envelope = await requestState(
           tenantId,
-          storedRole ?? undefined,
+          workspace.fixedRole ?? storedRole ?? undefined,
         );
         if (!cancelled) acceptEnvelope(tenantId, envelope);
       } catch (loadError) {
@@ -382,6 +391,7 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
 
   const selectActiveRole = useCallback(
     async (role: DemoState["activeRole"]) => {
+      if (environmentKind === "functional_test") return;
       if (!availableRoles.includes(role)) return;
       const tenantId = tenantRef.current;
       setPending(true);
@@ -404,7 +414,7 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
         setPending(false);
       }
     },
-    [acceptEnvelope, availableRoles],
+    [acceptEnvelope, availableRoles, environmentKind],
   );
 
   const value = useMemo(
@@ -444,7 +454,48 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <DemoContext.Provider value={value}>
-      {roleSelectionRequired ? (
+      {!hydrated ? (
+        <main
+          className="flex min-h-screen items-center justify-center bg-[var(--background)] p-6"
+          aria-busy="true"
+          aria-live="polite"
+        >
+          <section className="w-full max-w-xl rounded-3xl border border-[var(--border)] bg-[var(--surface)] p-6 shadow-xl">
+            <p className="text-xs font-black uppercase tracking-[0.14em] text-[var(--brand-secondary-text)]">
+              Secure workspace resolver
+            </p>
+            <h1 className="mt-2 text-2xl font-black">
+              Verifying your assigned workspace
+            </h1>
+            <p className="mt-2 text-sm leading-6 text-[var(--muted-foreground)]">
+              Catalyst is validating authentication, tenant, role, permissions,
+              and authoritative state before displaying any procurement record.
+            </p>
+          </section>
+        </main>
+      ) : persistence === "unavailable" && !roleSelectionRequired ? (
+        <main className="flex min-h-screen items-center justify-center bg-[var(--background)] p-6">
+          <section className="w-full max-w-xl rounded-3xl border border-rose-300 bg-[var(--surface)] p-6 shadow-xl">
+            <p className="text-xs font-black uppercase tracking-[0.14em] text-rose-700">
+              Workspace unavailable
+            </p>
+            <h1 className="mt-2 text-2xl font-black">
+              No procurement data was displayed
+            </h1>
+            <p className="mt-2 text-sm leading-6 text-[var(--muted-foreground)]" role="alert">
+              {error ??
+                "Catalyst could not verify an authoritative workspace for this session."}
+            </p>
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="mt-5 min-h-11 rounded-xl bg-[var(--brand-primary)] px-4 text-sm font-black text-white outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)]"
+            >
+              Retry secure verification
+            </button>
+          </section>
+        </main>
+      ) : roleSelectionRequired ? (
         <main className="flex min-h-screen items-center justify-center bg-[var(--background)] p-6">
           <section className="w-full max-w-xl rounded-3xl border border-[var(--border)] bg-[var(--surface)] p-6 shadow-xl">
             <p className="text-xs font-black uppercase tracking-[0.14em] text-[var(--brand-secondary-text)]">

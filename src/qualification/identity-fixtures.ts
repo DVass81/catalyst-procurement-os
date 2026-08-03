@@ -8,13 +8,17 @@ export const qualificationTenantIds = [
 export type QualificationTenantId = (typeof qualificationTenantIds)[number];
 export type QualificationPersona =
   | "requester"
-  | "approver"
-  | "buyer"
-  | "receiver"
+  | "department_manager"
+  | "it_reviewer"
+  | "purchasing_specialist"
+  | "purchasing_manager"
+  | "receiving_clerk"
   | "accounts_payable"
-  | "supplier"
+  | "finance_reviewer"
+  | "supplier_a"
+  | "supplier_b"
   | "auditor"
-  | "administrator";
+  | "system_administrator";
 
 export interface QualificationIdentityFixture {
   id: string;
@@ -22,20 +26,25 @@ export interface QualificationIdentityFixture {
   persona: QualificationPersona;
   role: DemoRole;
   emailEnvironmentKey: string;
-  assurance: "aal2";
+  expectedEmail: string;
+  assurance: "aal1" | "aal2";
   supplierId?: string;
   scopes: string[];
 }
 
 const personaRoles: Record<QualificationPersona, DemoRole> = {
   requester: "requester",
-  approver: "department_manager",
-  buyer: "purchasing_specialist",
-  receiver: "receiving_clerk",
+  department_manager: "department_manager",
+  it_reviewer: "it_reviewer",
+  purchasing_specialist: "purchasing_specialist",
+  purchasing_manager: "purchasing_manager",
+  receiving_clerk: "receiving_clerk",
   accounts_payable: "accounts_payable",
-  supplier: "supplier_user",
+  finance_reviewer: "finance_reviewer",
+  supplier_a: "supplier_user",
+  supplier_b: "supplier_user",
   auditor: "auditor",
-  administrator: "system_administrator",
+  system_administrator: "system_administrator",
 };
 
 const personas = Object.keys(personaRoles) as QualificationPersona[];
@@ -44,9 +53,16 @@ function environmentKey(
   tenantId: QualificationTenantId,
   persona: QualificationPersona,
 ) {
-  const tenant =
-    tenantId === "org-y12-demo" ? "Y12" : "CATALYST_COMMUNITY";
-  return `PILOT_QUAL_${tenant}_${persona.toUpperCase()}_EMAIL`;
+  const tenant = tenantId === "org-y12-demo" ? "Y12" : "COMMUNITY";
+  return `FUNCTIONAL_TEST_${tenant}_${persona.toUpperCase()}_EMAIL`;
+}
+
+function expectedEmail(
+  tenantId: QualificationTenantId,
+  persona: QualificationPersona,
+) {
+  const tenant = tenantId === "org-y12-demo" ? "y12" : "community";
+  return `catalyst-ft-${tenant}-${persona.replaceAll("_", "-")}@iccinternational.com`;
 }
 
 export const qualificationIdentityFixtures: QualificationIdentityFixture[] =
@@ -57,20 +73,28 @@ export const qualificationIdentityFixtures: QualificationIdentityFixture[] =
       persona,
       role: personaRoles[persona],
       emailEnvironmentKey: environmentKey(tenantId, persona),
-      assurance: "aal2" as const,
+      expectedEmail: expectedEmail(tenantId, persona),
+      assurance: ([
+        "purchasing_manager",
+        "finance_reviewer",
+        "system_administrator",
+      ] as QualificationPersona[]).includes(persona)
+        ? ("aal2" as const)
+        : ("aal1" as const),
       supplierId:
-        persona === "supplier"
-          ? tenantId === "org-y12-demo"
-            ? "vendor-001"
-            : "vendor-021"
+        persona === "supplier_a"
+          ? "vendor-001"
+          : persona === "supplier_b"
+            ? "vendor-003"
           : undefined,
       scopes:
-        persona === "supplier"
+        persona === "supplier_a" || persona === "supplier_b"
           ? [
               "supplier_profile:read",
               "supplier_profile:update",
               "supplier_evidence:submit",
               "supplier_response:submit",
+              "supplier_po:acknowledge",
               "supplier_banking:submit",
             ]
           : ["tenant:authenticated"],

@@ -391,7 +391,13 @@ describe("operational request lifecycle", () => {
       state,
       purchaseOrder.id,
       "Supplier portal acknowledgment ACK-9001",
-      buyer,
+      {
+        ...actor(
+          "supplier_user",
+          "00000000-0000-4000-8000-000000000405",
+        ),
+        supplierIds: [purchaseOrder.vendorId],
+      },
     );
     const receiver = actor(
       "receiving_clerk",

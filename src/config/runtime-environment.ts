@@ -6,9 +6,14 @@ import {
   assessRuntimeReleaseIdentity,
   type RuntimeReleaseIdentity,
 } from "@/qualification/runtime-release-identity";
+import {
+  AUDIT_RECOVERY_87_DATASET_VERSION,
+  AUDIT_RECOVERY_87_RUBRIC_VERSION,
+} from "@/qualification/audit-recovery-87";
 
 export type CatalystEnvironmentKind =
   | "development_preview"
+  | "functional_test"
   | "sales_demo"
   | "secure_pilot";
 
@@ -31,6 +36,7 @@ function inferKind(environment: RuntimeEnvironment): CatalystEnvironmentKind {
   const configured = environment.CATALYST_ENVIRONMENT_KIND;
   if (
     configured === "development_preview" ||
+    configured === "functional_test" ||
     configured === "sales_demo" ||
     configured === "secure_pilot"
   ) {
@@ -38,6 +44,7 @@ function inferKind(environment: RuntimeEnvironment): CatalystEnvironmentKind {
   }
   const channel = environment.CATALYST_RELEASE_CHANNEL;
   if (channel === "development-preview") return "development_preview";
+  if (channel === "functional-test") return "functional_test";
   if (
     channel === "sales-demo" ||
     channel === "commercialization-staging"
@@ -91,6 +98,13 @@ export function assessRuntimeEnvironment(
   const releaseIdentity = assessRuntimeReleaseIdentity(
     environment,
     kind !== "development_preview",
+    kind === "functional_test"
+      ? {
+          rubricVersion: AUDIT_RECOVERY_87_RUBRIC_VERSION,
+          datasetVersion: AUDIT_RECOVERY_87_DATASET_VERSION,
+          imageDigestRequired: false,
+        }
+      : undefined,
   );
 
   if (kind === "development_preview") {
@@ -125,6 +139,33 @@ export function assessRuntimeEnvironment(
     requireValue(environment, "CATALYST_SYNTHETIC_ONLY", "1", issues);
     requireValue(environment, "DEMO_AUTH_BYPASS", "0", issues);
     if (bypass.active) issues.push("sales_demo_bypass_prohibited");
+  }
+
+  if (kind === "functional_test") {
+    requireRuntimeSupabase(environment, issues);
+    requireValue(environment, "CATALYST_RELEASE_CHANNEL", "functional-test", issues);
+    requireValue(environment, "CATALYST_SYNTHETIC_ONLY", "1", issues);
+    requireValue(environment, "DEMO_AUTH_BYPASS", "0", issues);
+    requireValue(environment, "CATALYST_PRESENTER_SIMULATION", "0", issues);
+    requireValue(environment, "CATALYST_RESET_ENABLED", "1", issues);
+    requireValue(environment, "CATALYST_MFA_REQUIRED", "1", issues);
+    requireValue(environment, "CATALYST_EMAIL_PROVIDER", "resend", issues);
+    requireValue(
+      environment,
+      "RESEND_FROM_EMAIL",
+      "Catalyst Access <no-reply@auth.iccinternational.com>",
+      issues,
+    );
+    requirePresent(environment, "RESEND_API_KEY", issues);
+    requirePresent(environment, "NOTIFICATION_WORKER_SECRET", issues);
+    requirePresent(environment, "APP_BASE_URL", issues);
+    requireValue(
+      environment,
+      "CATALYST_AUTH_LINK_MODE",
+      "scanner-resistant",
+      issues,
+    );
+    if (bypass.active) issues.push("functional_test_bypass_prohibited");
   }
 
   if (kind === "secure_pilot") {

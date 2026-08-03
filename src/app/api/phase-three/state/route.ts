@@ -25,6 +25,7 @@ import {
   requestFingerprint,
 } from "@/server/security/rate-limit";
 import { assertFreshCommandTimestamp } from "@/server/security/command-context";
+import { deliverPendingNotifications } from "@/server/notifications/resend-outbox";
 
 const noStoreHeaders = {
   "Cache-Control": "private, no-store",
@@ -38,6 +39,7 @@ function statusFor(error: unknown) {
     return 403;
   }
   if (message === "COMMAND_AUTHORITY_DENIED") return 403;
+  if (message === "CONTROLLED_RESET_DISABLED") return 403;
   if (
     [
       "ACTIVE_ROLE_REQUIRED",
@@ -79,6 +81,9 @@ function safeMessage(error: unknown) {
   }
   if (message === "COMMAND_AUTHORITY_DENIED") {
     return "The authenticated user is not authorized for this tenant command.";
+  }
+  if (message === "CONTROLLED_RESET_DISABLED") {
+    return "Controlled reset is disabled in this environment.";
   }
   if (message === "ACTIVE_ROLE_REQUIRED") {
     return "Select one of your active roles before performing this action.";
@@ -143,6 +148,8 @@ function rejectionCode(error: unknown) {
 }
 
 export async function POST(request: Request) {
+  const requestCorrelationId =
+    request.headers.get("x-catalyst-correlation-id") ?? crypto.randomUUID();
   const rate = consumeRateLimit(
     `phase-three-command:${requestFingerprint(request)}`,
     100,
@@ -150,11 +157,17 @@ export async function POST(request: Request) {
   );
   if (!rate.allowed) {
     return NextResponse.json(
-      { message: "Workflow command limit reached. Please wait a moment." },
+      {
+        success: false,
+        code: "COMMAND_RATE_LIMITED",
+        correlationId: requestCorrelationId,
+        message: "Workflow command limit reached. Please wait a moment.",
+      },
       {
         status: 429,
         headers: {
           ...noStoreHeaders,
+          "X-Catalyst-Correlation-Id": requestCorrelationId,
           "Retry-After": String(rate.retryAfterSeconds),
         },
       },
@@ -166,8 +179,19 @@ export async function POST(request: Request) {
   );
   if (!parsed.success) {
     return NextResponse.json(
-      { message: "The Phase 3 workflow command is invalid." },
-      { status: 400, headers: noStoreHeaders },
+      {
+        success: false,
+        code: "COMMAND_INVALID",
+        correlationId: requestCorrelationId,
+        message: "The Phase 3 workflow command is invalid.",
+      },
+      {
+        status: 422,
+        headers: {
+          ...noStoreHeaders,
+          "X-Catalyst-Correlation-Id": requestCorrelationId,
+        },
+      },
     );
   }
 
@@ -177,6 +201,12 @@ export async function POST(request: Request) {
   let rejectionActiveRole: string | undefined;
   try {
     const environment = assessRuntimeEnvironment();
+    if (
+      parsed.data.command.type === "phase3_reset" &&
+      process.env.CATALYST_RESET_ENABLED !== "1"
+    ) {
+      throw new Error("CONTROLLED_RESET_DISABLED");
+    }
     if (
       parsed.data.command.type === "phase3_bank_propose" ||
       (environment.kind === "secure_pilot" &&
@@ -208,6 +238,7 @@ export async function POST(request: Request) {
       authority,
       assuranceLevel: session.assuranceLevel,
       securePilot: environment.kind === "secure_pilot",
+      functionalTest: environment.kind === "functional_test",
       phishingResistant: session.phishingResistant,
       presenter: session.presenter,
       syntheticOnly: process.env.CATALYST_SYNTHETIC_ONLY === "1",
@@ -293,6 +324,11 @@ export async function POST(request: Request) {
       if (!replay) throw new Error("REVISION_CONFLICT");
       return NextResponse.json(
         {
+          success: true,
+          code: "COMMAND_REPLAYED",
+          message: "The previously committed command result was returned.",
+          correlationId: replay.correlationId,
+          resultingRevision: replay.resultRevision,
           ...current,
           state: projectStateForAuthorizedRole({
             state: current.state,
@@ -315,6 +351,7 @@ export async function POST(request: Request) {
         {
           headers: {
             ...noStoreHeaders,
+            "X-Catalyst-Correlation-Id": replay.correlationId,
             "X-Catalyst-Command-Replayed": "1",
             "X-RateLimit-Remaining": String(rate.remaining),
           },
@@ -336,6 +373,18 @@ export async function POST(request: Request) {
       command,
       nextState,
     });
+    if (
+      process.env.CATALYST_EMAIL_PROVIDER === "resend" &&
+      [
+        "phase3_rfq_release",
+        "phase3_rfq_answer_question",
+        "phase3_rfq_amend",
+        "phase3_rfq_award",
+        "phase3_rfq_cancel",
+      ].includes(parsed.data.command.type)
+    ) {
+      await deliverPendingNotifications(20).catch(() => undefined);
+    }
     const response: PhaseTwoStateEnvelope = {
       state: projectStateForAuthorizedRole({
         state: committed.state,
@@ -365,9 +414,17 @@ export async function POST(request: Request) {
         auditRevision: committed.revision,
       },
     };
-    return NextResponse.json(response, {
+    return NextResponse.json({
+      success: true,
+      code: "COMMAND_COMMITTED",
+      message: "The governed command was committed.",
+      correlationId: committed.correlation_id,
+      resultingRevision: committed.revision,
+      ...response,
+    }, {
       headers: {
         ...noStoreHeaders,
+        "X-Catalyst-Correlation-Id": committed.correlation_id,
         "X-Catalyst-Command-Replayed": committed.replayed ? "1" : "0",
         "X-RateLimit-Remaining": String(rate.remaining),
       },
@@ -407,16 +464,38 @@ export async function POST(request: Request) {
       } catch {
         return NextResponse.json(
           {
+            success: false,
+            code: "REJECTION_EVIDENCE_UNAVAILABLE",
+            correlationId: parsed.data.command.correlationId,
             message:
               "The action was rejected without changing state, but its rejection evidence could not be preserved. All controlled actions remain blocked.",
           },
-          { status: 503, headers: noStoreHeaders },
+          {
+            status: 503,
+            headers: {
+              ...noStoreHeaders,
+              "X-Catalyst-Correlation-Id": parsed.data.command.correlationId,
+            },
+          },
         );
       }
     }
     return NextResponse.json(
-      { message: safeMessage(error), rejectionResult },
-      { status: statusFor(error), headers: noStoreHeaders },
+      {
+        success: false,
+        code: rejectionCode(error),
+        correlationId: parsed.data.command.correlationId,
+        message: safeMessage(error),
+        resultingRevision: rejectionResult?.resultingRevision,
+        rejectionResult,
+      },
+      {
+        status: statusFor(error),
+        headers: {
+          ...noStoreHeaders,
+          "X-Catalyst-Correlation-Id": parsed.data.command.correlationId,
+        },
+      },
     );
   }
 }

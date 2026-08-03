@@ -162,6 +162,86 @@ describe("supplier state projection", () => {
 });
 
 describe("internal state projection", () => {
+  it("withholds sealed supplier responses from buyers until the RFQ closes", () => {
+    const source = createDemoState(
+      tenantThemes["org-y12-demo"],
+      "2026-07-29",
+    );
+    const rfq = source.phaseThree.rfqs[0]!;
+    rfq.lifecycleState = "responses_received";
+    rfq.responses.push({
+      id: "sealed-response",
+      supplierId: "vendor-001",
+      supplierOrganizationId: "supplier-org-volunteer",
+      round: 1,
+      submittedAt: "2026-07-29T12:00:00.000Z",
+      status: "submitted",
+      responseHash: "a".repeat(64),
+      freightCents: 0,
+      totalCents: 0,
+      paymentTerms: "Net 30",
+      validityDate: "2026-08-15",
+      lines: [],
+      attachments: ["confidential-response.pdf"],
+    });
+    const buyerAuthority: TenantAuthority = {
+      ...authority,
+      roles: [
+        {
+          ...authority.roles[0]!,
+          role: "purchasing_specialist",
+        },
+      ],
+      supplierAccess: [],
+    };
+
+    const sealed = projectStateForAuthorizedRole({
+      state: source,
+      authority: buyerAuthority,
+      activeRole: "purchasing_specialist",
+      simulation: false,
+      userId: "buyer-user-id",
+    });
+    expect(sealed.phaseThree.rfqs[0]?.responses).toEqual([]);
+
+    source.phaseThree.rfqs[0]!.lifecycleState = "closed";
+    const revealed = projectStateForAuthorizedRole({
+      state: source,
+      authority: buyerAuthority,
+      activeRole: "purchasing_specialist",
+      simulation: false,
+      userId: "buyer-user-id",
+    });
+    expect(revealed.phaseThree.rfqs[0]?.responses).toHaveLength(1);
+  });
+
+  it("does not expose the RFQ workspace to a role without RFQ authority", () => {
+    const source = createDemoState(
+      tenantThemes["org-y12-demo"],
+      "2026-07-29",
+    );
+    const requesterAuthority: TenantAuthority = {
+      ...authority,
+      roles: [
+        {
+          ...authority.roles[0]!,
+          role: "requester",
+          departmentIds: ["dept-lending"],
+          locationIds: ["loc-riverstone"],
+        },
+      ],
+      supplierAccess: [],
+    };
+    const projected = projectStateForAuthorizedRole({
+      state: source,
+      authority: requesterAuthority,
+      activeRole: "requester",
+      simulation: false,
+      userId: "requester-user-id",
+    });
+    expect(projected.phaseThree.rfqs).toEqual([]);
+  });
+
   it("limits a requester to records created by the signed-in identity", () => {
     const source = createDemoState(
       tenantThemes["org-y12-demo"],

@@ -1693,7 +1693,7 @@ function ApprovalView({
                   Route out of office
                 </Button>
               ) : null}
-              {activeDelegation &&
+              {state.presenterMode && activeDelegation &&
               state.activeRole !== activeDelegation.delegateRole ? (
                 <Button
                   variant="secondary"
@@ -1755,6 +1755,7 @@ function PurchaseOrderView({ state, execute }: { state: DemoState; execute: Exec
     (candidate) => candidate.purchaseOrderId === po?.id,
   );
   const canManagePo = state.activeRole === "purchasing_manager" || state.activeRole === "purchasing_specialist";
+  const canAcknowledgePo = state.activeRole === "supplier_user";
   const approvedOperationalRequests = state.requests.filter(
     (request) =>
       request.id.startsWith("request-operational-") &&
@@ -1883,7 +1884,7 @@ function PurchaseOrderView({ state, execute }: { state: DemoState; execute: Exec
                   <Button
                     size="sm"
                     variant="secondary"
-                    disabled={!canManagePo || order.status !== "issued"}
+                    disabled={!canAcknowledgePo || order.status !== "issued"}
                     onClick={() =>
                       void execute(
                         {
@@ -2519,7 +2520,7 @@ function InvoiceView({ state, execute }: { state: DemoState; execute: ExecuteCom
           <Card data-tour-id="invoice-exception" className="border-rose-200 bg-gradient-to-br from-white to-rose-50"><CardContent className="p-5"><div className="flex gap-3"><AlertTriangle className="size-5 text-rose-600" /><div><h2 className="font-black">Exception — Freight variance requires review</h2><p className="mt-1 text-sm text-[var(--muted-foreground)]">{invoice.varianceReason}</p><p className="mt-3 text-xs font-bold text-rose-700">Human approval remains required. Payment is on hold.</p></div></div></CardContent></Card>
           <div className="flex flex-wrap gap-2">
             <Button disabled={state.stage !== "invoice_exception"} onClick={() => void execute({ type: "resolve_invoice_exception", decision: "route", justification: "" }, "Exception routed to Finance")}>Route for exception approval</Button>
-            <Button variant="secondary" disabled={!["invoice_exception", "exception_routed"].includes(state.stage)} onClick={() => void execute({ type: "switch_role", role: "finance_reviewer" }, "Switched to Finance Reviewer")}>Switch to Finance</Button>
+            {state.presenterMode ? <Button variant="secondary" disabled={!["invoice_exception", "exception_routed"].includes(state.stage)} onClick={() => void execute({ type: "switch_role", role: "finance_reviewer" }, "Switched to Finance Reviewer")}>Switch to Finance</Button> : null}
             <Button variant="secondary" disabled={state.stage !== "exception_routed"} onClick={() => void execute({ type: "resolve_invoice_exception", decision: "accept", justification: "Carrier evidence reviewed by Finance." }, "Variance accepted by Finance")}>Accept with justification</Button>
             <Button variant="secondary" disabled={!["invoice_exception", "exception_routed"].includes(state.stage)} onClick={() => void execute({ type: "resolve_invoice_exception", decision: "corrected_invoice", justification: "" }, "Corrected invoice requested")}>Request corrected invoice</Button>
             <Button

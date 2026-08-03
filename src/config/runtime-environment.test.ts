@@ -53,6 +53,57 @@ describe("isolated runtime environment contract", () => {
     expect(result.issues).toContain("demo_auth_bypass_must_equal_0");
   });
 
+  it("accepts only the isolated authenticated functional-test contract", () => {
+    const result = assessRuntimeEnvironment({
+      ...supabase,
+      ...fixedReleaseIdentity,
+      CATALYST_RUBRIC_VERSION: "august-2-regression-87-v1",
+      CATALYST_DATASET_VERSION: "august-2-six-workflow-v1",
+      CATALYST_ENVIRONMENT_KIND: "functional_test",
+      CATALYST_RELEASE_CHANNEL: "functional-test",
+      CATALYST_SYNTHETIC_ONLY: "1",
+      DEMO_AUTH_BYPASS: "0",
+      CATALYST_PRESENTER_SIMULATION: "0",
+      CATALYST_RESET_ENABLED: "1",
+      CATALYST_MFA_REQUIRED: "1",
+      CATALYST_EMAIL_PROVIDER: "resend",
+      CATALYST_AUTH_LINK_MODE: "scanner-resistant",
+      RESEND_FROM_EMAIL:
+        "Catalyst Access <no-reply@auth.iccinternational.com>",
+      RESEND_API_KEY: "configured",
+      NOTIFICATION_WORKER_SECRET: "configured",
+      APP_BASE_URL: "https://functional-test.example.test",
+    });
+    expect(result).toMatchObject({
+      kind: "functional_test",
+      ready: true,
+      syntheticOnly: true,
+      accessMode: "invite-magic-link",
+    });
+  });
+
+  it("fails functional test closed if bypass, presenter authority, or scanner-safe links are misconfigured", () => {
+    const result = assessRuntimeEnvironment({
+      ...supabase,
+      ...fixedReleaseIdentity,
+      CATALYST_RUBRIC_VERSION: "august-2-regression-87-v1",
+      CATALYST_DATASET_VERSION: "august-2-six-workflow-v1",
+      CATALYST_ENVIRONMENT_KIND: "functional_test",
+      CATALYST_RELEASE_CHANNEL: "functional-test",
+      CATALYST_SYNTHETIC_ONLY: "1",
+      DEMO_AUTH_BYPASS: "1",
+      CATALYST_PRESENTER_SIMULATION: "1",
+    });
+    expect(result.ready).toBe(false);
+    expect(result.issues).toEqual(
+      expect.arrayContaining([
+        "demo_auth_bypass_must_equal_0",
+        "catalyst_presenter_simulation_must_equal_0",
+        "catalyst_auth_link_mode_must_equal_scanner-resistant",
+      ]),
+    );
+  });
+
   it("fails a pilot closed when recovery, SSO, or AWS custody is absent", () => {
     const result = assessRuntimeEnvironment({
       ...supabase,

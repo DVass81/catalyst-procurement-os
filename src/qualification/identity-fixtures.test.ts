@@ -8,39 +8,37 @@ import {
 
 function completeEnvironment() {
   return Object.fromEntries(
-    qualificationIdentityFixtures.map((fixture, index) => [
+    qualificationIdentityFixtures.map((fixture) => [
       fixture.emailEnvironmentKey,
-      `pilot-qualification-${index + 1}@example.test`,
+      fixture.expectedEmail,
     ]),
   );
 }
 
-describe("pilot qualification identity fixtures", () => {
-  it("requires a distinct AAL2 identity for every persona in both tenants", () => {
-    expect(qualificationIdentityFixtures).toHaveLength(16);
+describe("Functional Test qualification identity fixtures", () => {
+  it("requires 24 distinct fixed-role identities across both tenants", () => {
+    expect(qualificationIdentityFixtures).toHaveLength(24);
     for (const tenantId of qualificationTenantIds) {
       const fixtures = qualificationIdentityFixtures.filter(
         (fixture) => fixture.tenantId === tenantId,
       );
-      expect(fixtures).toHaveLength(8);
-      expect(new Set(fixtures.map((fixture) => fixture.persona)).size).toBe(8);
-      expect(fixtures.every((fixture) => fixture.assurance === "aal2")).toBe(
-        true,
-      );
+      expect(fixtures).toHaveLength(12);
+      expect(new Set(fixtures.map((fixture) => fixture.persona)).size).toBe(12);
+      expect(fixtures.filter((fixture) => fixture.assurance === "aal2")).toHaveLength(3);
     }
     expect(
       qualificationIdentityFixtures.filter(
-        (fixture) => fixture.persona === "supplier" && fixture.supplierId,
+        (fixture) => fixture.role === "supplier_user" && fixture.supplierId,
       ),
-    ).toHaveLength(2);
+    ).toHaveLength(4);
   });
 
   it("passes only when all addresses are valid and unique", () => {
     const result = evaluateIdentityFixtureConfiguration(completeEnvironment());
     expect(result).toEqual({
       ready: true,
-      configuredCount: 16,
-      requiredCount: 16,
+      configuredCount: 24,
+      requiredCount: 24,
       missingEnvironmentKeys: [],
       invalidEnvironmentKeys: [],
       duplicateEnvironmentKeys: [],

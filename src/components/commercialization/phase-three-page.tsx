@@ -580,6 +580,7 @@ function RfqWorkspace({
   pending: boolean;
 }) {
   const { state } = useDemo();
+  const isSupplier = state.activeRole === "supplier_user";
   const rfq = state.phaseThree.rfqs[0]!;
   const amendments = rfq.amendments ?? [];
   const questions = rfq.questions ?? [];
@@ -590,6 +591,11 @@ function RfqWorkspace({
   const currentResponses = rfq.responses.filter(
     (response) => response.round === rfq.bafoRound,
   );
+  const sealedResponseCount = ["open", "responses_received", "bafo_open"].includes(
+    rfq.lifecycleState,
+  )
+    ? rfq.suppliers.filter((supplier) => supplier.status === "responded").length
+    : currentResponses.length;
   const revealed = currentResponses.filter(
     (response) => response.status === "revealed",
   );
@@ -624,17 +630,17 @@ function RfqWorkspace({
           detail={`Version ${rfq.version} · round ${rfq.bafoRound}`}
         />
         <MetricCard
-          label="Invited suppliers"
+          label={isSupplier ? "Your invitation" : "Invited suppliers"}
           value={String(rfq.suppliers.length)}
           detail="A minimum of two responses is required to evaluate."
         />
         <MetricCard
           label="Current responses"
-          value={String(currentResponses.length)}
+          value={String(sealedResponseCount)}
           detail={
             revealed.length > 0
               ? `${revealed.length} revealed after controlled close.`
-              : "Response contents stay sealed until controlled close."
+              : `${sealedResponseCount} submission receipt(s); contents stay sealed until controlled close.`
           }
         />
         <MetricCard
@@ -709,6 +715,7 @@ function RfqWorkspace({
             </table>
           </div>
 
+          {!isSupplier ? (
           <div className="mt-5 flex flex-wrap gap-2">
             {rfq.lifecycleState === "draft" ? (
               <>
@@ -764,9 +771,14 @@ function RfqWorkspace({
             ) : null}
             {["open", "responses_received", "bafo_open"].includes(
               rfq.lifecycleState,
-            ) && currentResponses.length >= 2 ? (
+            ) && sealedResponseCount >= 2 ? (
               <Button
-                disabled={pending}
+                disabled={
+                  pending ||
+                  !["purchasing_specialist", "purchasing_manager"].includes(
+                    state.activeRole,
+                  )
+                }
                 onClick={() =>
                   void run(
                     { type: "phase3_rfq_close", rfqId: rfq.id },
@@ -780,7 +792,12 @@ function RfqWorkspace({
             ) : null}
             {rfq.lifecycleState === "closed" ? (
               <Button
-                disabled={pending}
+                disabled={
+                  pending ||
+                  !["purchasing_specialist", "purchasing_manager"].includes(
+                    state.activeRole,
+                  )
+                }
                 onClick={() =>
                   void run(
                     { type: "phase3_rfq_evaluate", rfqId: rfq.id },
@@ -839,7 +856,33 @@ function RfqWorkspace({
                 </Button>
               </>
             ) : null}
+            {!["awarded", "cancelled"].includes(rfq.lifecycleState) ? (
+              <Button
+                variant="ghost"
+                disabled={pending || state.activeRole !== "purchasing_manager"}
+                onClick={() =>
+                  void run(
+                    {
+                      type: "phase3_rfq_cancel",
+                      rfqId: rfq.id,
+                      rationale:
+                        "The purchasing manager cancelled the sourcing event with retained supplier notices and complete evidence.",
+                    },
+                    "RFQ cancelled and supplier decision notices retained.",
+                  )
+                }
+              >
+                Cancel RFQ
+              </Button>
+            ) : null}
           </div>
+          ) : (
+            <p className="mt-5 rounded-xl border border-sky-500/20 bg-sky-500/8 p-3 text-sm text-sky-900 dark:text-sky-100">
+              Supplier workspace: only your invitation, questions, sealed
+              response, amendments, BAFO request, and decision notice are
+              available. Buyer scoring and other supplier responses are hidden.
+            </p>
+          )}
         </CardContent>
       </Card>
 
@@ -875,7 +918,7 @@ function RfqWorkspace({
                         Public addendum: {question.answer}
                       </p>
                     ) : null}
-                    {question.status === "open" ? (
+                    {!isSupplier && question.status === "open" ? (
                       <Button
                         className="mt-3"
                         size="sm"
@@ -908,7 +951,7 @@ function RfqWorkspace({
                 ))
               )}
             </div>
-            {["open", "responses_received", "bafo_open"].includes(
+            {isSupplier && ["open", "responses_received", "bafo_open"].includes(
               rfq.lifecycleState,
             ) && rfq.suppliers[0] ? (
               <Button
@@ -938,6 +981,7 @@ function RfqWorkspace({
           </CardContent>
         </Card>
 
+        {!isSupplier ? (
         <Card>
           <CardHeader>
             <div>
@@ -1050,6 +1094,7 @@ function RfqWorkspace({
             </p>
           </CardContent>
         </Card>
+        ) : null}
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
@@ -1089,11 +1134,11 @@ function RfqWorkspace({
                     No response is stored for round {rfq.bafoRound}.
                   </p>
                 )}
-                {canRespond && !response ? (
+                {isSupplier && canRespond && !response ? (
                   <Button
                     className="mt-4 w-full"
                     variant="secondary"
-                    disabled={pending}
+                    disabled={pending || state.activeRole !== "supplier_user"}
                     onClick={() =>
                       void run(
                         {
@@ -1121,7 +1166,7 @@ function RfqWorkspace({
                     Submit sealed {rfq.bafoRound > 1 ? "BAFO" : "response"}
                   </Button>
                 ) : null}
-                {canRespond && response?.status === "submitted" ? (
+                {isSupplier && canRespond && response?.status === "submitted" ? (
                   <Button
                     className="mt-2 w-full"
                     variant="secondary"
@@ -1142,7 +1187,7 @@ function RfqWorkspace({
                     Withdraw sealed response
                   </Button>
                 ) : null}
-                {canRespond && !response ? (
+                {isSupplier && canRespond && !response ? (
                   <Button
                     className="mt-2 w-full"
                     variant="ghost"
@@ -1169,7 +1214,7 @@ function RfqWorkspace({
         })}
       </div>
 
-      {evaluations.length > 0 ? (
+      {!isSupplier && evaluations.length > 0 ? (
         <Card>
           <CardHeader>
             <h2 className="text-lg font-semibold">
@@ -1222,7 +1267,10 @@ function RfqWorkspace({
                           {rfq.lifecycleState === "evaluated" ? (
                             <Button
                               size="sm"
-                              disabled={pending}
+                              disabled={
+                                pending ||
+                                state.activeRole !== "purchasing_manager"
+                              }
                               onClick={() =>
                                 void run(
                                   {
@@ -2327,6 +2375,7 @@ export function PhaseThreePage({ section }: PhaseThreePageProps) {
     durability,
     activeTenantId,
     error: providerError,
+    environmentKind,
   } = useDemo();
   const [message, setMessage] = useState<string | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
@@ -2433,12 +2482,14 @@ export function PhaseThreePage({ section }: PhaseThreePageProps) {
         role={state.activeRole}
         persistence={persistence}
       />
-      <PersonaStrip
-        roles={personas[section] ?? personas["golden-thread"]!}
-        activeRole={state.activeRole}
-        onSwitch={(role) => void switchRole(role)}
-        pending={pending || durability === "read_only"}
-      />
+      {state.presenterMode && environmentKind !== "functional_test" ? (
+        <PersonaStrip
+          roles={personas[section] ?? personas["golden-thread"]!}
+          activeRole={state.activeRole}
+          onSwitch={(role) => void switchRole(role)}
+          pending={pending || durability === "read_only"}
+        />
+      ) : null}
       <ActionNotice message={message} error={localError ?? providerError} />
       <fieldset
         disabled={durability === "read_only"}

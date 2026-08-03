@@ -166,6 +166,12 @@ const phishingResistantPhaseTwoCommands = new Set<PhaseTwoCommand["type"]>([
   "generate_audit_package",
 ]);
 
+const functionalTestMfaRoles = new Set<DemoRole>([
+  "purchasing_manager",
+  "finance_reviewer",
+  "system_administrator",
+]);
+
 const phaseTwoAllowedRoles: Record<PhaseTwoCommand["type"], readonly DemoRole[]> =
   {
     create_operational_request: ["requester"],
@@ -179,6 +185,7 @@ const phaseTwoAllowedRoles: Record<PhaseTwoCommand["type"], readonly DemoRole[]>
       "purchasing_manager",
       "finance_reviewer",
       "compliance_reviewer",
+      "auditor",
     ],
     create_operational_purchase_order: [
       "purchasing_specialist",
@@ -189,8 +196,7 @@ const phaseTwoAllowedRoles: Record<PhaseTwoCommand["type"], readonly DemoRole[]>
       "purchasing_manager",
     ],
     acknowledge_operational_purchase_order: [
-      "purchasing_specialist",
-      "purchasing_manager",
+      "supplier_user",
     ],
     record_operational_receipt: ["receiving_clerk"],
     record_operational_invoice: ["accounts_payable"],
@@ -303,7 +309,6 @@ const phaseTwoAllowedRoles: Record<PhaseTwoCommand["type"], readonly DemoRole[]>
 const phaseThreePresenterOnlyCommands = new Set<PhaseThreeCommand["type"]>([
   "phase3_set_scene",
   "phase3_simulate_provider_outage",
-  "phase3_reset",
 ]);
 
 const phaseThreeAllowedRoles: Record<
@@ -414,7 +419,7 @@ const phaseThreeAllowedRoles: Record<
     "compliance_reviewer",
     "system_administrator",
   ],
-  phase3_reset: [],
+  phase3_reset: ["system_administrator"],
 };
 
 export function normalizeAssuranceLevel(value: string | null | undefined) {
@@ -457,6 +462,7 @@ function authorizeAssignedRole(input: {
   allowedRoles: readonly DemoRole[];
   presenterOnly: boolean;
   protectedAction: boolean;
+  functionalTest?: boolean;
   securePilot?: boolean;
   phishingResistant?: boolean;
   phishingResistantAction?: boolean;
@@ -505,7 +511,9 @@ function authorizeAssignedRole(input: {
 
   const aal2Required =
     input.protectedAction &&
-    input.authority.policy.requireAal2ForProtectedActions &&
+    (input.functionalTest
+      ? functionalTestMfaRoles.has(assignment.role)
+      : input.authority.policy.requireAal2ForProtectedActions) &&
     !(
       presenterSimulation &&
       input.authority.policy.allowSyntheticPresenterAal1
@@ -538,6 +546,7 @@ export function authorizePhaseTwoActor(input: {
   presenterRole: DemoRole;
   commandType: PhaseTwoCommand["type"];
   securePilot?: boolean;
+  functionalTest?: boolean;
   phishingResistant?: boolean;
 }) {
   return authorizeAssignedRole({
@@ -560,6 +569,7 @@ export function authorizePhaseThreeActor(input: {
   presenterRole: DemoRole;
   commandType: PhaseThreeCommand["type"];
   securePilot?: boolean;
+  functionalTest?: boolean;
   phishingResistant?: boolean;
 }) {
   return authorizeAssignedRole({

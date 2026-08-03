@@ -196,6 +196,7 @@ const roleSections: Record<DemoRole, ReadonlySet<WorkspaceSection>> = {
   supplier_user: new Set([
     "dashboard",
     "rfqs",
+    "purchase-orders",
     "supplier-onboarding",
     "settings",
   ]),

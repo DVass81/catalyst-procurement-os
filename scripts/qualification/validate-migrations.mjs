@@ -2,7 +2,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 const migrationDirectory = join("supabase", "migrations");
-const candidatePrefix = "202607292";
+const candidateMinimumVersion = "20260729200000";
 const allNames = readdirSync(migrationDirectory)
   .filter((name) => name.endsWith(".sql"))
   .sort();
@@ -12,8 +12,8 @@ const invalidNames = allNames.filter(
 const duplicateVersions = allNames
   .map((name) => name.slice(0, 14))
   .filter((version, index, versions) => versions.indexOf(version) !== index);
-const candidateNames = allNames.filter((name) =>
-  name.startsWith(candidatePrefix),
+const candidateNames = allNames.filter(
+  (name) => name.slice(0, 14) >= candidateMinimumVersion,
 );
 const findings = [];
 

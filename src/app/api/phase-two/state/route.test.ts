@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { POST } from "@/app/api/phase-two/state/route";
+import { GET, POST } from "@/app/api/phase-two/state/route";
 import { tenantThemes } from "@/config/organizations";
 import { createDemoState } from "@/demo/seed";
 import { demoRoles, type TenantAuthority } from "@/server/auth/authority";
@@ -83,6 +83,13 @@ beforeEach(() => {
     },
   });
   repositoryMocks.resolveCommandReplay.mockResolvedValue(null);
+  repositoryMocks.recordCommandRejection.mockResolvedValue({
+    id: "44444444-4444-4444-8444-444444444444",
+    correlationId: "55555555-5555-4555-8555-555555555555",
+    observedRevision: 58,
+    replayed: false,
+    rejectedAt: "2026-08-02T12:00:00.000Z",
+  });
   repositoryMocks.commitPhaseTwoState.mockImplementation(async (input) => ({
     state: input.nextState,
     revision: 59,
@@ -185,6 +192,108 @@ describe("Phase 2 role transaction API", () => {
       code: "AUTHENTICATION_REQUIRED",
       correlationId,
       message: "Authentication is required.",
+    });
+  });
+
+  it("rejects role overrides and presenter commands in Functional Test Mode", async () => {
+    process.env.CATALYST_ENVIRONMENT_KIND = "functional_test";
+    process.env.CATALYST_RELEASE_CHANNEL = "functional-test";
+    process.env.CATALYST_SYNTHETIC_ONLY = "1";
+    process.env.DEMO_AUTH_BYPASS = "0";
+    process.env.CATALYST_PRESENTER_SIMULATION = "0";
+    process.env.CATALYST_RESET_ENABLED = "1";
+    process.env.CATALYST_MFA_REQUIRED = "1";
+    process.env.CATALYST_EMAIL_PROVIDER = "resend";
+    process.env.CATALYST_AUTH_LINK_MODE = "scanner-resistant";
+    process.env.RESEND_FROM_EMAIL =
+      "Catalyst Access <no-reply@auth.iccinternational.com>";
+    process.env.RESEND_API_KEY = "configured";
+    process.env.NOTIFICATION_WORKER_SECRET = "configured";
+    process.env.APP_BASE_URL = "https://functional.example";
+    process.env.SUPABASE_URL = "https://example.supabase.co";
+    process.env.SUPABASE_PUBLISHABLE_KEY = "publishable-test";
+    process.env.SUPABASE_SECRET_KEY = "secret-test";
+    process.env.CATALYST_RELEASE_COMMIT = "a".repeat(40);
+    process.env.CATALYST_MIGRATION_LEDGER_SHA256 = "b".repeat(64);
+    process.env.CATALYST_ENVIRONMENT_FINGERPRINT_SHA256 = "c".repeat(64);
+    process.env.CATALYST_APPROVED_CONFIGURATION_SHA256 = "d".repeat(64);
+    process.env.CATALYST_RUBRIC_VERSION = "august-2-regression-87-v1";
+    process.env.CATALYST_DATASET_VERSION = "august-2-six-workflow-v1";
+    const fixedAuthority: TenantAuthority = {
+      ...authority,
+      roles: [
+        {
+          role: "requester",
+          assignmentType: "direct",
+          departmentIds: ["dept-lending"],
+          locationIds: ["loc-riverstone"],
+          categoryIds: [],
+          workflowOwnerIds: [],
+          startsAt: "2026-01-01T00:00:00.000Z",
+          emergencyAccess: false,
+        },
+      ],
+    };
+    sessionMocks.requireAppSession.mockResolvedValue({
+      userId: "22222222-2222-4222-8222-222222222222",
+      email: "catalyst-ft-y12-requester@iccinternational.com",
+      role: "requester",
+      tenantIds: [tenantId],
+      presenter: false,
+      assuranceLevel: "aal1",
+      nextAssuranceLevel: "aal1",
+      authenticationMethods: ["email"],
+      phishingResistant: false,
+      authorities: { [tenantId]: fixedAuthority },
+      mode: "supabase",
+    });
+
+    const roleCorrelationId = crypto.randomUUID();
+    const roleResponse = await GET(
+      new Request(
+        `https://catalyst.example/api/phase-two/state?tenantId=${tenantId}`,
+        {
+          headers: {
+            Accept: "application/json",
+            "X-Catalyst-Active-Role": "purchasing_manager",
+            "X-Catalyst-Correlation-Id": roleCorrelationId,
+          },
+        },
+      ),
+    );
+    expect(roleResponse.status).toBe(403);
+    await expect(roleResponse.json()).resolves.toMatchObject({
+      success: false,
+      code: "ROLE_ACCESS_DENIED",
+      correlationId: roleCorrelationId,
+    });
+
+    const commandCorrelationId = crypto.randomUUID();
+    const commandResponse = await POST(
+      new Request("https://catalyst.example/api/phase-two/state", {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          "X-Catalyst-Active-Role": "requester",
+          "X-Catalyst-Correlation-Id": commandCorrelationId,
+        },
+        body: JSON.stringify({
+          tenantId,
+          expectedRevision: 58,
+          idempotencyKey: crypto.randomUUID(),
+          correlationId: commandCorrelationId,
+          requestedAt: new Date().toISOString(),
+          rationale: "Attempted artificial stage change during qualification.",
+          command: { type: "jump_to_stage", stage: "po_draft" },
+        }),
+      }),
+    );
+    expect(commandResponse.status).toBe(403);
+    await expect(commandResponse.json()).resolves.toMatchObject({
+      success: false,
+      code: "PRESENTER_SIMULATION_DENIED",
+      correlationId: commandCorrelationId,
     });
   });
 });
