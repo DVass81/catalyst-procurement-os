@@ -83,6 +83,7 @@ const sbom = execFileSync(
   ["sbom", "--sbom-format", "cyclonedx"],
   {
     encoding: "utf8",
+    shell: process.platform === "win32",
   },
 );
 writeFileSync(sbomPath, sbom, "utf8");
